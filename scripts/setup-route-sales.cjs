@@ -46,8 +46,11 @@ async function main(){
   const result={checkedAt:new Date().toISOString(),whaticket:w.status,openai:o.status,ready:w.ok&&o.ok};
   fs.writeFileSync(dir+'/preflight.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
   if(!result.ready)throw Error('No activar: APIs sin acceso');
-  const ticket=await w.json();if(!ticket.userId)throw Error('Se debe seleccionar la cuenta de Jazmín');
-  const db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();try{await db.query("update route_sales_config set whaticket_user_id=$1,model='gpt-4.1' where id=true",[ticket.userId]);}finally{await db.end();}return;
+  const db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();try{
+   const current=(await db.query('select whaticket_user_id from route_sales_config where id=true')).rows[0];
+   const userId=process.env.WHATICKET_SELLER_USER_ID||current?.whaticket_user_id;if(!userId)throw Error('Se debe configurar WHATICKET_SELLER_USER_ID');
+   await db.query("update route_sales_config set whaticket_user_id=$1,model='gpt-4.1' where id=true",[userId]);
+  }finally{await db.end();}return;
  }
  const endpoint='/workers/scripts/'+worker;
  if(mode==='deploy'){
