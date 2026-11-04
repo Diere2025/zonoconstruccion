@@ -67,6 +67,8 @@ import { supabase } from "@/lib/supabase";
 import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
 import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import { Product, OrderDiscountItem } from "@/types";
+import OutletPicker from "@/components/vendedores/OutletPicker";
+import { createAuthenticatedRequester as createOutletRequester } from "@/lib/authenticatedRequest";
 import VisualProductSelectorModal, { QuantityInput } from "@/components/vendedores/VisualProductSelectorModal";
 import ImportWhatsAppBudgetModal from "@/components/vendedores/ImportWhatsAppBudgetModal";
 import PrintableOrderModal, { PrintableOrderData } from "@/components/vendedores/PrintableOrderModal";
@@ -633,6 +635,8 @@ export default function PedidosPage() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [isOutletPickerOpen,setIsOutletPickerOpen]=useState(false);
+  const outletOperationRef=useRef<{signature:string;id:string}|null>(null);
   const [isVisualModalOpen, setIsVisualModalOpen] = useState(false);
   const [isImportWhatsAppOpen, setIsImportWhatsAppOpen] = useState(false);
   const [isOrderSummaryExpanded, setIsOrderSummaryExpanded] = useState(true);
@@ -3487,6 +3491,8 @@ export default function PedidosPage() {
         const discountType = (item.discount_percentage && item.discount_percentage > 0 && !isIncludedZero) ? 'percentage' : undefined;
         const discountValue = (item.discount_percentage && item.discount_percentage > 0 && !isIncludedZero) ? item.discount_percentage : undefined;
         return {
+          is_outlet_unit: !!item.outlet_snapshot,
+          outlet_snapshot: item.outlet_snapshot,
           id: item.product_id,
           sku: prod?.sku || "",
           name: item.product_name,
@@ -4408,6 +4414,7 @@ export default function PedidosPage() {
           i.bundleParentId === bundleParentId &&
           Boolean(i.isIncludedInKit) === Boolean(isIncludedInKit)
         );
+        if(product.is_outlet_unit && existingIndex>=0) continue;
         const currentQtyInCart = existingIndex >= 0 ? current[existingIndex].quantity : 0;
 
         if (isDiscontinued && currentQtyInCart + qtyToAdd > currentStock) {
@@ -4442,7 +4449,7 @@ export default function PedidosPage() {
         } else {
           current.push({
             ...product,
-            quantity: qtyToAdd,
+            quantity: product.is_outlet_unit ? 1 : qtyToAdd,
             customPrice: targetCustomPrice,
             basePrice: effectiveBase,
             discountType: discountType,
@@ -4607,6 +4614,7 @@ export default function PedidosPage() {
   };
 
   const updateQuantity = (id: string, qty: number) => {
+    if(orderItems.find(i=>i.id===id)?.is_outlet_unit && qty>1) return;
     if (qty < 1) return;
     const item = orderItems.find(i => i.id === id);
     if (!item) return;
@@ -4624,7 +4632,7 @@ export default function PedidosPage() {
 
   const updateCustomPrice = (id: string, price: number) => {
     setOrderItems(prev => prev.map(i => {
-      if (i.id !== id) return i;
+      if (i.id !== id || i.is_outlet_unit) return i;
       if (price === 0) {
         return {
           ...i,
@@ -4641,7 +4649,7 @@ export default function PedidosPage() {
 
   const updateItemDiscount = (id: string, discountType: 'percentage' | 'fixed', discountValue: number) => {
     setOrderItems(prev => prev.map(i => {
-      if (i.id !== id) return i;
+      if (i.id !== id || i.is_outlet_unit) return i;
       const base = i.basePrice !== undefined ? i.basePrice : (i.price || i.customPrice || 0);
       const val = Math.max(0, discountValue || 0);
       let newPrice = base;
@@ -4674,7 +4682,7 @@ export default function PedidosPage() {
       }
       return filtered.map(i => {
         const match = itemDiscounts.find(d => d.id === i.id);
-        if (!match) return i;
+        if (!match || i.is_outlet_unit) return i;
         const base = i.basePrice !== undefined ? i.basePrice : (i.price || i.customPrice || 0);
         const val = Math.max(0, match.discountValue || 0);
         let newPrice = base;
@@ -4754,7 +4762,7 @@ export default function PedidosPage() {
   const itemsGrossSubtotal = orderItems.reduce((acc, item) => {
     const name = (item.name || "").toLowerCase();
     const sku = (item.sku || "").toLowerCase();
-    const isDisc = name.includes("descuento") || sku.includes("descuento") || name.includes("bonificaci") || sku.includes("bonificaci");
+    const isDisc = !item.is_outlet_unit && (name.includes("descuento") || sku.includes("descuento") || name.includes("bonificaci") || sku.includes("bonificaci"));
     const itemVal = isDisc ? -Math.abs(item.customPrice) : item.customPrice;
     return acc + itemVal * item.quantity;
   }, 0);
@@ -4766,8 +4774,8 @@ export default function PedidosPage() {
   [orderDiscounts, orderDiscountType, orderDiscountValue, appliedWholesaleDiscountLabel]);
 
   const orderDiscountBreakdown = useMemo(() =>
-    calculateCascadingDiscounts(itemsGrossSubtotal, effectiveOrderDiscounts),
-  [effectiveOrderDiscounts, itemsGrossSubtotal]);
+    calculateCascadingDiscounts(Math.max(0,itemsGrossSubtotal-orderItems.filter(i=>i.is_outlet_unit).reduce((sum,i)=>sum+i.customPrice*i.quantity,0)), effectiveOrderDiscounts),
+  [effectiveOrderDiscounts, itemsGrossSubtotal, orderItems]);
 
   const orderDiscountAmount = orderDiscountBreakdown.reduce((sum, discount) => sum + discount.amount, 0);
   const persistedOrderDiscountType = orderDiscounts.length > 0 ? 'fixed' : orderDiscountType;
@@ -4797,7 +4805,7 @@ export default function PedidosPage() {
       if (sug.itemDiscountAction) {
         const { itemIds, discountPct } = sug.itemDiscountAction;
         return filtered.map(item => {
-          if (!itemIds.includes(item.id)) return item;
+          if (!itemIds.includes(item.id) || item.is_outlet_unit) return item;
           const base = item.basePrice !== undefined ? item.basePrice : (item.price || item.customPrice || 0);
           const newPrice = Math.max(0, Math.round(base * (1 - discountPct / 100)));
           return {
@@ -5333,15 +5341,26 @@ export default function PedidosPage() {
         ? ((originalOrderSnapshot?.legacy_code || legacyCode || '').trim().toUpperCase() || null)
         : null;
 
+      let useOutletOrder=orderItems.some(i=>i.is_outlet_unit);
+      const saveOutletOrder=async(payload:Record<string,unknown>)=>{
+        const items=orderItems.map(item=>({product_id:item.id,product_name:normalizeProductNameForSheet(item.name,item.sku)||item.name,quantity:item.quantity,unit_price:item.customPrice,historical_unit_cost:(item as any).cost||0,discount_percentage:item.is_outlet_unit?0:(item.discountType==='percentage'?(item.discountValue||0):0)}));
+        const {client_id:ignoredClient,shipping_address_id:ignoredAddress,created_at:ignoredCreated,...signatureOrder}=payload;
+        void ignoredClient;void ignoredAddress;void ignoredCreated;
+        const signature=JSON.stringify([editingOrderId,selectedClientId,isNewClient,{...signatureOrder,totals:{...(payload.totals as Record<string,unknown>),integration_payload:undefined}},items]);
+        if(outletOperationRef.current?.signature!==signature)outletOperationRef.current={signature,id:crypto.randomUUID()};
+        return createOutletRequester(supabase)('/api/vendedores/outlet',{method:'POST',body:JSON.stringify({operation_id:outletOperationRef.current.id,order_id:editingOrderId||null,order:payload,items})});
+      };
       if (editingOrderId) {
 
         // Obtener ítems anteriores para poder revertir stock
         const { data: oldItems, error: oldItemsErr } = await supabase
           .from('order_items')
-          .select('product_id, quantity')
+          .select('product_id, quantity, outlet_snapshot')
           .eq('order_id', editingOrderId);
 
         if (oldItemsErr) throw oldItemsErr;
+        const outletHistory=await supabase.from('outlet_assignments').select('id').eq('order_id',editingOrderId).limit(1);
+        useOutletOrder=useOutletOrder||!!oldItems?.some(i=>i.outlet_snapshot)||!!outletHistory.data?.length;
 
         // Validar código duplicado al editar
         if (effectiveLegacyCode) {
@@ -5357,10 +5376,7 @@ export default function PedidosPage() {
           }
         }
 
-        // Actualizar Pedido
-        const { data: updatedOrder, error: orderError } = await supabase
-          .from('orders')
-          .update({
+        const editedOrderPayload={
             ...(role === 'admin' ? { seller_id } : {}),
             client_id: finalClientId || null,
             shipping_address_id: finalAddressId || null,
@@ -5441,11 +5457,11 @@ export default function PedidosPage() {
             hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
             category: resolveOrderCategory(orderItems, orderCategory),
             commercial_brand: commercialBrand
-          })
-          .eq('id', editingOrderId)
-          .select()
-          .single();
-
+          };
+        const {data:updatedOrder,error:orderError}=useOutletOrder
+          ? {data:(await saveOutletOrder(editedOrderPayload)).order,error:null}
+          : await supabase.from('orders').update(editedOrderPayload).eq('id',editingOrderId).select().single();
+        if(useOutletOrder) itemsPersistedByAssignedOrderApi=true;
         if (orderError) throw orderError;
         orderData = updatedOrder;
 
@@ -5477,6 +5493,7 @@ export default function PedidosPage() {
           }
         }
 
+        if(!useOutletOrder){
         // Cancelar reservas antiguas
         if (oldItems && oldItems.length > 0) {
           try {
@@ -5501,6 +5518,7 @@ export default function PedidosPage() {
 
         if (deleteItemsErr) throw deleteItemsErr;
 
+        }
       } else {
 
         // Persistir el trabajo junto al pedido; el servidor lo procesa luego.
@@ -5672,7 +5690,10 @@ export default function PedidosPage() {
           category: resolveOrderCategory(orderItems, orderCategory)
         };
 
-        if (seller_id !== loggedInUserId || sourceVisitId) {
+        if(useOutletOrder){
+          orderData=(await saveOutletOrder(newOrderPayload)).order;
+          itemsPersistedByAssignedOrderApi=true;
+        } else if (seller_id !== loggedInUserId || sourceVisitId) {
           const { data: sessionData } = await supabase.auth.getSession();
           const accessToken = sessionData.session?.access_token;
           if (!accessToken) throw new Error('La sesión venció. Volvé a ingresar antes de cargar el pedido.');
@@ -5686,7 +5707,7 @@ export default function PedidosPage() {
               order: newOrderPayload,
               items: orderItems.map(item => ({
                 product_id: item.id,
-                product_name: normalizeProductNameForSheet(item.name, item.sku) || item.name,
+                product_name: item.is_outlet_unit ? item.name : normalizeProductNameForSheet(item.name, item.sku) || item.name,
                 quantity: item.quantity,
                 unit_price: item.customPrice,
                 historical_unit_cost: (item as any).cost || 0,
@@ -5715,7 +5736,7 @@ export default function PedidosPage() {
       const itemsToInsert = orderItems.map(item => ({
         order_id: orderData.id,
         product_id: item.id,
-        product_name: normalizeProductNameForSheet(item.name, item.sku) || item.name,
+        product_name: item.is_outlet_unit ? item.name : normalizeProductNameForSheet(item.name, item.sku) || item.name,
         quantity: item.quantity,
         unit_price: item.customPrice,
         historical_unit_cost: (item as any).cost || 0, // Costo dinámico guardado
@@ -5727,8 +5748,8 @@ export default function PedidosPage() {
         if (itemsError) throw itemsError;
       }
 
-      // 4. Registrar Reservas en el Inventario para descontar Stock Disponible (stock_current)
-      try {
+      // 4. Atomic outlet saves already persisted all stock movements.
+      if(!useOutletOrder) try {
         const stockTxs = orderItems.filter(item => !isServiceProduct(item)).map(item => ({
           productId: item.id,
           quantity: item.quantity,
@@ -7431,6 +7452,7 @@ export default function PedidosPage() {
                         <Download className="w-3 h-3 text-emerald-600" /> Pegar WhatsApp
                       </button>
 
+                      {!isWholesaleContext && <button type="button" onClick={()=>setIsOutletPickerOpen(true)} className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700">Segunda y Outlet</button>}
                       <button
                         type="button"
                         onClick={() => setIsVisualModalOpen(true)}
@@ -7604,9 +7626,10 @@ export default function PedidosPage() {
                                   >
                                     -
                                   </button>
-                                  <QuantityInput value={item.quantity} onChange={quantity => updateQuantity(item.id, quantity)} />
+                                  {item.is_outlet_unit ? <span className="px-2 text-xs font-bold">1</span> : <QuantityInput value={item.quantity} onChange={quantity => updateQuantity(item.id, quantity)} />}
                                   <button
                                     type="button"
+                                    disabled={!!item.is_outlet_unit}
                                     onClick={() => updateQuantity(item.id, item.quantity + 1)}
                                     className="px-1.5 font-black text-slate-500 hover:bg-slate-200 text-xs h-full cursor-pointer transition-colors"
                                     title="Sumar 1 unidad"
@@ -7620,6 +7643,7 @@ export default function PedidosPage() {
                                   <span className="text-[9.5px] font-bold text-slate-400 mr-0.5">$</span>
                                   <input
                                     type="number"
+                                    readOnly={!!item.is_outlet_unit}
                                     value={item.customPrice}
                                     onChange={(e) => updateCustomPrice(item.id, Number(e.target.value))}
                                     className="w-16 text-xs font-bold text-right outline-none bg-transparent text-slate-800"
@@ -7733,10 +7757,11 @@ export default function PedidosPage() {
                               >
                                 -
                               </button>
-                              <QuantityInput value={item.quantity} onChange={quantity => updateQuantity(item.id, quantity)} />
+                              {item.is_outlet_unit ? <span className="px-2 text-xs font-bold">1</span> : <QuantityInput value={item.quantity} onChange={quantity => updateQuantity(item.id, quantity)} />}
                               <button
                                 type="button"
-                                onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                disabled={!!item.is_outlet_unit}
+                                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
                                 className="px-1.5 font-black text-slate-500 hover:bg-amber-100 text-xs h-full cursor-pointer transition-colors"
                                 title="Sumar 1 unidad"
                               >
@@ -10893,6 +10918,7 @@ export default function PedidosPage() {
       />
 
       {/* MODAL SELECTOR VISUAL DE PRODUCTOS */}
+      {isOutletPickerOpen && <OutletPicker orderId={editingOrderId} onAdd={addItems} onClose={()=>setIsOutletPickerOpen(false)}/>}
       <VisualProductSelectorModal
         isOpen={isVisualModalOpen}
         onClose={() => setIsVisualModalOpen(false)}

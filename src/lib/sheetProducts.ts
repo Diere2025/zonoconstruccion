@@ -389,6 +389,7 @@ VALID_SHEET_PRODUCTS.forEach(p => {
  * Prioritizes SKU when the SKU corresponds to the sheet item (or when the name is generic/varios).
  */
 export function normalizeProductNameForSheet(name: string, sku?: string): string {
+  if (/ · (Segunda|Outlet) \[[A-Za-z0-9_-]+\]/.test(name || '')) return name.trim();
   const trimmedName = (name || '').trim();
   const trimmedSku = (sku || '').trim();
   const lowerName = trimmedName.toLowerCase();

@@ -206,6 +206,7 @@ export default function AdminPage() {
         const { data, error } = await supabase
           .from('products')
           .select('*')
+          .eq('is_outlet_unit',false)
           .order('created_at', { ascending: false })
           .range(page * pageSize, (page + 1) * pageSize - 1);
 
@@ -1068,7 +1069,7 @@ export default function AdminPage() {
     setCleaningDuplicates(true);
     setCleanupResult(null);
     try {
-      const { data: allProducts, error } = await supabase.from('products').select('*');
+      const { data: allProducts, error } = await supabase.from('products').select('*').eq('is_outlet_unit',false);
       if (error) throw error;
       if (!allProducts) return;
 
@@ -1416,6 +1417,7 @@ export default function AdminPage() {
         )}
       </div>
 
+      <a href="/admin/outlet" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:border-brand-300">Segunda y Outlet</a>
       {/* Tabs Horizontal Navigation */}
       <div className="flex items-center gap-1.5 p-1 bg-slate-100 border border-slate-200/80 rounded-xl overflow-x-auto">
         <button

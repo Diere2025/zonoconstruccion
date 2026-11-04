@@ -115,6 +115,7 @@ export const erpModules: ErpModule[] = [
     { id: "produccion-8", name: "Costos de Fabricación", href: "/admin/gas-consumo", icon: Factory, adminOnly: true },
   ] },
   { id: 'inventario', title: 'Inventario y Catálogo', description: 'Productos, existencias y precios de venta.', icon: Package, links: [
+    { id:'inventario-outlet',name:'Segunda y Outlet',href:'/admin/outlet',icon:Package,adminOnly:true },
     { id: "inventario-1", name: "Catálogo General", href: "/admin/catalogo", icon: Database, adminOnly: true },
     { id: "inventario-2", name: "Control de Stock", href: "/admin/stock", icon: Package, allowedRoles: ['admin', 'compras'] },
     { id: "inventario-3", name: "Lista de Precios Mayorista", href: "/admin/lista-mayorista", icon: Calculator, adminOnly: true },

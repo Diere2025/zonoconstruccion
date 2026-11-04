@@ -1,4 +1,6 @@
 export interface Product {
+  is_outlet_unit?: boolean;
+  outlet_snapshot?: Record<string,unknown>;
   id: string;
   name: string;
   description: string;
