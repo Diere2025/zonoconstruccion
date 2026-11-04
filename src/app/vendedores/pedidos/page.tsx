@@ -4,6 +4,7 @@ import { AdvertisingSource, advertisingSourcesForChannel } from "@/lib/advertisi
 import { isServiceProduct } from '@/lib/serviceProducts';
 import { sellerFirstName, cancellationReasonText } from "@/lib/orderNotificationText";
 import PaymentMethodSelector from "@/components/vendedores/PaymentMethodSelector";
+import TankBaseWarning from "@/components/vendedores/TankBaseWarning";
 import { isCuotaSimplePaymentMethod, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 
 import { saveViaCargoDestination } from '@/lib/viaCargoDestinations';
@@ -7468,6 +7469,7 @@ export default function PedidosPage() {
                     </div>
                   </div>
 
+                  <TankBaseWarning items={orderItems} onReview={() => setIsVisualModalOpen(true)} />
                   {/* Estado vacío con botón para abrir modal */}
                   {orderItems.length === 0 ? (
                     <div
@@ -9616,6 +9618,7 @@ export default function PedidosPage() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
+               <TankBaseWarning items={orderItems} onReview={() => { setShowSummaryModal(false); setIsVisualModalOpen(true); }} />
                {/* Resumen Cliente y Envío */}
                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
@@ -9819,6 +9822,7 @@ export default function PedidosPage() {
 
             {/* Body */}
             <div className="p-5 overflow-y-auto space-y-4 flex-1">
+              <TankBaseWarning items={orderItems} onReview={() => { setShowEditConfirmModal(false); setIsVisualModalOpen(true); }} />
               {/* Resumen de cambios detectados */}
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80">
                 <h3 className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">

@@ -1045,19 +1045,25 @@ export default function CobrosMercadoPagoPage() {
 
     setIsSavingLink(true);
     try {
-      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=link-order', {
+      const saveLink = (confirmedWarningCode?: string) => fetchCobrosData('/api/admin/cobros-mp-data?action=link-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           paymentId: linkingPayment.id,
           orderId: orderId || null,
           orderCode: finalCode,
+          confirmedWarningCode,
           linkedBy: `${currentUserName} (${currentUserRole})`,
           userRole: currentUserRole
         })
       });
 
-      const data = await res.json();
+      let data = await (await saveLink()).json();
+      if (data.requiresConfirmation) {
+        const message = [...data.warnings, `¿Querés vincular este pago a “${finalCode}” igualmente?`].join('\n\n');
+        if (!confirm(message)) return;
+        data = await (await saveLink(finalCode)).json();
+      }
       if (data.success && data.payment) {
         setPayments(prev => prev.map(p => p.id === data.payment.id ? data.payment : p));
         setLinkingPayment(null);
@@ -2794,7 +2800,7 @@ export default function CobrosMercadoPagoPage() {
               </div>
 
               <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1 pt-1">
-                <span>💡</span> Podés asignar el código aunque el pedido aún no esté cargado en el sistema.
+                <span>💡</span> Podés cargar cualquier referencia. Si el formato no es reconocido o el código no existe en el ERP, verás un aviso antes de guardar.
               </p>
             </form>
 

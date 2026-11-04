@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getMPPaymentDayBounds } from '@/lib/mpPaymentDate';
 import { loadMonthlyAccountIncome } from '@/lib/mpAccountIncomeServer';
+import { getMPOrderLinkWarnings } from '@/lib/mpOrderLinkWarnings';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -466,6 +467,32 @@ export async function POST(request: Request) {
       }
 
       const cleanCode = String(orderCode).trim().toUpperCase();
+      if (!cleanCode) {
+        return NextResponse.json({ error: 'Ingresá un código o referencia para vincular' }, { status: 400 });
+      }
+
+      // La referencia sigue siendo libre, pero los avisos deben verse antes de guardar.
+      // Escapar comodines evita confundir un texto libre con un código existente.
+      let matchedOrderId: string | null = null;
+      let exists: boolean | null = null;
+      try {
+        let lookup = supabaseAdmin.from('orders').select('id, legacy_code');
+        lookup = orderId
+          ? lookup.eq('id', orderId)
+          : lookup.ilike('legacy_code', cleanCode.replace(/[\\%_]/g, '\\$&'));
+        const { data: matchedOrder, error: lookupError } = await lookup.maybeSingle();
+        if (!lookupError) {
+          const matchedCode = matchedOrder?.legacy_code || (matchedOrder ? `ORD-${matchedOrder.id.substring(0, 6)}` : '');
+          exists = Boolean(matchedOrder && matchedCode.trim().toUpperCase() === cleanCode);
+          if (exists) matchedOrderId = matchedOrder!.id;
+        }
+      } catch (e) {
+        console.warn('Error verificando código de pedido:', e);
+      }
+      const warnings = getMPOrderLinkWarnings(cleanCode, exists);
+      if (warnings.length && body.confirmedWarningCode !== cleanCode) {
+        return NextResponse.json({ success: false, requiresConfirmation: true, warnings, orderCode: cleanCode });
+      }
 
       // Fetch existing payment to check for conflict
       const { data: existingPayment } = await supabaseAdmin
@@ -477,26 +504,12 @@ export async function POST(request: Request) {
       const isAdminOrStaff = userRole === 'admin' || userRole === 'administracion';
       let finalCode = cleanCode;
       let finalLinkedBy = linkedBy || 'Usuario';
-      let finalOrderId = orderId || null;
+      const finalOrderId = matchedOrderId;
 
       // Conflict handling: If payment was already linked to a different code, and user is NOT admin/administracion
       if (existingPayment?.order_code && existingPayment.order_code !== cleanCode && !isAdminOrStaff) {
         finalCode = `${existingPayment.order_code} / ${cleanCode}`;
         finalLinkedBy = `${existingPayment.linked_by || 'Ventas/Logística'} | ${linkedBy || userRole}`;
-      } else if (!finalOrderId) {
-        try {
-          const { data: matchedOrder } = await supabaseAdmin
-            .from('orders')
-            .select('id')
-            .ilike('legacy_code', cleanCode)
-            .maybeSingle();
-
-          if (matchedOrder?.id) {
-            finalOrderId = matchedOrder.id;
-          }
-        } catch (e) {
-          console.warn('Error looking up order ID by code:', e);
-        }
       }
 
       const { data, error } = await supabaseAdmin
