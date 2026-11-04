@@ -11,6 +11,7 @@ import {
   SheetOrderPayload
 } from '@/lib/googleSheets';
 import { createClient } from '@supabase/supabase-js';
+import { reconcileRouteSaleNotice } from '@/lib/routeSaleNotice';
 
 export const runtime = 'edge';
 
@@ -179,6 +180,12 @@ async function getRouteFormationChatId(botToken: string): Promise<string | null>
 }
 
 export async function sendRouteFormationAlert(origin: string, code: string, order: SheetOrderPayload, sequenceOverride?: number | null): Promise<ExpressAlertResult> {
+  try {
+    const reconciled = await reconcileRouteSaleNotice(code, order);
+    if (reconciled) return reconciled;
+  } catch (error) {
+    return { attempted: true, sent: false, message: error instanceof Error ? error.message : 'Aviso pendiente de conciliación' };
+  }
   const botToken = process.env.LOGISTICS_TELEGRAM_BOT_TOKEN;
   const chatId = await getRouteFormationChatId(botToken?.trim() || '');
   if (!chatId) {
