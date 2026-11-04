@@ -77,7 +77,12 @@ export async function execute(env,{key,preview=false}){
      else await db('route_sales',{method:'POST',body:value});
     }
     if(!preview)await db('route_sales_chats?on_conflict=ticket_id',{method:'POST',body:{ticket_id:id,input_hash:missing?null:fingerprint,analysis:sales,audio_transcripts:transcripts,last_error:missing?'Audio pendiente':null,checked_at:new Date().toISOString()}});
-   }catch(error){summary.errors++;summary.failures.push({ticket_id:id,error:String(error.message).slice(0,200)});if(!preview)await db('route_sales_chats?on_conflict=ticket_id',{method:'POST',body:{ticket_id:id,last_error:String(error.message).slice(0,200),checked_at:new Date().toISOString()}});}
+   }catch(error){
+    const held=/Interpretación IA incompleta|Evidencia inexistente|Identidad de venta|Fecha inválida|Resumen demasiado largo|Venta incompleta|Venta duplicada/.test(error.message);
+    if(held)summary.review++;else summary.errors++;
+    summary.failures.push({ticket_id:id,held,error:String(error.message).slice(0,200)});
+    if(!preview)await db('route_sales_chats?on_conflict=ticket_id',{method:'POST',body:{ticket_id:id,last_error:String(error.message).slice(0,200),checked_at:new Date().toISOString()}});
+   }
    await db('route_sales_runs?id=eq.'+runId,{method:'PATCH',body:{summary}});
   }
   if(!preview){
@@ -100,7 +105,7 @@ export default {
   if(!env.CONTROL_TOKEN||request.headers.get('authorization')!=='Bearer '+env.CONTROL_TOKEN)return new Response('Unauthorized',{status:401});
   const url=new URL(request.url),db=createDb(env);
   try{
-   if(request.method==='GET'&&url.pathname==='/status')return Response.json({timezone:TIME_ZONE,hours:HOURS,today:dayAt(),runs:await db('route_sales_runs?order=started_at.desc&limit=10'),review:await db('route_sales?or=(status.eq.review,delivery_state.eq.uncertain)&select=id,ticket_id,last_error')});
+   if(request.method==='GET'&&url.pathname==='/status')return Response.json({timezone:TIME_ZONE,hours:HOURS,saturdayLast:'19:00',weekdays:'lunes a sábado',today:dayAt(),runs:await db('route_sales_runs?order=started_at.desc&limit=10'),review:await db('route_sales?or=(status.eq.review,delivery_state.eq.uncertain)&select=id,ticket_id,last_error'),chatErrors:await db('route_sales_chats?last_error=not.is.null&select=ticket_id,last_error')});
    if(request.method==='POST'&&['/preview','/run'].includes(url.pathname))return Response.json(await execute(env,{key:'manual:'+crypto.randomUUID(),preview:url.pathname==='/preview'}));
    // Brief capture for channels other than Whaticket. Protected server-to-server API.
    if(request.method==='POST'&&url.pathname==='/manual'){
