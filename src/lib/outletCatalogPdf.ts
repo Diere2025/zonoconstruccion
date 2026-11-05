@@ -12,7 +12,7 @@ export interface CatalogUnit {
     final_price: number;
     image_urls: string[];
 }
-export interface CatalogPhoto { data: string; width: number; height: number }
+export interface CatalogPhoto { data: string | Uint8Array; width?: number; height?: number }
 const money = (value: number) => '$' + new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 }).format(value);
 export const tankAccessories = 'Todos los tanques incluyen aro, tapa, brida y aireador, aunque no se vean en las fotos.';
 
@@ -21,9 +21,10 @@ export async function createOutletCatalogPdf(
     units: CatalogUnit[],
     loadPhoto: (url: string) => Promise<CatalogPhoto>,
     generatedAt = new Date(),
+    allowEmpty = false,
 ) {
     const available = units.filter(u => u.state === 'available').sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
-    if (!available.length) throw new Error('No hay unidades disponibles para el catálogo.');
+    if (!available.length && !allowEmpty) throw new Error('No hay unidades disponibles para el catálogo.');
     const unitPhotos: CatalogPhoto[][] = available.map(() => []);
     let nextPhotoUnit = 0;
     // Four simultaneous downloads keep a full catalogue responsive without flooding storage.
@@ -54,6 +55,10 @@ export async function createOutletCatalogPdf(
         pdf.text(pdf.splitTextToSize(tankAccessories, 172), 19, 44);
     };
     header();
+    if (!available.length) {
+        ink(); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(12);
+        pdf.text('En este momento no hay unidades disponibles.', 14, 67);
+    }
     for (const [unitIndex, unit] of available.entries()) {
         if (!Number.isFinite(Number(unit.final_price)) || !Number.isFinite(Number(unit.list_price))) throw new Error(`Revisá el precio de ${unit.code}.`);
         const photos = unitPhotos[unitIndex];
@@ -76,8 +81,10 @@ export async function createOutletCatalogPdf(
             pdf.setFontSize(8); pdf.setTextColor(100, 116, 139);
             pdf.text(unit.condition === 'segunda' ? 'SEGUNDA' : 'OUTLET', 190, cursor + 10, { align: 'right' });
             const fitImage = (photo: CatalogPhoto, x: number, y: number, w: number, h: number) => {
-                const scale = Math.min(w / photo.width, h / photo.height);
-                const width = photo.width * scale, height = photo.height * scale;
+                const dimensions = photo.width && photo.height ? photo : pdf.getImageProperties(photo.data);
+                const imageWidth = dimensions.width!, imageHeight = dimensions.height!;
+                const scale = Math.min(w / imageWidth, h / imageHeight);
+                const width = imageWidth * scale, height = imageHeight * scale;
                 pdf.addImage(photo.data, x + (w - width) / 2, y + (h - height) / 2, width, height, undefined, 'FAST');
             };
             pdf.setFillColor(248, 250, 252); pdf.roundedRect(20, cursor + 17, 86, 76, 2, 2, 'F');
