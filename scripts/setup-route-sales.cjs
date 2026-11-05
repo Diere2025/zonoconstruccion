@@ -15,9 +15,11 @@ async function database(apply){
  const db=new Client({connectionString:process.env.DATABASE_URL,connectionTimeoutMillis:10000});await db.connect();
  try{
   await db.query('begin');await db.query("set local lock_timeout='3s'");
-  const sql=fs.readFileSync('database/db_migration_20261104_route_sales.sql','utf8').replace(/^begin;\s*/,'').replace(/commit;\s*$/,'');
-  await db.query(sql);
-  if(apply){await db.query('commit');console.log('Registro de avisos instalado; desactivado.');return;}
+  for(const file of ['database/db_migration_20261104_route_sales.sql','database/db_migration_20261104_route_sale_numbering.sql']){
+   const sql=fs.readFileSync(file,'utf8').replace(/^begin;\s*/,'').replace(/commit;\s*$/,'');
+   await db.query(sql);
+  }
+  if(apply){await db.query('commit');console.log('Registro de avisos instalado; se conserva la activación existente.');return;}
   const assert=require('node:assert/strict');
   const key='test:'+crypto.randomUUID();const claim=async k=>(await db.query('select claim_route_sales_run($1) id',[k])).rows[0].id;
   const id=await claim(key);assert.ok(id);assert.equal(await claim(key+':other'),null);await db.query("update route_sales_runs set status='completed' where id=$1",[id]);assert.equal(await claim(key),null);
@@ -27,9 +29,20 @@ async function database(apply){
   await db.query("update route_sales set delivery_started_at=now()-interval '11 minutes' where id=$1",[row.id]);
   assert.equal((await db.query('select * from claim_route_sale_notice($1)',[row.id])).rows.length,0);
   assert.equal((await db.query('select delivery_state from route_sales where id=$1',[row.id])).rows[0].delivery_state,'uncertain');
+  const number=(await db.query('select notice_number from route_sales where id=$1',[row.id])).rows[0].notice_number;
+  assert.ok(number>0);
+  await db.query("update route_sales set status='loaded',delivery_state='idle' where id=$1",[row.id]);
+  await db.query('select assign_route_sale_number($1)',[row.id]);
+  assert.equal((await db.query('select notice_number from route_sales where id=$1',[row.id])).rows[0].notice_number,number);
+  const next=(await db.query("insert into route_sales(source,source_key,seller_name,summary,locality,date_label,status) values('manual',$1,'Prueba','Termo 50','Localidad de prueba','A coordinar','pending') returning id",[key+':next'])).rows[0];
+  await db.query('select assign_route_sale_number($1)',[next.id]);
+  assert.equal((await db.query('select notice_number from route_sales where id=$1',[next.id])).rows[0].notice_number,number+1);
+  const review=(await db.query("insert into route_sales(source,source_key,seller_name,summary,locality,date_label,status) values('manual',$1,'Prueba','Termo 50','Localidad de prueba','A coordinar','review') returning id",[key+':review'])).rows[0];
+  await db.query('select assign_route_sale_number($1)',[review.id]);
+  assert.equal((await db.query('select notice_number from route_sales where id=$1',[review.id])).rows[0].notice_number,null);
   assert.equal((await db.query("select has_table_privilege('anon','route_sales','select') allowed")).rows[0].allowed,false);
   assert.equal((await db.query("select has_function_privilege('authenticated','claim_route_sales_run(text)','execute') allowed")).rows[0].allowed,false);
-  await db.query('rollback');console.log('PASS SQL: ejecución única, exclusión, envío incierto sin duplicación y permisos; rollback completo.');
+  await db.query('rollback');console.log('PASS SQL: ejecución única, exclusión, envío incierto sin duplicación, numeración correlativa estable al cargar ERP y permisos; rollback completo.');
  }catch(e){await db.query('rollback');throw e;}finally{await db.end();}
 }
 async function main(){
