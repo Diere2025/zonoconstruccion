@@ -7605,7 +7605,7 @@ export default function PedidosPage() {
                                     {item.discountType === 'percentage' ? `${item.discountValue}% OFF` : `-$${formatPrice(item.discountValue || 0)}`}
                                   </span>
                                 )}
-                                <p className="font-bold text-slate-800 text-xs truncate" title={displayName}>
+                                <p className={`font-bold text-slate-800 text-xs ${item.is_outlet_unit ? "whitespace-normal break-words" : "truncate"}`} title={displayName}>
                                   {displayName}
                                 </p>
                                 {item.basePrice && item.basePrice > item.customPrice && (
