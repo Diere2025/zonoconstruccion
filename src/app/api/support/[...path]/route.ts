@@ -11,7 +11,7 @@ type Context = {
         path: string[];
     }>;
 };
-const actions = new Set(['edit', 'take', 'assign', 'classify', 'request_info', 'request_action', 'request_validation', 'respond', 'validate', 'reject', 'withdraw', 'close_admin', 'cancel', 'reopen', 'restore', 'transfer', 'shipping_quote', 'shipping_finish', 'shipping_requote']);
+const actions = new Set(['edit', 'take', 'assign', 'classify', 'request_info', 'request_action', 'request_validation', 'respond', 'validate', 'reject', 'withdraw', 'close_admin', 'close_requester', 'cancel', 'reopen', 'restore', 'transfer', 'shipping_quote', 'shipping_finish', 'shipping_requote']);
 function cursor(raw: string | null): [
     string,
     string

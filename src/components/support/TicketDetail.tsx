@@ -32,7 +32,7 @@ export function TicketDetail({id}:{id:string}) {
     const discard=()=>{if(dirty && !window.confirm('¿Descartar el borrador actual?'))return false;setDirty(false);setEditorKey(n=>n+1);return true;};
     if(!detail)return error?<><Alert>{error}</Alert><button className={secondaryClass} onClick={()=>void load().catch(e=>setError(errorMessage(e)))}>Reintentar</button></>:<Loading/>;
     const t=detail.ticket;const shipping=isShipping(t);const manager=manages(detail.me,t);const requester=t.created_by===me.user_id;const open=isOpen(t.status);const name=(user:string|null)=>detail.me.people.find(p=>p.id===user)?.name || 'Usuario';
-    const actions=availableActions(detail.me,t);const prominent=actions.filter(a=>['start','take','withdraw','request_validation','close_admin','validate','reject'].includes(a) || (shipping && a==='cancel'));const other=actions.filter(a=>!prominent.includes(a));
+    const actions=availableActions(detail.me,t);const prominent=actions.filter(a=>['start','take','withdraw','request_validation','close_admin','close_requester','validate','reject'].includes(a) || (a==='cancel' && (shipping || (requester && t.status==='new'))));const other=actions.filter(a=>!prominent.includes(a));
     const start=(a:TicketAction)=>{
         if(quick.pending || !discard())return;
         if(isQuickTicketAction(a))void quick.run(t,a,detail.me,updated=>{
