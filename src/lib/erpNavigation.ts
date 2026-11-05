@@ -69,6 +69,7 @@ export const erpModules: ErpModule[] = [
     { id: "tesoreria-config-clasificacion", name: "Configuración de clasificación", href: "/admin/finanzas/clasificacion/configuracion", icon: Coins, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-estado-diario", name: "Estado de cuenta", href: "/admin/finanzas/saldos", icon: Coins, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-clasificar", name: "Movimientos sin clasificar", href: "/admin/finanzas/clasificar", icon: Coins, allowedRoles: ['admin', 'administracion'] },
+    { id: 'tesoreria-binance', name: 'Binance y Redot', href: '/admin/finanzas/binance', icon: Wallet, adminOnly: true },
     { id: "tesoreria-extractos", name: "Extractos bancarios", href: "/admin/finanzas/extractos", icon: Coins, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-planificacion", name: "Planificación de pagos", href: "/admin/finanzas/planificacion", icon: CalendarDays, adminOnly: true },
     { id: "tesoreria-5", name: "Cuentas y saldos", href: "/admin/finanzas?tab=accounts", icon: Wallet, allowedRoles: ['admin', 'administracion'] },
