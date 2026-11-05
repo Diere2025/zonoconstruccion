@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { withOutletCostLinks } from '@/lib/outletProductIdentity';
 import { calculate, changed, monthsUntil } from './engine';
 import { Definition, Purchase, Result, Setting, comparePriceEvidence, latestSetting, today } from './model';
 import { CatalogRow, collectSources } from './sources';
@@ -27,7 +28,9 @@ function definitionIdentity(def:Definition){
 export async function readCosts(db=costDatabase()) {
   const [state,alerts,settings]=await Promise.all([db.from('cost_system_state').select('updated_at,last_error,payload,lease_until').eq('id',true).single(),db.from('cost_alerts').select('id,created_at,data,acknowledged_at').is('acknowledged_at',null).order('created_at',{ascending:false}).limit(250),db.from('cost_settings').select('data').order('effective',{ascending:false})]);
   if(state.error)throw new Error(state.error.message);if(alerts.error||settings.error)throw new Error(alerts.error?.message||settings.error?.message);
-  return {...state.data.payload,updatedAt:state.data.updated_at,lastError:state.data.last_error,syncing:!!state.data.lease_until&&Date.parse(state.data.lease_until)>Date.now(),alerts:alerts.data,settings:settings.data.map(s=>s.data)};
+  const links = await rows<{product_id:string|null;base_product_id:string|null}>(db,'outlet_units','product_id,base_product_id');
+  const current=withOutletCostLinks<Result>(state.data.payload.current||[],links);
+  return {...state.data.payload,current,updatedAt:state.data.updated_at,lastError:state.data.last_error,syncing:!!state.data.lease_until&&Date.parse(state.data.lease_until)>Date.now(),alerts:alerts.data,settings:settings.data.map(s=>s.data)};
 }
 /** Existing heartbeat refreshes sources every six hours; failures preserve the last publication. */
 export async function refreshCostsIfDue() {
@@ -43,7 +46,7 @@ export async function syncCosts(db=costDatabase()) {
   try {
     const asOf=today();
     const [catalog,settingRows,versionRows,oldState]=await Promise.all([
-      rows<CatalogRow>(db,'products','id,name,category,price,cost_price,sku,is_active,is_discontinued,is_generic,is_insumo,is_service,production_type'),
+      rows<CatalogRow>(db,'products','id,name,category,price,cost_price,sku,is_active,is_discontinued,is_generic,is_insumo,is_service,production_type,is_outlet_unit'),
       rows<{data:Setting}>(db,'cost_settings','data'),
       rows<{definition:Definition;fingerprint:string;recorded_at:string}>(db,'cost_source_versions','definition,fingerprint,recorded_at'),
       db.from('cost_system_state').select('payload').eq('id',true).single(),
@@ -53,7 +56,7 @@ export async function syncCosts(db=costDatabase()) {
     const soldProductIds=new Set<string>();const since=new Date(Date.parse(asOf)-120*86400000).toISOString().slice(0,10);
     // Inactive commercial products can still need a cost for recently recorded orders.
     for(let offset=0;;offset+=1000){const r=await db.from('order_items').select('product_id,orders!inner(order_date)').gte('orders.order_date',since).not('product_id','is',null).order('id').range(offset,offset+999);if(r.error)throw new Error(r.error.message);for(const item of r.data)if(item.product_id)soldProductIds.add(item.product_id);if(r.data.length<1000)break;}
-    const {definition,purchases,diagnostics}=await collectSources(catalog,asOf,settings,soldProductIds);
+    const {definition,purchases,diagnostics}=await collectSources(catalog.filter(p=>!p.is_outlet_unit),asOf,settings,soldProductIds);
     purchases.push(...await databasePurchases(db,definition,catalog,purchases,asOf,diagnostics));
     const oldQuotes=(oldState.data?.payload?.supplierQuotes||[]) as Purchase[];
     // Keep observed list versions so a later replacement does not erase earlier evidence.
