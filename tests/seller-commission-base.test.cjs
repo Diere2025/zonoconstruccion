@@ -31,7 +31,30 @@ test('historical negative discount lines are retained without discounting twice'
   assert.equal(exported.sellerCommissionBase({ order_items: [{ subtotal: 100000 }, { subtotal: -10000 }] }).netSales, 90000);
 });
 
+test('a stored subtotal cannot increase the commission base above the product lines', () => {
+  const order = { totals: { items_subtotal: 139000, subtotal: 318000 }, order_items: [{ subtotal: 159000 }, { subtotal: -20000 }] };
+  assert.equal(exported.sellerCommissionBase(order).netSales, 139000);
+  assert.equal(exported.sellerCommissionBase(order).scaleFactor, 1);
+});
+
 test('outdated gross subtotal does not replace already discounted or edited items', () => {
   assert.equal(exported.sellerCommissionBase({ totals: { items_subtotal: 495400, subtotal: 495400 }, order_items: [{ subtotal: 485492 }] }).netSales, 485492);
   assert.equal(exported.sellerCommissionBase({ totals: { items_subtotal: 1824000, subtotal: 1724000 }, order_items: [{ subtotal: 1739000 }] }).netSales, 1739000);
+});
+
+test('negative discounts are distributed before applying different commission rates', () => {
+  const order = {
+    totals: { items_subtotal: 90000, subtotal: 100000 },
+    order_items: [{ subtotal: 80000 }, { subtotal: 20000 }, { subtotal: -10000 }, { subtotal: 0 }],
+  };
+  const lines = exported.sellerCommissionLines(order);
+  assert.deepEqual(Array.from(lines, line => line.netSales), [72000, 18000, 0]);
+  assert.equal(lines[0].netSales * 0.016 + lines[1].netSales * 0.01, 1332);
+});
+
+test('line allocation uses the order net once for both total and item discounts', () => {
+  const bases = order => Array.from(exported.sellerCommissionLines(order), line => line.netSales);
+  assert.deepEqual(bases({ totals: { items_subtotal: 100, subtotal: 90 }, order_items: [{ subtotal: 80 }, { subtotal: 20 }] }), [72, 18]);
+  assert.deepEqual(bases({ totals: { items_subtotal: 90, subtotal: 80 }, order_items: [{ subtotal: 80 }, { subtotal: 20 }, { subtotal: -10 }] }), [64, 16]);
+  assert.deepEqual(bases({ order_items: [{ subtotal: 100 }, { subtotal: -100 }] }), [0]);
 });

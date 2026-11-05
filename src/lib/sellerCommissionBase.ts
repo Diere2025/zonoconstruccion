@@ -14,7 +14,21 @@ export function sellerCommissionBase(order: CommissionOrder): { netSales: number
   const totals = order.totals;
   const hasNetSubtotal = totals?.items_subtotal != null && totals?.subtotal != null
     && Number.isFinite(Number(totals.items_subtotal)) && Number.isFinite(Number(totals.subtotal))
+    && Number(totals.subtotal) <= itemTotal
     && Math.abs(Number(totals.items_subtotal) - itemTotal) < 0.01;
   const netSales = Math.max(0, hasNetSubtotal ? Number(totals!.subtotal) : itemTotal);
   return { netSales, scaleFactor: itemTotal > 0 ? netSales / itemTotal : 0 };
+}
+
+export function sellerCommissionLines<T extends NonNullable<CommissionOrder['order_items']>[number]>(
+  order: Pick<CommissionOrder, 'totals'> & { order_items: T[] },
+): { item: T; netSales: number }[] {
+  const productLines = order.order_items
+    .map(item => ({ item, subtotal: commissionItemSubtotal(item) }))
+    .filter(line => line.subtotal >= 0);
+  const grossSales = productLines.reduce((sum, line) => sum + line.subtotal, 0);
+  const { netSales } = sellerCommissionBase(order);
+  // The order net already includes negative discount lines. Allocate it once across the products.
+  const factor = grossSales > 0 ? netSales / grossSales : 0;
+  return productLines.map(({ item, subtotal }) => ({ item, netSales: subtotal * factor }));
 }

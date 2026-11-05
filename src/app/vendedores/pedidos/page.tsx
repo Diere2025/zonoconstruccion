@@ -80,7 +80,7 @@ import { cn, formatPrice, cleanDeliveryNotes } from "@/lib/utils";
 import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
-import { buildSheetOrderItems, normalizeProductNameForSheet } from "@/lib/googleSheets";
+import { buildSheetOrderItems, normalizePaymentMethodForSheet, normalizeProductNameForSheet } from "@/lib/googleSheets";
 import { detectOrderCategory, hasBiodigestor, resolveOrderCategory } from "@/lib/orderCategory";
 import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
 
@@ -4204,6 +4204,9 @@ export default function PedidosPage() {
       const sellerId = order.seller_id || currentUserId;
       const selectedPayMethodName = dbPaymentMethods.find(m => m.id === order.payment_method_id)?.name || 'Contado';
       const totalsObj = order.totals || {};
+      const savedPayments: PaymentBreakdownItem[] = Array.isArray(totalsObj.payments_breakdown) ? totalsObj.payments_breakdown : [];
+      const primaryPaymentHasIva = Boolean(savedPayments[0]?.has_iva)
+        || (Number(totalsObj.tax) > 0 && !savedPayments.some(payment => payment.has_iva));
 
       const savedCustomer = totalsObj.customer_snapshot;
       let clientPhone = savedCustomer?.phone_primary || '';
@@ -4261,7 +4264,7 @@ export default function PedidosPage() {
         address: order.address || '',
         mapsLink: order.google_maps_link || '',
         category: resolveOrderCategory(items, order.category),
-        paymentMethod: selectedPayMethodName,
+        paymentMethod: normalizePaymentMethodForSheet(selectedPayMethodName, primaryPaymentHasIva),
         identification: '',
         paymentStatus: totalsObj.payment_timing === 'paid' ? 'Abonado' : (totalsObj.payment_timing === 'partial' ? 'Señado' : 'No Abonado'),
         depositOrPaidAmount: totalsObj.deposit_amount || (totalsObj.payment_timing === 'paid' ? order.total_amount : 0),
@@ -5572,7 +5575,7 @@ export default function PedidosPage() {
             address: savedAddress,
             mapsLink: savedMaps || '',
             category: resolveOrderCategory(orderItems, orderCategory),
-            paymentMethod: selectedPayMethodName,
+            paymentMethod: normalizePaymentMethodForSheet(selectedPayMethodName, includeIVA || paymentsList[0]?.has_iva),
             identification: newClientTaxId || '',
             paymentStatus: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'No Abonado'),
             depositOrPaidAmount: hasDeposit ? depositAmount : (paymentTiming === 'paid' ? total : 0),
@@ -5879,7 +5882,7 @@ export default function PedidosPage() {
             address: savedAddress,
             mapsLink: savedMaps || '',
             category: resolveOrderCategory(orderItems, orderCategory),
-            paymentMethod: selectedPayMethodName,
+            paymentMethod: normalizePaymentMethodForSheet(selectedPayMethodName, includeIVA || paymentsList[0]?.has_iva),
             identification: newClientTaxId || '',
             paymentStatus: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'No Abonado'),
             depositOrPaidAmount: hasDeposit ? depositAmount : (paymentTiming === 'paid' ? total : 0),

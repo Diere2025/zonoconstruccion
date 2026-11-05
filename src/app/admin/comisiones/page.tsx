@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/utils";
-import { commissionItemSubtotal, sellerCommissionBase } from "@/lib/sellerCommissionBase";
+import { sellerCommissionLines } from "@/lib/sellerCommissionBase";
 import { normalizeCommissionCategory as normalizeToMacroCategory, resolveCommissionProductCategory } from "@/lib/sellerCommissionCategory";
 import { summarizeCommissionProducts, type CommissionProductLine, type CommissionProductSummary } from "@/lib/sellerCommissionProducts";
 
@@ -424,21 +424,17 @@ export default function SellerCommissionsPage() {
       codeSet.add(codeKey);
 
       // Process items for valid order (excluding freight & card surcharges)
-      const items = order.order_items || [];
+      const items: { product_id?: string; product_name?: string; quantity?: number; unit_price?: number; subtotal?: number }[] = order.order_items || [];
       if (items.length === 0) {
         sellerEntry.excluded_orders.push({ ...order, exclude_reason: 'Sin ítems de productos' });
         return;
       }
 
-      const { scaleFactor } = sellerCommissionBase(order);
-
       let orderNetProductAmount = 0;
 
-      items.forEach((item: any) => {
+      sellerCommissionLines({ totals: order.totals, order_items: items }).forEach(({ item, netSales: normalizedSubtotal }) => {
         const itemCat = getItemCategory(item, order.category);
         const grp = getCategoryGroupForCategory(itemCat);
-        const rawSubtotal = commissionItemSubtotal(item);
-        const normalizedSubtotal = rawSubtotal * scaleFactor;
 
         orderNetProductAmount += normalizedSubtotal;
 
