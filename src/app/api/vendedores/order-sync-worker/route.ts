@@ -139,24 +139,10 @@ export async function POST(req: NextRequest) {
     }
     if (job.kind === 'create') {
       try {
-        const personalAlert = await sendPersonalOrderAlert(db, job.order_id, confirmedCode, job.created_at);
+        const personalAlert = await sendPersonalOrderAlert(db, job.order_id);
         result.personalAlert = personalAlert;
         if (personalAlert.attempted && !personalAlert.sent) {
           warnings.push(`Telegram nuevos pedidos: ${personalAlert.message || 'No se pudo enviar'}`);
-        }
-        if (personalAlert.sent && personalAlert.messageId && personalAlert.chatId) {
-          const { data: order } = await db.from('orders').select('totals').eq('id', job.order_id).single();
-          if (order) {
-            const notifications = Array.isArray(order.totals?.telegram_notifications)
-              ? order.totals.telegram_notifications : [];
-            const savedAlert = await db.from('orders').update({ totals: {
-              ...order.totals,
-              telegram_notifications: [...notifications, {
-                type: 'newOrderAlert', messageId: personalAlert.messageId, chatId: personalAlert.chatId
-              }]
-            }}).eq('id', job.order_id);
-            if (savedAlert.error) warnings.push('Aviso de nuevo pedido enviado, pero no se pudo guardar su identificador en el ERP.');
-          }
         }
       } catch (error) {
         warnings.push(`Telegram nuevos pedidos: ${error instanceof Error ? error.message : 'Error inesperado'}`);
