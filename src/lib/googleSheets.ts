@@ -292,8 +292,11 @@ export interface SheetOrderPayload {
 }
 
 /** Keep old browser payloads compatible with the renamed payment method. */
-export function normalizePaymentMethodForSheet(name?: string | null): string {
+export function normalizePaymentMethodForSheet(name?: string | null, hasIva = false): string {
   const value = (name || '').trim();
+  if (hasIva && /^(contado|efectivo\s*\/\s*transferencia|transferencia(?:\s*\(0%\))?)$/i.test(value)) {
+    return 'Transferencia (IVA 21%)';
+  }
   return /^efectivo\s*\/\s*transferencia$/i.test(value) ? 'Contado' : value;
 }
 

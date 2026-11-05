@@ -12,6 +12,10 @@ test('old payloads save Contado while card and mixed payment labels stay intact'
  assert.equal(normalize('Contado'),'Contado');
  assert.equal(normalize('Payway 3 cuotas'),'Payway 3 cuotas');
  assert.equal(normalize('Transferencia MP (10%)'),'Transferencia MP (10%)');
+ assert.equal(normalize('Transferencia (0%)',true),'Transferencia (IVA 21%)');
+ assert.equal(normalize('Contado',true),'Transferencia (IVA 21%)');
+ assert.equal(normalize('Transferencia (0%)',false),'Transferencia (0%)');
+ assert.equal(normalize('Payway 3 cuotas',true),'Payway 3 cuotas');
  assert.equal(normalize(undefined),'');
 });
 
