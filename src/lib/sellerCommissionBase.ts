@@ -21,7 +21,7 @@ export function sellerCommissionBase(order: CommissionOrder): { netSales: number
 }
 
 export function sellerCommissionLines<T extends NonNullable<CommissionOrder['order_items']>[number]>(
-  order: CommissionOrder & { order_items: T[] },
+  order: Pick<CommissionOrder, 'totals'> & { order_items: T[] },
 ): { item: T; netSales: number }[] {
   const productLines = order.order_items
     .map(item => ({ item, subtotal: commissionItemSubtotal(item) }))
