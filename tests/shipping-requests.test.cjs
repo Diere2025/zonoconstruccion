@@ -39,12 +39,18 @@ test('shipping destinations include every Argentine jurisdiction and only open w
  for(const value of [undefined,'','javascript:alert(1)','not a URL'])assert.equal(shipping.shippingMapUrl(value),null);
 });
 
-test('requester can finish every open shipping state without choosing a quote, but cannot cancel incidents or someone else requests',()=>{
+test('requester can finish open shipping requests and can only cancel their own incidents in New',()=>{
  for(const status of ['new','in_progress','waiting_requester','waiting_validation']){
   const t={workflow:'shipping',created_by:'owner',sector_id:'L',status,shipping_quotes:[]};
   assert.ok(actions.availableActions({user_id:'owner',is_admin:false,sector_ids:[]},t).includes('cancel'));
   assert.equal(actions.availableActions({user_id:'other',is_admin:false,sector_ids:[]},t).includes('cancel'),false);
-  assert.equal(actions.availableActions({user_id:'owner',is_admin:false,sector_ids:[]},{...t,workflow:'incident'}).includes('cancel'),false);
+  const incident={...t,workflow:'incident'};
+  const own=actions.availableActions({user_id:'owner',is_admin:false,sector_ids:[]},incident);
+  const other=actions.availableActions({user_id:'other',is_admin:false,sector_ids:[]},incident);
+  for(const action of ['cancel','close_requester']){
+   assert.equal(own.includes(action),status==='new');
+   assert.equal(other.includes(action),false);
+  }
  }
  for(const status of ['closed','cancelled'])assert.equal(actions.availableActions({user_id:'owner',is_admin:false,sector_ids:[]},{workflow:'shipping',created_by:'owner',status}).includes('cancel'),false);
  assert.equal(actions.actionLabel('cancel',{workflow:'shipping'}),'Finalizar sin contratación');
