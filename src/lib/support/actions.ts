@@ -1,7 +1,7 @@
 import { isOpen, manages, type SupportMe, type Ticket } from './types';
 import { isShipping, shippingActionLabels } from './shipping';
-export type TicketAction = 'start' | 'take' | 'request_validation' | 'request_info' | 'request_action' | 'withdraw' | 'close_admin' | 'cancel' | 'reopen' | 'restore' | 'validate' | 'reject';
-export const actionLabels: Record<TicketAction, string> = { start: 'Poner en atención', take: 'Tomar ticket', request_validation: 'Enviar a revisión', request_info: 'Pedir información', request_action: 'Pedir una acción', withdraw: 'Retomar atención', close_admin: 'Cerrar ahora', cancel: 'Cancelar ticket', reopen: 'Reabrir', restore: 'Restaurar', validate: 'Funciona, cerrar', reject: 'Sigue fallando' };
+export type TicketAction = 'start' | 'take' | 'request_validation' | 'request_info' | 'request_action' | 'withdraw' | 'close_requester' | 'close_admin' | 'cancel' | 'reopen' | 'restore' | 'validate' | 'reject';
+export const actionLabels: Record<TicketAction, string> = { start: 'Poner en atención', take: 'Tomar ticket', request_validation: 'Enviar a revisión', request_info: 'Pedir información', request_action: 'Pedir una acción', withdraw: 'Retomar atención', close_requester: 'Cerrar por resuelto', close_admin: 'Cerrar ahora', cancel: 'Cancelar ticket', reopen: 'Reabrir', restore: 'Restaurar', validate: 'Funciona, cerrar', reject: 'Sigue fallando' };
 export function actionLabel(action: TicketAction, ticket: Ticket) {
     return isShipping(ticket) && action in shippingActionLabels ? shippingActionLabels[action as keyof typeof shippingActionLabels] : actionLabels[action];
 }
@@ -16,6 +16,10 @@ export function availableActions(me: SupportMe, ticket: Ticket): TicketAction[] 
     if (manager && ['new','in_progress'].includes(ticket.status)) result.push('request_validation','request_info',...(isShipping(ticket)?[]:['request_action'] as TicketAction[]));
     if (manager && ['waiting_requester','waiting_validation'].includes(ticket.status)) result.push('withdraw');
     if (requester && ticket.status === 'waiting_validation') result.push('validate','reject');
+    if (requester && ticket.status === 'new' && !isShipping(ticket)) {
+        result.push('close_requester');
+        if (!me.is_admin) result.push('cancel');
+    }
     if (me.is_admin && isOpen(ticket.status)) result.push('close_admin','cancel');
     if (isShipping(ticket) && isOpen(ticket.status) && !me.is_admin) {
         if (manager) result.push('close_admin');
