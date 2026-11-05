@@ -432,7 +432,7 @@ export default function SellerCommissionsPage() {
 
       let orderNetProductAmount = 0;
 
-      sellerCommissionLines({ ...order, order_items: items }).forEach(({ item, netSales: normalizedSubtotal }) => {
+      sellerCommissionLines({ totals: order.totals, order_items: items }).forEach(({ item, netSales: normalizedSubtotal }) => {
         const itemCat = getItemCategory(item, order.category);
         const grp = getCategoryGroupForCategory(itemCat);
 
