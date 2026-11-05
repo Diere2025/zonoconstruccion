@@ -11,7 +11,7 @@ export async function read(id:string,ranges:string[],render='UNFORMATTED_VALUE')
   const body=await response.json(); if(body.valueRanges?.length!==ranges.length)throw new Error('La fuente respondió con rangos incompletos.');
   return body.valueRanges.map((r:{values?:Cell[][]})=>r.values||[]);
 }
-export interface CatalogRow {id:string;name:string;category:string|null;price:number;cost_price:number;sku:string|null;is_active:boolean;is_generic:boolean;is_insumo:boolean;is_discontinued:boolean;is_service:boolean;production_type:string}
+export interface CatalogRow {is_outlet_unit?:boolean;id:string;name:string;category:string|null;price:number;cost_price:number;sku:string|null;is_active:boolean;is_generic:boolean;is_insumo:boolean;is_discontinued:boolean;is_service:boolean;production_type:string}
 function familyFor(name:string):string {
   const n=normalize(name);
   if(n.includes('aquafort')){const group=n.includes('cisterna')?'Cisternas':n.includes('tapa')?'Tapas':n.includes('cuatr')?'CUATR':n.includes('tric')?'TRIC':n.includes('bic')?'BIC':'Otros';return 'AquaFort · '+group;}

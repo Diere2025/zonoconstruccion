@@ -390,6 +390,7 @@ VALID_SHEET_PRODUCTS.forEach(p => {
  */
 export function normalizeProductNameForSheet(name: string, sku?: string): string {
   if (/ · (Segunda|Outlet) \[[A-Za-z0-9_-]+\]/.test(name || '')) return name.trim();
+  if (/ · (?:O[0-9]+|OUT-[A-F0-9]{8})$/.test((name || '').trim()) || (sku && (name || '').trim().endsWith(' · ' + sku.trim()))) return name.trim();
   const trimmedName = (name || '').trim();
   const trimmedSku = (sku || '').trim();
   const lowerName = trimmedName.toLowerCase();

@@ -67,6 +67,7 @@ import { supabase } from "@/lib/supabase";
 import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
 import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import { Product, OrderDiscountItem } from "@/types";
+import { outletOrderName } from '@/lib/outletProductIdentity';
 import OutletPicker from "@/components/vendedores/OutletPicker";
 import { createAuthenticatedRequester as createOutletRequester } from "@/lib/authenticatedRequest";
 import VisualProductSelectorModal, { QuantityInput } from "@/components/vendedores/VisualProductSelectorModal";
@@ -5343,7 +5344,7 @@ export default function PedidosPage() {
 
       let useOutletOrder=orderItems.some(i=>i.is_outlet_unit);
       const saveOutletOrder=async(payload:Record<string,unknown>)=>{
-        const items=orderItems.map(item=>({product_id:item.id,product_name:normalizeProductNameForSheet(item.name,item.sku)||item.name,quantity:item.quantity,unit_price:item.customPrice,historical_unit_cost:(item as any).cost||0,discount_percentage:item.is_outlet_unit?0:(item.discountType==='percentage'?(item.discountValue||0):0)}));
+        const items=orderItems.map(item=>({product_id:item.id,product_name:item.is_outlet_unit?outletOrderName(item):normalizeProductNameForSheet(item.name,item.sku)||item.name,quantity:item.quantity,unit_price:item.customPrice,historical_unit_cost:(item as any).cost||0,discount_percentage:item.is_outlet_unit?0:(item.discountType==='percentage'?(item.discountValue||0):0)}));
         const {client_id:ignoredClient,shipping_address_id:ignoredAddress,created_at:ignoredCreated,...signatureOrder}=payload;
         void ignoredClient;void ignoredAddress;void ignoredCreated;
         const signature=JSON.stringify([editingOrderId,selectedClientId,isNewClient,{...signatureOrder,totals:{...(payload.totals as Record<string,unknown>),integration_payload:undefined}},items]);
@@ -7574,7 +7575,7 @@ export default function PedidosPage() {
                         // Mostrar prioritariamente el SKU si existe (salvo AUTO-); si no, usar el nombre
                         const rawSku = (item.sku || "").trim();
                         const isAutoSku = rawSku.toUpperCase().startsWith("AUTO-") || rawSku.toUpperCase().startsWith("AUTO_");
-                        const displayName = (rawSku && !isAutoSku) ? rawSku : item.name;
+                        const displayName = item.is_outlet_unit ? outletOrderName(item) : (rawSku && !isAutoSku) ? rawSku : item.name;
 
                         return (
                           <React.Fragment key={`${item.id}-${idx}`}>
@@ -9720,7 +9721,7 @@ export default function PedidosPage() {
                     {orderItems.map((item, idx) => {
                       const rawSku = (item.sku || "").trim();
                       const isAutoSku = rawSku.toUpperCase().startsWith("AUTO-") || rawSku.toUpperCase().startsWith("AUTO_");
-                      const displayName = (rawSku && !isAutoSku) ? rawSku : item.name;
+                      const displayName = item.is_outlet_unit ? outletOrderName(item) : (rawSku && !isAutoSku) ? rawSku : item.name;
                       return (
                         <div key={`${item.id}-${idx}`} className="flex justify-between items-center text-sm">
                           <div className="flex items-center gap-2">
