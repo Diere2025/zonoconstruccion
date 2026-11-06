@@ -5,6 +5,20 @@ export const withdrawalStates: Record<string, string> = {
   rejected: 'Rechazado', cancelled: 'Cancelado',
 };
 
+export const employeeDiscountRate = 5;
+
+export function employeeDiscountCents(subtotal: number, rate = employeeDiscountRate) {
+  return Math.round(subtotal * Math.round(rate * 100) / 10000);
+}
+
+export const employeeReviewLabels: Record<string, string> = {
+  pending: 'Aún no validado por RR. HH.',
+  approved: 'Validado por RR. HH.',
+  returned: 'RR. HH. solicitó una corrección',
+  rejected: 'Rechazado por RR. HH.',
+  cancelled: 'Retiro cancelado',
+};
+
 export type WithdrawalCadence = 'monthly' | 'weekly';
 
 export function shiftPayrollDate(date: string, step: number, cadence: WithdrawalCadence) {

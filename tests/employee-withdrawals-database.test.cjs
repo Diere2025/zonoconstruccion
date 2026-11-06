@@ -25,7 +25,8 @@ test('employee withdrawals use payroll periods, require authorization, and recon
       CREATE SCHEMA auth;
       CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current_setting('test.uid',true),'')::uuid $$;
       CREATE FUNCTION public.uuid_generate_v4() RETURNS uuid LANGUAGE sql AS $$ SELECT gen_random_uuid() $$;
-      CREATE TABLE public.deliveries(id uuid DEFAULT gen_random_uuid(),order_id uuid UNIQUE,delivery_date date,status text);
+      CREATE TABLE public.deliveries(id uuid DEFAULT gen_random_uuid(),order_id uuid UNIQUE,delivery_date date,status text,
+        route_sheet_id uuid,real_delivery_date date);
       CREATE TABLE public.employees(id uuid PRIMARY KEY,full_name text,is_active boolean);
     `);
     for (const table of ['products', 'sellers', 'orders', 'order_items', 'inventory_transactions']) {
@@ -56,6 +57,7 @@ test('employee withdrawals use payroll periods, require authorization, and recon
     await db.exec('CREATE TRIGGER stock AFTER INSERT OR DELETE ON inventory_transactions FOR EACH ROW EXECUTE FUNCTION update_product_stock_levels();');
     await db.exec(fs.readFileSync('db_migration_v43_sync_order_delivery_status.sql', 'utf8'));
     await db.exec(fs.readFileSync('database/db_migration_20261106_employee_withdrawals.sql', 'utf8'));
+    await db.exec(fs.readFileSync('database/db_migration_20261106_employee_withdrawals_operations.sql', 'utf8'));
 
     await as(admin);
     await save('access', seller, null, { employee_id: employee });
@@ -67,6 +69,9 @@ test('employee withdrawals use payroll periods, require authorization, and recon
     await save('create', order, null, { employee_id: employee, items, category: 'ESCALERAS' });
     const loaded = (await read()).orders[0];
     assert.equal(loaded.state, 'pending');
+    assert.equal(loaded.amount, 190);
+    assert.equal(loaded.discount_rate, 5);
+    assert.equal(loaded.discount_amount, 10);
     assert.equal(loaded.items.length, 1);
     assert.equal(loaded.installments, null);
     await assert.rejects(save('approve', order, 2, {}), /revisión/);
@@ -77,8 +82,8 @@ test('employee withdrawals use payroll periods, require authorization, and recon
 
     await as(reviewer);
     const monthly = [
-      { cadence: 'monthly', period_start: '2026-10-01', expected_on: '2026-11-06', amount: 100 },
-      { cadence: 'monthly', period_start: '2026-11-01', expected_on: '2026-12-06', amount: 100 },
+      { cadence: 'monthly', period_start: '2026-10-01', expected_on: '2026-11-06', amount: 95 },
+      { cadence: 'monthly', period_start: '2026-11-01', expected_on: '2026-12-06', amount: 95 },
     ];
     await assert.rejects(save('approve', order, 2, { note: 'Acuerdo', installments: monthly }), /Confirmá/);
     await assert.rejects(save('approve', order, 2, { note: 'Acuerdo', installments: monthly.slice(0, 1), period_checked: true }), /sumar/);
@@ -100,7 +105,7 @@ test('employee withdrawals use payroll periods, require authorization, and recon
     await save('apply', order, 4, applied);
     await assert.rejects(save('apply', order, 5, applied), /ya fue aplicada/);
     await save('reschedule', order, 5, { note: 'Cambio de fecha', period_checked: true, installments: [{
-      cadence: 'weekly', period_start: '2026-11-04', period_end: '2026-11-10', expected_on: '2026-11-13', amount: 100,
+      cadence: 'weekly', period_start: '2026-11-04', period_end: '2026-11-10', expected_on: '2026-11-13', amount: 95,
     }] });
     let result = (await read()).orders[0];
     assert.equal(result.installments[0].payroll_reference, 'Recibo');
@@ -108,20 +113,49 @@ test('employee withdrawals use payroll periods, require authorization, and recon
     await as(logistics);
     await save('refund', order, 6, { item_id: loaded.items[0].id, quantity: 1 });
     await as(reviewer);
-    await save('credit', order, 7, { amount: 100, note: 'Reintegro confirmado' });
+    await save('credit', order, 7, { amount: 95, note: 'Reintegro confirmado' });
     await save('cancel', order, 8, { note: 'Devuelto' });
     result = (await read()).orders[0];
     assert.equal(result.state, 'cancelled');
-    assert.equal(result.credited_amount, 100);
+    assert.equal(result.credited_amount, 95);
     assert.equal((await db.query('select stock_current from products where id=$1', [product])).rows[0].stock_current, '4');
 
     await as(logistics);
-    await save('create', weeklyOrder, null, { employee_id: otherEmployee, items });
+    const home = { employee_id: otherEmployee, items, mode: 'home', address: 'Av. Ejemplo 100', locality: 'Morón',
+      phone: '1100000000', delivery_date: '2026-11-09' };
+    await assert.rejects(save('create', weeklyOrder, null, { ...home, address: '' }), /Completá domicilio/);
+    await save('create', weeklyOrder, null, home);
+    const route = () => db.query("update deliveries set status='ruteado' where order_id=$1", [weeklyOrder]);
+    await assert.rejects(route(), /Retiros de empleados/);
     await as(reviewer);
     await save('approve', weeklyOrder, 2, { note: 'Acuerdo', installments: monthly, period_checked: true });
+    assert.deepEqual((await db.query("select address,status,employee_review_status from orders where id=$1", [weeklyOrder])).rows[0],
+      { address: home.address, status: 'Pendiente', employee_review_status: 'approved' });
+    await as(seller);
+    await assert.rejects(route(), /Retiros de empleados/);
     await as(logistics);
-    await save('edit', weeklyOrder, 3, { employee_id: otherEmployee, items });
+    await route();
+    await db.query("update orders set status='Entregando' where id=$1", [weeklyOrder]);
+    await db.query("update deliveries set status='en_recorrido' where order_id=$1", [weeklyOrder]);
+    await assert.rejects(db.query("update deliveries set status='entregado' where order_id=$1", [weeklyOrder]), /Retiros de empleados/);
+    await assert.rejects(save('edit', weeklyOrder, 3, home), /Quitá primero/);
+    await db.query("update deliveries set status='pendiente_ruteo' where order_id=$1", [weeklyOrder]);
+    await db.query("update orders set status='Pendiente' where id=$1", [weeklyOrder]);
+    await assert.rejects(save('edit', weeklyOrder, 3, { ...home, discount_rate: 101 }), /entre 0 y 100/);
+    await save('edit', weeklyOrder, 3, { ...home, discount_rate: 7.5 });
     assert.equal((await read()).orders[0].state, 'pending');
+    assert.equal((await read()).orders[0].amount, 185);
+    assert.equal((await read()).orders[0].discount_rate, 7.5);
+    const shippedItem = (await read()).orders[0].items[0].id;
+    await as(reviewer);
+    await save('approve', weeklyOrder, 4, {
+      note: 'Acuerdo', installments: monthly.map(quota => ({...quota, amount: 92.5})), period_checked: true,
+    });
+    await as(logistics);
+    await save('deliver', weeklyOrder, 5, { item_id: shippedItem, quantity: 2 });
+    const delivered = await db.query('select status,real_delivery_date from deliveries where order_id=$1', [weeklyOrder]);
+    assert.equal(delivered.rows[0].status, 'entregado');
+    assert.ok(delivered.rows[0].real_delivery_date);
     await db.exec('SET ROLE authenticated');
     await assert.rejects(db.query('select * from employee_withdrawal_installments'), /permission denied/);
     await assert.rejects(db.query('select employee_withdrawal_finish_sheet($1,$2,$3,true)',

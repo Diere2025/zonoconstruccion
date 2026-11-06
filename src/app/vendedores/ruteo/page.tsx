@@ -631,6 +631,7 @@ export default function RuteoPage() {
           *,
           orders:orders!inner(
             id,
+            employee_withdrawal,
             status,
             client_id,
             customer_name,
@@ -679,7 +680,7 @@ export default function RuteoPage() {
         `)
         .not('status', 'in', '("entregado","fallido")')
         .in('orders.status', Array.from(ROUTING_VISIBLE_ORDER_STATUSES))
-        .eq('orders.employee_withdrawal', false)
+        .or('employee_withdrawal.eq.false,and(employee_delivery_mode.eq.home,employee_review_status.eq.approved)', { referencedTable: 'orders' })
         .order('delivery_date', { ascending: true })
         .order('run_number', { ascending: true })
         .order('delivery_order', { ascending: true });
@@ -942,7 +943,7 @@ export default function RuteoPage() {
     const selected = deliveries.filter(d => selectedDeliveryIds.has(d.id));
     const links = selected
       .map(d => {
-        const phone = d.orders?.clients?.phone_primary;
+        const phone = d.orders?.totals?.delivery_phone || d.orders?.clients?.phone_primary;
         if (!phone) return null;
         const clean = phone.replace(/\D/g, '');
         return `https://wa.me/${clean} (${d.orders?.customer_name})`;
@@ -962,7 +963,7 @@ export default function RuteoPage() {
   const handleCopyRouteSheetWhatsApp = (sheetItems: Delivery[], sheetName: string) => {
     const links = sheetItems
       .map(d => {
-        const phone = d.orders?.clients?.phone_primary || d.encomiendas?.client_phone;
+        const phone = d.orders?.totals?.delivery_phone || d.orders?.clients?.phone_primary || d.encomiendas?.client_phone;
         if (!phone) return null;
         const clean = phone.replace(/\D/g, '');
         const name = d.orders?.customer_name || d.encomiendas?.client_name || "Diligencia";
@@ -1923,6 +1924,10 @@ export default function RuteoPage() {
 
   // 3. Mark Complete (with draft payments dialog) or Fail
   const handleOpenDeliveryPayment = (del: Delivery) => {
+    if (del.orders?.employee_withdrawal) {
+      window.location.assign('/vendedores/retiros-empleados');
+      return;
+    }
     setProcessingDelivery(del);
     setModalPayments([]);
     setPaymentAmount("");
@@ -4161,7 +4166,7 @@ export default function RuteoPage() {
 
                           const code = isEncomienda ? encomienda?.code : order?.legacy_code || order?.id.substring(0, 8);
                           const customerName = isEncomienda ? encomienda?.client_name || "Sin Contacto" : order?.customer_name;
-                          const phone = isEncomienda ? encomienda?.client_phone : order?.clients?.phone_primary;
+                          const phone = isEncomienda ? encomienda?.client_phone : (order?.totals?.delivery_phone || order?.clients?.phone_primary);
                           const notes = isEncomienda ? encomienda?.description : (order?.delivery_detail || order?.delivery_notes);
                           const address = isEncomienda ? encomienda?.address : order?.address;
                           const locality = isEncomienda ? encomienda?.locality : order?.locality;
@@ -4679,7 +4684,7 @@ export default function RuteoPage() {
                                     
                                     const code = isEncomienda ? encomienda?.code : order?.legacy_code || order?.id.substring(0, 8);
                                     const customerName = isEncomienda ? encomienda?.client_name || "Sin Contacto" : order?.customer_name;
-                                    const phone = isEncomienda ? encomienda?.client_phone : order?.clients?.phone_primary;
+                                    const phone = isEncomienda ? encomienda?.client_phone : (order?.totals?.delivery_phone || order?.clients?.phone_primary);
                                     const notes = isEncomienda ? encomienda?.description : (order?.delivery_detail || order?.delivery_notes);
                                     const locality = isEncomienda ? encomienda?.locality : order?.locality;
                                     const address = isEncomienda ? encomienda?.address : order?.address;
@@ -4969,7 +4974,7 @@ export default function RuteoPage() {
                                                    <button
                                                      onClick={() => handleOpenDeliveryPayment(del)}
                                                      className="p-1 hover:bg-emerald-50 hover:border-emerald-200 rounded border border-slate-200 text-emerald-600 cursor-pointer bg-white"
-                                                     title="Marcar como Entregado / Asentar Cobro"
+                                                     title={del.orders?.employee_withdrawal ? 'Registrar entrega de empleado' : 'Marcar como Entregado / Asentar Cobro'}
                                                    >
                                                      <CheckCircle className="w-3.5 h-3.5" />
                                                    </button>
@@ -5115,7 +5120,7 @@ export default function RuteoPage() {
                               onClick={() => handleOpenDeliveryPayment(del)}
                               className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer"
                             >
-                              <CheckCircle className="w-3.5 h-3.5" /> Entregado / Asentar Cobro
+                              <CheckCircle className="w-3.5 h-3.5" /> {order.employee_withdrawal ? 'Registrar entrega de empleado' : 'Entregado / Asentar Cobro'}
                             </button>
                             <button
                               onClick={() => setSelectedDeliveryToFail(del.id)}
@@ -8234,7 +8239,7 @@ export default function RuteoPage() {
           const address = isEncomienda ? encomienda?.address : order?.address;
           const locality = isEncomienda ? encomienda?.locality : order?.locality;
           const zoneName = isEncomienda ? "Diligencia" : order?.zones?.name || "Sin Zona";
-          const phone = isEncomienda ? encomienda?.client_phone : order?.clients?.phone_primary;
+          const phone = isEncomienda ? encomienda?.client_phone : (order?.totals?.delivery_phone || order?.clients?.phone_primary);
           const notes = isEncomienda ? encomienda?.description : (order?.delivery_detail || order?.delivery_notes);
 
           const subtotal = order?.totals?.subtotal || 0;

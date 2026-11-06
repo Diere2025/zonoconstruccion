@@ -21,6 +21,7 @@ import {
 import { formatPrice, cleanDeliveryNotes } from "@/lib/utils";
 import { PrintableOrderData } from "./PrintableOrderModal";
 import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
+import { employeeReviewLabels } from "@/lib/employeeWithdrawals";
 
 interface ViewOrderModalProps {
   isOpen: boolean;
@@ -40,6 +41,7 @@ export default function ViewOrderModal({
   if (!isOpen || !order) return null;
 
   const orderNumber = order.legacy_code || order.id.substring(0, 8).toUpperCase();
+  const employeeReview = order.employee_review_status ? employeeReviewLabels[order.employee_review_status] : undefined;
   const orderDateFormatted = order.order_date
     ? new Date(order.order_date + "T00:00:00").toLocaleDateString("es-AR", {
         day: "2-digit",
@@ -80,6 +82,9 @@ export default function ViewOrderModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[92vh] overflow-hidden border border-slate-200 my-auto animate-in zoom-in-95 duration-200">
+        {employeeReview && <div className={`shrink-0 border-b px-5 py-3 text-sm font-bold uppercase tracking-wide ${order.employee_review_status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+          {employeeReview}
+        </div>}
         
         {/* Header con Estado y Acciones Rápidas */}
         <div className="p-4 sm:p-5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">

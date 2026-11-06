@@ -49,6 +49,7 @@ export interface PrintableOrderData {
   whaticket_link?: string;
   seller_name?: string;
   status?: string;
+  employee_review_status?: string | null;
   channel?: string;
   commercial_brand?: 'zono' | 'aquafort';
   advertising_source_name?: string;
