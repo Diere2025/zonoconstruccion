@@ -590,6 +590,7 @@ export function createLogisticsCancellationReasonLookup() {
 }
 
 export interface OperationalSheetSyncResult {
+  archived?: boolean;
   success: boolean;
   sheetName?: string;
   rowNumber?: number;
@@ -817,7 +818,7 @@ function buildOrderUpdateBatchData(
   order: SheetOrderPayload,
   _logisticsObservation: string | undefined,
   columnOffset: number,
-  statusOverride?: string
+  statusOverride?: string | null
 ): Array<{ range: string; values: unknown[][] }> {
   const formattedDeliveryDate = formatDateForSheet(order.deliveryDate);
   const formattedOrderDate = formatDateForSheet(order.orderDate);
@@ -835,7 +836,7 @@ function buildOrderUpdateBatchData(
     { range: makeRange(sheetName, 'L', 'M', rowNumber, columnOffset), values: [[order.medium || '', normalizeSellerNameForSheet(order.sellerName)]] }
   ];
 
-  if (columnOffset === -1) {
+  if (columnOffset === -1 || statusOverride === null) {
     // Entregas Actual: no sobreescribe la columna P (estado logístico de entrega propio de la hoja)
     batchData.push({
       range: makeRange(sheetName, 'R', 'T', rowNumber, columnOffset),
@@ -1030,7 +1031,7 @@ async function updateOrderInOperationalSheet(
   legacyCode: string,
   order: SheetOrderPayload,
   logisticsObservation?: string,
-  statusOverride?: string
+  statusOverride?: string | null
 ): Promise<OperationalSheetSyncResult> {
   try {
     const targets = await findOrderRowsInSheet(spreadsheetId, sheetName, codeColumn, legacyCode);
@@ -1069,7 +1070,8 @@ async function updateOrderInOperationalSheet(
 export async function syncOrderModificationToOperationalSheets(
   legacyCode: string,
   order: SheetOrderPayload,
-  logisticsObservation?: string
+  logisticsObservation?: string,
+  delivered = false
 ): Promise<OperationalSheetsSyncResult> {
   const codes = [...new Set(legacyCode.split(/[/,]/).map(code => code.trim().toUpperCase()).filter(Boolean))];
   const chunks = splitOrderItemsForRows(order, codes.length);
@@ -1077,12 +1079,13 @@ export async function syncOrderModificationToOperationalSheets(
   for (let index = 0; index < codes.length; index++) {
     const code = codes[index];
     const rowOrder = makeContinuationOrder(order, chunks[index], codes, index);
-    results.push(await syncOrderModificationRow(code, rowOrder, logisticsObservation, index > 0));
+    results.push(await syncOrderModificationRow(code, rowOrder, logisticsObservation, index > 0 && !delivered, delivered));
   }
   const combine = (key: keyof OperationalSheetsSyncResult): OperationalSheetSyncResult => {
     const entries = results.map(result => result[key]);
     const failures = entries.filter(result => !result.success);
     return { ...entries[0], success: entries.length > 0 && failures.length === 0,
+      archived: entries.length > 0 && entries.every(entry => entry.archived === true),
       message: failures.length ? failures.map(result => result.message).join(' / ') : undefined };
   };
   return { central: combine('central'), deliveriesCurrent: combine('deliveriesCurrent') };
@@ -1092,7 +1095,8 @@ async function syncOrderModificationRow(
   legacyCode: string,
   order: SheetOrderPayload,
   logisticsObservation: string | undefined,
-  allowContinuationCreation: boolean
+  allowContinuationCreation: boolean,
+  delivered: boolean
 ): Promise<OperationalSheetsSyncResult> {
   // 1. Buscar y actualizar primero en Entregas Actual
   let deliveriesCurrent: OperationalSheetSyncResult = {
@@ -1119,6 +1123,16 @@ async function syncOrderModificationRow(
     }
   }
 
+  if (delivered && deliveriesCurrent.message === 'No se encontró el pedido '+legacyCode+' en Entregas Actual') {
+    const sheetName = '🔴 Entregados';
+    try {
+      const [archived] = await findOrderRowsInSheet(LOGISTICS_CANCELLED_SHEET.spreadsheetId, sheetName, 'A', legacyCode);
+      if (archived) deliveriesCurrent = { success: true, archived: true, sheetName, rowNumber: archived.rowNumber };
+    } catch {
+      deliveriesCurrent = { success: false, sheetName, message: 'No se pudo verificar el pedido en el archivo de entregados' };
+    }
+  }
+
   // Una continuación nueva ingresa por Vendedores; las filas ya ruteadas
   // se actualizan en su ubicación sin alterar su estado logístico.
   if (allowContinuationCreation && deliveriesCurrent.message?.startsWith(`No se encontró el pedido ${legacyCode}`)) {
@@ -1128,7 +1142,7 @@ async function syncOrderModificationRow(
   }
 
   // 2. Si aplicó en Entregas Actual -> '🔹 Pasado' en Central, caso contrario 'Modificado'
-  const centralStatus = deliveriesCurrent.success ? '🔹 Pasado' : 'Modificado';
+  const centralStatus = delivered ? null : deliveriesCurrent.success ? '🔹 Pasado' : 'Modificado';
 
   // 3. Actualizar Central pedidos
   let central = await updateOrderInOperationalSheet(
@@ -1780,7 +1794,7 @@ export async function updateOrderInSellerSheet(
   legacyCode: string,
   order: SheetOrderPayload,
   logisticsObservation?: string,
-  statusOverride?: string
+  statusOverride?: string | null
 ): Promise<{ success: boolean; rowNumber: number; code: string; message?: string }> {
   if (!legacyCode || !legacyCode.trim()) {
     throw new Error('legacyCode es requerido para modificar un pedido en la planilla');

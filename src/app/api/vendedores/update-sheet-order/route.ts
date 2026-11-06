@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     // La UI puede reintentar con el código anterior si perdió la respuesta
     // después de asignar una continuación. Recuperar siempre la identidad del ERP.
-    const lookup = supabaseAdmin.from('orders').select('id,legacy_code');
+    const lookup = supabaseAdmin.from('orders').select('id,legacy_code,status');
     const { data: dbOrder, error: lookupError } = await (orderId
       ? lookup.eq('id', orderId)
       : lookup.eq('legacy_code', legacyCode)).maybeSingle();
@@ -133,14 +133,17 @@ export async function POST(req: NextRequest) {
       : await syncOrderModificationToOperationalSheets(
           resolvedLegacyCode,
           order,
-          logisticsObservation
+          logisticsObservation,
+          /^entregad[oa]$/i.test(String(dbOrder.status || "").trim())
         );
     if (operationalSync) Object.assign(noticeResults,operationalSync);
 
     // 2. Si aplicó el cambio en Central -> '🔹 Pasado'; "No está" se conserva.
     const sellerStatus = operationalSyncSkipped
       ? currentSellerStatus!
-      : (operationalSync?.central.success ? '🔹 Pasado' : (sheetStatus || 'Modificado'));
+      : (operationalSync?.deliveriesCurrent.archived && currentSellerStatus
+        ? currentSellerStatus
+        : operationalSync?.central.success ? '🔹 Pasado' : (sheetStatus || 'Modificado'));
 
     // 3. Actualizar planilla de la vendedora con el estado correspondiente
     const result = await updateOrderInSellerSheet(
