@@ -38,6 +38,7 @@ export async function sendPersonalOrderAlert(
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db.from('orders')
       .select('category,total_amount')
+      .eq('employee_withdrawal', false)
       .gte('order_date', `${date}T00:00:00.000Z`)
       .lt('order_date', nextDate.toISOString())
       .not('status', 'in', '(Cancelado,Anulado)')

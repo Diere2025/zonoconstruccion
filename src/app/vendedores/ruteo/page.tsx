@@ -679,6 +679,7 @@ export default function RuteoPage() {
         `)
         .not('status', 'in', '("entregado","fallido")')
         .in('orders.status', Array.from(ROUTING_VISIBLE_ORDER_STATUSES))
+        .eq('orders.employee_withdrawal', false)
         .order('delivery_date', { ascending: true })
         .order('run_number', { ascending: true })
         .order('delivery_order', { ascending: true });

@@ -3240,6 +3240,7 @@ export default function PedidosPage() {
                 ? '*, zones(name), sellers(full_name), clients(is_wholesale), order_items!inner(product_id, product_name)'
                 : '*, zones(name), sellers(full_name), clients(is_wholesale)'
             )
+            .eq('employee_withdrawal', false)
             .order('order_date', { ascending: false })
             .order('created_at', { ascending: false });
 
@@ -6188,6 +6189,11 @@ export default function PedidosPage() {
                 <h1 className="text-lg font-black text-slate-900 tracking-tight">
                   {editingOrderId ? "Modificar Pedido" : (isWholesaleContext ? "Carga de Pedido Mayorista" : "Carga de Nuevo Pedido")}
                 </h1>
+                {!editingOrderId && !isWholesaleContext && (
+                  <a href="/vendedores/retiros-empleados" className="text-xs font-semibold text-blue-700 underline">
+                    Retiro de empleado
+                  </a>
+                )}
                 {editingOrderId && (
                   <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-200">
                     Modo Edición

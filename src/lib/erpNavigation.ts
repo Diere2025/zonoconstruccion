@@ -81,6 +81,7 @@ export const erpModules: ErpModule[] = [
     { id: "tesoreria-caja-personal", name: "Mi Caja", href: "/vendedores/caja", icon: Wallet, sellerOnly: true },
   ] },
   { id: 'logistica', title: 'Logística y Distribución', description: 'Entregas, recorridos, transportistas e impresión.', icon: Truck, links: [
+    { id: 'employee-withdrawals', name: 'Retiros de empleados', href: '/vendedores/retiros-empleados', icon: ClipboardList, allowedRoles: ['admin','seller','logistica','administracion','compras','fletero'] },
     { id: 'logistica-via-cargo', name: 'Vía Cargo · Punto de despacho', href: '/admin/via-cargo', icon: Truck, allowedRoles: ['admin','logistica'] },
     { id: 'logistica-planificacion', name: 'Planificación y seguimiento', href: '/admin/logistica-planificacion', icon: CalendarDays, allowedRoles: ['admin','logistica','administracion'] },
     { id: 'logistica-vinculos', name: 'Vinculación de entregas', href: '/admin/logistica-vinculos', icon: Truck, adminOnly: true },
@@ -160,7 +161,7 @@ export function defaultErpModules(identity: NavigationIdentity): ErpModule[] {
         '/vendedores/cotizaciones?channel=mayorista'
       ].includes(link.href);
       return wholesale || [
-        '/admin/cobros-mp', '/visitas', '/vendedores', '/vendedores/presupuestos',
+        '/admin/cobros-mp', '/visitas', '/vendedores', '/vendedores/presupuestos', '/vendedores/retiros-empleados',
         '/vendedores/pedidos?tab=form&client_type=minoristas',
         '/vendedores/pedidos?tab=list&client_type=minoristas'
       ].includes(link.href);

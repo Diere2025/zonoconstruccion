@@ -112,12 +112,16 @@ export async function POST(req: NextRequest) {
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('orders')
-      .select('id, legacy_code, customer_name, client_id, seller_id, channel, totals')
+      .select('id, legacy_code, customer_name, client_id, seller_id, channel, totals, employee_withdrawal')
       .eq('id', orderId)
       .maybeSingle();
     if (orderErr) throw orderErr;
     if (!order) {
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
+    }
+
+    if (order.employee_withdrawal) {
+      return NextResponse.json({ error: 'Cancelá el pedido desde Retiros de empleados.' }, { status: 409 });
     }
 
     const legacyCode = String(order.legacy_code || '').trim().toUpperCase();

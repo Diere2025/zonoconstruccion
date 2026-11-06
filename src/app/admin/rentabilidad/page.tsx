@@ -437,6 +437,7 @@ export default function RentabilidadDashboard() {
               channel
             )
           `)
+          .eq("orders.employee_withdrawal", false)
           .neq("orders.status", "Cancelado")
           .gte("orders.order_date", start)
           .lte("orders.order_date", end)
