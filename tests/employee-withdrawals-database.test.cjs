@@ -141,11 +141,16 @@ test('employee withdrawals use payroll periods, require authorization, and recon
     await assert.rejects(save('edit', weeklyOrder, 3, home), /Quitá primero/);
     await db.query("update deliveries set status='pendiente_ruteo' where order_id=$1", [weeklyOrder]);
     await db.query("update orders set status='Pendiente' where id=$1", [weeklyOrder]);
-    await save('edit', weeklyOrder, 3, home);
+    await assert.rejects(save('edit', weeklyOrder, 3, { ...home, discount_rate: 101 }), /entre 0 y 100/);
+    await save('edit', weeklyOrder, 3, { ...home, discount_rate: 7.5 });
     assert.equal((await read()).orders[0].state, 'pending');
+    assert.equal((await read()).orders[0].amount, 185);
+    assert.equal((await read()).orders[0].discount_rate, 7.5);
     const shippedItem = (await read()).orders[0].items[0].id;
     await as(reviewer);
-    await save('approve', weeklyOrder, 4, { note: 'Acuerdo', installments: monthly, period_checked: true });
+    await save('approve', weeklyOrder, 4, {
+      note: 'Acuerdo', installments: monthly.map(quota => ({...quota, amount: 92.5})), period_checked: true,
+    });
     await as(logistics);
     await save('deliver', weeklyOrder, 5, { item_id: shippedItem, quantity: 2 });
     const delivered = await db.query('select status,real_delivery_date from deliveries where order_id=$1', [weeklyOrder]);

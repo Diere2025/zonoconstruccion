@@ -78,7 +78,7 @@ async function writeSnapshot(spreadsheet: string, token: string, snapshot: Snaps
     snapshot.items.map(item => `${item.name} (${item.delivered}/${item.quantity})`).join(' · '),
     snapshot.mode === 'home' ? 'Envío a domicilio' : 'Retiro en depósito',
     snapshot.mode === 'home' ? [snapshot.address, snapshot.locality, displayDateField(snapshot.delivery_date ?? '')].filter(Boolean).join(' · ') : '',
-    snapshot.discount_rate ? `${snapshot.discount_rate}%` : '',
+    snapshot.discount_rate != null ? `${snapshot.discount_rate}%` : '',
     snapshot.total ?? '',
   ];
   const written = await request('/values:batchUpdate', {

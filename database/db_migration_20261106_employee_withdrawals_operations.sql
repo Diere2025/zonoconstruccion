@@ -103,7 +103,7 @@ BEGIN
         'state',w.state,'version',w.version,'sheet_pending',w.sheet_version<w.version,
         'status',o.status,'amount',o.total_amount,'created_at',o.created_at,'notes',o.delivery_notes,
         'category',o.category,'mode',o.employee_delivery_mode,'address',o.address,'locality',o.locality,
-        'delivery_date',o.initial_delivery_date,'phone',o.totals->>'delivery_phone','discount_rate',o.order_discount_value,
+        'delivery_date',o.initial_delivery_date,'phone',o.totals->>'delivery_phone','discount_rate',o.totals->'order_discount_value',
         'discount_amount',o.order_discount_amount,'operational_note',o.totals->>'employee_operational_note','review_note',w.review_note,'delivery_events',w.delivery_events,'delivery_closed',w.delivery_closed,
         'items',(SELECT jsonb_agg(jsonb_build_object('id',i.id,'product_id',i.product_id,'name',i.product_name,
           'quantity',i.quantity,'price',i.unit_price,'sku',(SELECT sku FROM public.products WHERE id=i.product_id)) ORDER BY i.id) FROM public.order_items i WHERE i.order_id=o.id),
@@ -150,6 +150,7 @@ DECLARE
   cadence text;
   amount numeric;
   discount_amount numeric;
+  discount_rate numeric;
   mode text;
   address_value text;
   locality_value text;
@@ -231,15 +232,20 @@ BEGIN
       VALUES(p_id,product.id,product.name,delta,amount,coalesce(product.cost_price,0));
       total := total+delta*amount;
     END LOOP;
-    discount_amount := round(total*0.05,2);
+    discount_rate := coalesce((p_data->>'discount_rate')::numeric,
+      CASE WHEN p_action='edit' THEN (o.totals->>'order_discount_value')::numeric END,5);
+    IF discount_rate NOT BETWEEN 0 AND 100 OR discount_rate<>round(discount_rate,2) THEN
+      RAISE EXCEPTION 'Ingresá un descuento entre 0 y 100 con hasta dos decimales.';
+    END IF;
+    discount_amount := round(total*discount_rate/100,2);
     UPDATE public.orders SET customer_name=employee.full_name,category=coalesce(p_data->>'category','OTRO'),
       employee_delivery_mode=mode,address=address_value,locality=locality_value,
       initial_delivery_date=delivery_day,max_delivery_date=delivery_day,
       freight_type=CASE WHEN mode='home' THEN 'Flete Regular' ELSE 'Retiro en depósito' END,
-      order_discount_type='percentage',order_discount_value=5,order_discount_amount=discount_amount,
+      order_discount_type='percentage',order_discount_value=discount_rate,order_discount_amount=discount_amount,
       total_amount=total-discount_amount,
       totals=jsonb_build_object('total',total-discount_amount,'items_subtotal',total,'subtotal',total-discount_amount,
-        'order_discount_type','percentage','order_discount_value',5,'order_discount_amount',discount_amount,
+        'order_discount_type','percentage','order_discount_value',discount_rate,'order_discount_amount',discount_amount,
         'employee_operational_note',note,'delivery_phone',phone_value,'pending_balance',0,
         'customer_snapshot',jsonb_build_object('name',employee.full_name,'phone_primary',phone_value)),
       status='En Espera',
@@ -397,7 +403,7 @@ BEGIN
     'code',o.legacy_code,'category',o.category,'employee',o.customer_name,'created_at',o.created_at,
     'creator',w.created_by,
     'delivery_closed',w.delivery_closed,'mode',o.employee_delivery_mode,'address',o.address,'locality',o.locality,
-    'delivery_date',o.initial_delivery_date,'total',o.total_amount,'discount_rate',o.order_discount_value,
+    'delivery_date',o.initial_delivery_date,'total',o.total_amount,'discount_rate',o.totals->'order_discount_value',
     'items',(SELECT jsonb_agg(jsonb_build_object('name',i.product_name,'quantity',i.quantity,
       'delivered',(SELECT coalesce(sum((e->>'delta')::integer),0) FROM jsonb_array_elements(w.delivery_events) e WHERE e->>'item_id'=i.id::text))
       ORDER BY i.id) FROM public.order_items i WHERE i.order_id=p_id)

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import ErpDateInput from '@/components/ui/ErpDateInput';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
 import { displayDateField, displayErpInstant } from '@/lib/dates/dateFields';
-import { displayPayrollPeriod, employeeDiscountCents, employeeDiscountRate, employeeProductSku, employeeReviewLabels, payrollPeriodEnd, shiftPayrollDate, withdrawalStates, type WithdrawalCadence } from '@/lib/employeeWithdrawals';
+import { displayPayrollPeriod, employeeDiscountCents, employeeDiscountRate, employeeReviewLabels, payrollPeriodEnd, shiftPayrollDate, withdrawalStates, type WithdrawalCadence } from '@/lib/employeeWithdrawals';
 import { supabase } from '@/lib/supabase';
 
 const request = createAuthenticatedRequester(supabase);
@@ -34,7 +34,7 @@ interface Withdrawal {
   id: string; code: string; employee_id: string; employee: string; state: string; status: string; version: number; created_by: string;
   amount: number; created_at: string; notes: string; review_note: string; category: string; sheet_pending: boolean;
   mode: 'pickup' | 'home'; address: string; locality: string; delivery_date: string; phone: string | null;
-  discount_rate: number; discount_amount: number; operational_note: string | null;
+  discount_rate: number | null; discount_amount: number; operational_note: string | null;
   agreement: string | null; credited_amount: number | null; installments: Installment[] | null; delivery_closed: boolean;
   items: (Line & { id: string })[];
   delivery_events: { item_id: string; delta: number; at: string }[];
@@ -63,6 +63,7 @@ function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
   const [locality, setLocality] = useState(order?.mode === 'home' ? order.locality : '');
   const [phone, setPhone] = useState(order?.phone ?? '');
   const [deliveryDate, setDeliveryDate] = useState(order?.mode === 'home' ? order.delivery_date : '');
+  const [discountRate, setDiscountRate] = useState(String(order?.discount_rate ?? employeeDiscountRate));
   const [query, setQuery] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
   const [searchError, setSearchError] = useState('');
@@ -89,11 +90,12 @@ function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
     event.preventDefault();
     if (await save(order ? 'edit' : 'create', id, order?.version ?? null, {
       employee_id: employee, items: lines, note, mode, address, locality, phone, delivery_date: deliveryDate,
+      discount_rate: Number(discountRate),
     })) close();
   }
 
   const subtotal = lines.reduce((total, line) => total + line.quantity * cents(line.price), 0);
-  const discount = employeeDiscountCents(subtotal);
+  const discount = employeeDiscountCents(subtotal, Number(discountRate));
 
   return <form className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" onSubmit={submit}>
     <header className="border-b border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
@@ -133,11 +135,11 @@ function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
         <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50" onClick={() => {
           setLines(current => [...current, { product_id: product.id, name: product.name, sku: product.sku ?? undefined, quantity: 1, price: product.price }]);
           setQuery(''); setProducts([]);
-        }}>{employeeProductSku(product.sku ?? '')}</button>
+        }}>{product.sku}</button>
       </li>)}
     </ul>}
     {lines.map((line, index) => <div key={index} className="grid items-end gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
-      <div className="pb-1 text-sm"><p className="font-semibold">{line.name}</p>{line.sku && <p className="text-slate-500">{employeeProductSku(line.sku)}</p>}</div>
+      <div className="pb-1 text-sm"><p className="font-semibold">{line.name}</p>{line.sku && line.sku !== line.name && <p className="text-slate-500">{line.sku}</p>}</div>
       <label>Cantidad<input required type="number" min="1" max="10000" step="1" className={field} value={line.quantity}
         onChange={event => setLines(lines.map((item, i) => i === index ? { ...item, quantity: Number(event.target.value) } : item))} /></label>
       <label>Precio unitario<input required type="number" min="0" step="0.01" className={field} value={line.price}
@@ -150,7 +152,13 @@ function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
     <footer className="flex flex-wrap items-end justify-between gap-4 border-t border-slate-200 bg-slate-50 p-5 sm:px-6">
     <dl className="w-full max-w-xs space-y-1 text-sm tabular-nums">
       <div className="flex justify-between gap-4"><dt>Subtotal</dt><dd>{money(subtotal / 100)}</dd></div>
-      <div className="flex justify-between gap-4 text-emerald-800"><dt>Descuento empleado ({employeeDiscountRate}%)</dt><dd>−{money(discount / 100)}</dd></div>
+      <div className="flex items-center justify-between gap-4 text-emerald-800">
+        <dt><label className="flex flex-wrap items-center gap-2">Descuento empleado
+          <input aria-label="Descuento empleado en porcentaje" className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-right"
+            type="number" min="0" max="100" step="0.01" required value={discountRate}
+            onChange={event => setDiscountRate(event.target.value)} /> %
+        </label></dt><dd>−{money(discount / 100)}</dd>
+      </div>
       <div className="flex justify-between gap-4 border-t border-slate-200 pt-2 text-base font-bold"><dt>Total del pedido</dt><dd>{money((subtotal - discount) / 100)}</dd></div>
     </dl>
     <div className="flex flex-wrap gap-2">

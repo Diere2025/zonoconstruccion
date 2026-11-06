@@ -8,12 +8,7 @@ export const withdrawalStates: Record<string, string> = {
 export const employeeDiscountRate = 5;
 
 export function employeeDiscountCents(subtotal: number, rate = employeeDiscountRate) {
-  return Math.round(subtotal * rate / 100);
-}
-
-export function employeeProductSku(sku: string) {
-  const code = sku.match(/\(([\w.-]*\d[\w.-]*)\)\s*$/)?.[1];
-  return code ?? sku.trim();
+  return Math.round(subtotal * Math.round(rate * 100) / 10000);
 }
 
 export const employeeReviewLabels: Record<string, string> = {
