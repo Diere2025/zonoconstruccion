@@ -478,6 +478,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
         pathname === '/admin/cobros-mp' ||
         pathname === '/vendedores' ||
         pathname === '/vendedores/presupuestos' ||
+        pathname === '/vendedores/retiros-empleados' ||
         (pathname.startsWith('/vendedores/pedidos') && !query.includes('client_type=mayoristas')) ||
         (canUseWholesale && isWholesaleRoute);
       if (!isRestrictedRouteAllowed) router.replace('/vendedores');

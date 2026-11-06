@@ -218,6 +218,7 @@ export default function SellerCommissionsPage() {
             deliveries ( delivery_date, real_delivery_date, status, route_sheets ( id, delivery_date, status ) )
           `)
           .eq("status", "Entregado")
+          .eq("employee_withdrawal", false)
           .order("id")
           .range(from, from + step - 1);
 

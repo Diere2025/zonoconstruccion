@@ -565,6 +565,15 @@ export default function AdminDashboard() {
         .gte("real_delivery_date", start)
         .lte("real_delivery_date", end);
 
+      recentQuery = recentQuery.eq('employee_withdrawal', false);
+      rangeQuery = rangeQuery.eq('employee_withdrawal', false);
+      prevRangeQuery = prevRangeQuery.eq('employee_withdrawal', false);
+      todayOrdersQuery = todayOrdersQuery.eq('employee_withdrawal', false);
+      monthOrdersQuery = monthOrdersQuery.eq('employee_withdrawal', false);
+      weeklyOrdersQuery = weeklyOrdersQuery.eq('employee_withdrawal', false);
+      itemsQuery = itemsQuery.eq('orders.employee_withdrawal', false);
+      datedDeliveriesQuery = datedDeliveriesQuery.eq('orders.employee_withdrawal', false);
+
       if (channel === 'mayorista') recentQuery = recentQuery.eq('channel', 'mayorista');
       if (channel === 'minorista') recentQuery = recentQuery.in('channel', retailOrderChannels);
       if (channel === 'unclassified') recentQuery = recentQuery.or(`channel.is.null,channel.not.in.(${['mayorista', ...retailOrderChannels].join(',')})`);
