@@ -37,7 +37,7 @@ function databaseError(error: {
 export async function GET(req: NextRequest) {
     try {
         const { db } = await authorize(req);
-        const result = await db.from('outlet_units').select('*').order('created_at', { ascending: false }).limit(1000);
+        const result = await db.from('outlet_units').select('*').is('archived_at', null).order('created_at', { ascending: false }).limit(1000);
         if (result.error)
             throw databaseError(result.error);
         const assignments = await db.from('outlet_assignments').select('unit_id,snapshot').is('released_at', null);
@@ -82,6 +82,22 @@ export async function POST(req: NextRequest) {
         if (result.error)
             throw new RequestError(result.error.message, 409);
         return json({ id: result.data });
+    }
+    catch (error) {
+        return fail(error);
+    }
+}
+
+export async function DELETE(req: NextRequest) {
+    try {
+        const { db } = await authorize(req);
+        const { id, version } = await req.json();
+        if (typeof id !== 'string' || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id) || !Number.isInteger(version) || version < 1)
+            throw new RequestError('Revisá la ficha que querés eliminar.');
+        const result = await db.rpc('outlet_archive_unit', { p_id: id, p_version: version });
+        if (result.error)
+            throw new RequestError(result.error.message, 409);
+        return json({ id });
     }
     catch (error) {
         return fail(error);

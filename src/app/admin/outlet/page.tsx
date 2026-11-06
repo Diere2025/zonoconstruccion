@@ -17,6 +17,7 @@ const stateLabel: Record<string, string> = { draft: 'Borrador', available: 'Disp
 type Unit = OutletUnit & {
     return_reason?: string;
     image_urls: string[];
+    base_stock_transferred?: boolean;
 };
 type Base = {
     id: string;
@@ -126,6 +127,27 @@ export default function OutletPage() {
             setBusy(false);
         }
     }
+    const savedUnit = units.find(unit => unit.id === draft?.id);
+    const canDelete = savedUnit && !savedUnit.base_stock_transferred
+        && ['draft', 'available', 'withdrawn'].includes(savedUnit.state);
+    async function deleteUnit() {
+        if (!draft || !savedUnit || !canDelete || busy || uploading) return;
+        if (!window.confirm(`¿Eliminar la ficha ${savedUnit.code}? Se quitará del catálogo y el código quedará disponible.`)) return;
+        setBusy(true);
+        setError('');
+        try {
+            await request('/api/admin/outlet', {
+                method: 'DELETE',
+                body: JSON.stringify({ id: draft.id, version: draft.version }),
+            });
+            setUnits(current => current.filter(unit => unit.id !== draft.id));
+            setDraft(null);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'No se pudo eliminar la ficha.');
+        } finally {
+            setBusy(false);
+        }
+    }
     const filtered = units.filter(u => (!condition || u.condition === condition) && (!state || u.state === state) && `${u.code} ${u.name} ${u.category}`.toLocaleLowerCase('es').includes(search.toLocaleLowerCase('es')));
     return <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-8">
   <Link href="/admin/catalogo" className="inline-flex items-center gap-2 text-sm text-slate-500"><ArrowLeft size={16}/>Catálogo</Link>
@@ -152,7 +174,9 @@ export default function OutletPage() {
     {draft.base_product_id && !draft.product_id && <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={!!draft.take_from_base_stock} onChange={e => update({ take_from_base_stock: e.target.checked })}/>Reclasificar una unidad del stock del producto base</label>}</section>
     <section className="grid gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-3"><label className="text-sm sm:col-span-3">Cómo tomar el precio de lista<select className={field} value={draft.price_mode || 'manual'} onChange={e => update({ price_mode: e.target.value as 'base' | 'manual', ...(e.target.value === 'manual' ? { list_price: draftList } : {}) })}><option value="base">Automático · lista vigente del producto</option><option value="manual">Manual · fijar precio de lista</option></select></label><label className="text-sm">Precio de lista<input type="number" min="0" step="0.01" className={field} disabled={draft.price_mode === 'base'} value={draft.price_mode === 'base' ? (products.find(p => p.id === draft.base_product_id)?.price ?? '') : draft.list_price ?? ''} onChange={e => update({ list_price: e.target.value === '' ? null : Number(e.target.value) })}/></label><label className="text-sm">Descuento (%)<input type="number" min={draft.condition === 'segunda' ? 5 : 0.01} max={draft.condition === 'segunda' ? 50 : 99.99} step="0.01" className={field} value={draft.discount ?? ''} onChange={e => update({ discount: e.target.value === '' ? null : Number(e.target.value) })}/></label><div><p className="text-sm text-slate-500">Precio final</p><p className="mt-2 text-xl font-bold">{outletPrice(draftList, draft.discount) === null ? '—' : formatPrice(outletPrice(draftList, draft.discount)!)}</p></div></section>
    {units.find(u => u.id === draft.id)?.state === 'review' && draft.state === 'available' && <label className="block text-sm">Revisión física<textarea required className={field} value={draft.return_reason || ''} onChange={e => update({ return_reason: e.target.value })} placeholder="Estado verificado y motivo de republicación"/></label>}
-   </fieldset><details className="text-sm text-slate-500"><summary className="cursor-pointer">Historial</summary>{history.map((h, i) => <p key={i} className="mt-2">{new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date(h.recorded_at))} · {stateLabel[h.after_data.state]}</p>)}</details></div><footer className="flex justify-end gap-2 border-t border-slate-100 p-4"><button type="button" className={`${button} text-slate-500`} disabled={busy || uploading} onClick={() => setDraft(null)}>Cancelar</button><button type="submit" disabled={busy || uploading || ['reserved', 'sold'].includes(draft.state)} className={`${button} bg-brand-600 text-white`}>{busy ? <Loader2 size={16} className="animate-spin"/> : null}{draft.state === 'available' ? 'Publicar' : draft.state === 'withdrawn' ? 'Retirar' : 'Guardar'}</button></footer>
+   </fieldset><details className="text-sm text-slate-500"><summary className="cursor-pointer">Historial</summary>{history.map((h, i) => <p key={i} className="mt-2">{new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date(h.recorded_at))} · {stateLabel[h.after_data.state]}</p>)}</details></div><footer className="flex flex-wrap justify-end gap-2 border-t border-slate-100 p-4">
+     {canDelete && <button type="button" disabled={busy || uploading} onClick={deleteUnit} className={`${button} mr-auto text-red-700 hover:bg-red-50`}><Trash2 size={16}/>Eliminar ficha</button>}
+     <button type="button" className={`${button} text-slate-500`} disabled={busy || uploading} onClick={() => setDraft(null)}>Cancelar</button><button type="submit" disabled={busy || uploading || ['reserved', 'sold'].includes(draft.state)} className={`${button} bg-brand-600 text-white`}>{busy ? <Loader2 size={16} className="animate-spin"/> : null}{draft.state === 'available' ? 'Publicar' : draft.state === 'withdrawn' ? 'Retirar' : 'Guardar'}</button></footer>
   </form></div>}
  </div>;
 }
