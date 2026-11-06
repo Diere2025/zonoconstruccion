@@ -1,0 +1,24 @@
+name = "zono-route-sales"
+main = "index.mjs"
+compatibility_date = "2026-11-04"
+keep_vars = true
+
+[observability]
+enabled = true
+
+[limits]
+cpu_ms = 300000
+
+[triggers]
+crons = [
+  "0 14 * * 1-6",
+  "30 15 * * 1-6",
+  "0 17 * * 1-6",
+  "0 18 * * 1-6",
+  "0 19 * * 1-6",
+  "0 20 * * 1-6",
+  "30 20 * * 1-6",
+  "50 20 * * 1-6",
+  "30 23 * * 1-5",
+  "0 22 * * 6",
+]
