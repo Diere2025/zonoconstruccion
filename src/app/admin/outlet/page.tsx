@@ -35,6 +35,7 @@ export default function OutletPage() {
     const [canManagePermissions,setCanManagePermissions]=useState(false),[showPermissions,setShowPermissions]=useState(false);
     const [units, setUnits] = useState<Unit[]>([]), [products, setProducts] = useState<Base[]>([]), [draft, setDraft] = useState<Unit | null>(null);
     const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [uploading, setUploading] = useState(false), [error, setError] = useState('');
+    const [photoErrors, setPhotoErrors] = useState<string[]>([]);
     const [search, setSearch] = useState(''), [condition, setCondition] = useState(''), [state, setState] = useState('');
     const load = useCallback(async () => {
         setLoading(true);
@@ -67,34 +68,41 @@ export default function OutletPage() {
         setDraft(null); });
     const draftList = draft?.price_mode === 'base' ? (products.find(p => p.id === draft.base_product_id)?.price ?? null) : draft?.list_price ?? null;
     const update = (patch: Partial<Unit>) => setDraft(current => current ? { ...current, ...patch } : current);
-    async function upload(files: FileList | null) {
-        if (!files || !draft)
+    async function upload(files: File[]) {
+        if (!files.length || !draft)
             return;
         setUploading(true);
-        setError('');
+        setPhotoErrors([]);
         try {
             if (draft.photos.length + files.length > 20)
                 throw new Error('Podés cargar hasta 20 fotos.');
             const { data: { user } } = await supabase.auth.getUser();
             if (!user)
                 throw new Error('Volvé a ingresar al ERP.');
-            for (const file of Array.from(files)) {
-                if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type))
-                    throw new Error('Usá fotos JPG, PNG o WebP.');
-                const optimized = await optimizeImageUpload(file);
-                const extension = optimized.type === 'image/png' ? 'png' : optimized.type === 'image/webp' ? 'webp' : 'jpg';
-                const path = `${user.id}/${crypto.randomUUID()}.${extension}`;
-                const result = await supabase.storage.from('outlet-images').upload(path, optimized, { contentType: optimized.type });
-                if (result.error)
-                    throw new Error('No se pudo subir la foto. Volvé a intentar.');
-                const signed = await supabase.storage.from('outlet-images').createSignedUrl(path, 3600);
-                if (signed.error)
-                    throw new Error('No se pudo mostrar la foto.');
-                setDraft(current => current ? { ...current, photos: [...current.photos, path], image_urls: [...current.image_urls, signed.data.signedUrl] } : current);
+            const bucket = supabase.storage.from('outlet-images');
+            for (const file of files) {
+                try {
+                    const suffix = file.name.split('.').pop()?.toLowerCase();
+                    const type = ['jpg', 'jpeg', 'jfif'].includes(suffix || '') ? 'image/jpeg'
+                        : suffix === 'png' ? 'image/png' : suffix === 'webp' ? 'image/webp' : '';
+                    const photo = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ? file
+                        : type ? new File([file], file.name, { type, lastModified: file.lastModified }) : null;
+                    if (!photo) throw new Error('Usá fotos JPG, PNG o WebP.');
+                    const optimized = await optimizeImageUpload(photo);
+                    const extension = optimized.type === 'image/webp' ? 'webp' : 'jpg';
+                    const path = `${user.id}/${crypto.randomUUID()}.${extension}`;
+                    const result = await bucket.upload(path, optimized, { contentType: optimized.type });
+                    if (result.error) throw new Error('No se pudo subir la foto. Volvé a intentar.');
+                    const signed = await bucket.createSignedUrl(path, 3600);
+                    if (signed.error) throw new Error('No se pudo mostrar la foto. Volvé a intentar.');
+                    setDraft(current => current ? { ...current, photos: [...current.photos, path], image_urls: [...current.image_urls, signed.data.signedUrl] } : current);
+                } catch (e) {
+                    setPhotoErrors(current => [...current, `${file.name}: ${e instanceof Error ? e.message : 'No se pudo cargar la foto.'}`]);
+                }
             }
         }
         catch (e) {
-            setError((e as Error).message);
+            setPhotoErrors([e instanceof Error ? e.message : 'No se pudieron cargar las fotos.']);
         }
         finally {
             setUploading(false);
@@ -121,11 +129,11 @@ export default function OutletPage() {
     const filtered = units.filter(u => (!condition || u.condition === condition) && (!state || u.state === state) && `${u.code} ${u.name} ${u.category}`.toLocaleLowerCase('es').includes(search.toLocaleLowerCase('es')));
     return <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-8">
   <Link href="/admin/catalogo" className="inline-flex items-center gap-2 text-sm text-slate-500"><ArrowLeft size={16}/>Catálogo</Link>
-  <header className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-black text-slate-900">Segunda y Outlet</h1><div className="flex gap-2">{canManagePermissions&&<button type="button" className={`${button} border border-slate-200 bg-white text-slate-600`} onClick={()=>setShowPermissions(true)}>Permisos</button>}<button className={`${button} bg-brand-600 text-white`} onClick={() => { setError(''); setDraft(empty()); }}><Plus size={18}/>Nueva unidad</button></div></header>
+  <header className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-black text-slate-900">Segunda y Outlet</h1><div className="flex gap-2">{canManagePermissions&&<button type="button" className={`${button} border border-slate-200 bg-white text-slate-600`} onClick={()=>setShowPermissions(true)}>Permisos</button>}<button className={`${button} bg-brand-600 text-white`} onClick={() => { setError(''); setPhotoErrors([]); setDraft(empty()); }}><Plus size={18}/>Nueva unidad</button></div></header>
 
   {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
   <div className="flex flex-wrap gap-3"><label className="relative min-w-48 flex-1"><Search size={18} className="absolute left-3 top-3 text-slate-400"/><input aria-label="Buscar unidades" placeholder="Buscar por código o producto" className={`${field} pl-10`} value={search} onChange={e => setSearch(e.target.value)}/></label><select aria-label="Condición" className={`${field} !w-auto`} value={condition} onChange={e => setCondition(e.target.value)}><option value="">Todas las condiciones</option><option value="segunda">Segunda</option><option value="outlet">Outlet</option></select><div className="w-full sm:w-56"><AdaptiveSelect aria-label="Estado" className={`${field} !w-auto`} value={state} onChange={e => setState(e.target.value)}><option value="draft">Borradores</option><option value="withdrawn">Retirados</option><option value="available">Disponibles</option><option value="reserved">Reservados</option><option value="sold">Vendidos</option><option value="review">En revisión</option><option value="">Todos los estados</option></AdaptiveSelect></div></div>
-  {loading ? <div className="flex justify-center p-16"><Loader2 className="animate-spin text-brand-600" aria-label="Cargando"/></div> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{filtered.map(u => <button key={u.id} onClick={() => { setError(''); setDraft({ ...u }); }} className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-left transition hover:border-brand-300 hover:shadow-md">
+  {loading ? <div className="flex justify-center p-16"><Loader2 className="animate-spin text-brand-600" aria-label="Cargando"/></div> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{filtered.map(u => <button key={u.id} onClick={() => { setError(''); setPhotoErrors([]); setDraft({ ...u }); }} className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-left transition hover:border-brand-300 hover:shadow-md">
    <div className="flex h-48 items-center justify-center bg-slate-50">{u.image_urls[0] ? <Image unoptimized width={640} height={480} alt={u.name || u.code} src={u.image_urls[0]} className="h-full w-full object-contain"/> : <Package size={40} className="text-slate-300"/>}</div>
    <div className="space-y-2 p-4"><div className="flex justify-between gap-2 text-xs text-slate-500"><span>{u.code}</span><span>{u.condition === 'segunda' ? 'Segunda' : 'Outlet'} · {stateLabel[u.state]}</span></div><h2 className="font-bold text-slate-900">{u.name || 'Sin identificar'}</h2><div className="flex flex-wrap items-baseline gap-2"><strong className="text-xl text-slate-900">{outletPrice(u.list_price, u.discount) === null ? 'Precio pendiente' : formatPrice(outletPrice(u.list_price, u.discount)!)}</strong>{u.discount !== null && <span className="text-sm text-brand-600">−{u.discount}%</span>}</div>{u.list_price !== null && <span className="text-xs text-slate-400">Lista {formatPrice(u.list_price)}</span>}</div>
   </button>)}</div>}
@@ -137,7 +145,9 @@ export default function OutletPage() {
     <section className="grid gap-4 sm:grid-cols-2"><label className="space-y-1 text-sm">Condición<select autoFocus className={field} value={draft.condition} onChange={e => update({ condition: e.target.value as Unit['condition'] })}><option value="segunda">Segunda</option><option value="outlet">Outlet</option></select></label><label className="space-y-1 text-sm">Código<input className={field} value={draft.code} placeholder="Automático al guardar" onChange={e => update({ code: e.target.value })}/></label>
     <div className="sm:col-span-2"><SearchableSelect label="Producto de referencia" value={draft.base_product_id||''} placeholder="Buscar modelo…" clearOnSearch={false} options={[{value:'',label:'Pendiente de vincular'},...products.filter(p=>p.price>0&&!/descuento|bonificaci/i.test(p.name)).map(p=>({value:p.id,label:p.name}))]} onChange={value=>{const p=products.find(p=>p.id===value);update({base_product_id:p?.id||null,...(p?{name:p.name,category:p.category,list_price:p.price}:{})});}}/></div>
     <label className="space-y-1 text-sm sm:col-span-2">Estado<select className={field} value={draft.state} onChange={e => update({ state: e.target.value as Unit['state'] })}><option value="draft">Borrador</option><option value="withdrawn">Retirado</option><option value="available">Disponible</option><option value="review">En revisión</option>{['reserved', 'sold'].includes(draft.state) && <option value={draft.state}>{stateLabel[draft.state]}</option>}</select></label></section>
-    <section className="space-y-3"><h3 className="font-bold text-slate-800">Fotos y condición</h3><div className="flex flex-wrap gap-3">{draft.image_urls.map((url, i) => <div key={draft.photos[i]} className="relative"><a href={url} target="_blank" rel="noreferrer"><Image unoptimized width={96} height={96} src={url} alt={`Foto ${i + 1}`} className="h-24 w-24 rounded-xl border border-slate-200 object-contain"/></a><button type="button" aria-label={`Quitar foto ${i + 1}`} disabled={uploading} className="absolute right-0 top-0 rounded-full bg-white p-1 text-red-600" onClick={() => update({ photos: draft.photos.filter((_, n) => n !== i), image_urls: draft.image_urls.filter((_, n) => n !== i) })}><Trash2 size={14}/></button>{i > 0 && <button type="button" className="block text-xs text-brand-600" onClick={() => update({ photos: [draft.photos[i], ...draft.photos.filter((_, n) => n !== i)], image_urls: [draft.image_urls[i], ...draft.image_urls.filter((_, n) => n !== i)] })}>Usar de portada</button>}{i === 0 && <span className="text-xs text-slate-500">Portada</span>}</div>)}<label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-xs text-slate-500">{uploading ? <Loader2 className="animate-spin"/> : <ImagePlus />}Agregar fotos<input type="file" multiple accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={uploading} onChange={e => { void upload(e.target.files); e.target.value = ''; }}/></label></div>
+    <section className="space-y-3"><h3 className="font-bold text-slate-800">Fotos y condición</h3><div className="flex flex-wrap gap-3">{draft.image_urls.map((url, i) => <div key={draft.photos[i]} className="relative"><a href={url} target="_blank" rel="noreferrer"><Image unoptimized width={96} height={96} src={url} alt={`Foto ${i + 1}`} className="h-24 w-24 rounded-xl border border-slate-200 object-contain"/></a><button type="button" aria-label={`Quitar foto ${i + 1}`} disabled={uploading} className="absolute right-0 top-0 rounded-full bg-white p-1 text-red-600" onClick={() => update({ photos: draft.photos.filter((_, n) => n !== i), image_urls: draft.image_urls.filter((_, n) => n !== i) })}><Trash2 size={14}/></button>{i > 0 && <button type="button" className="block text-xs text-brand-600" onClick={() => update({ photos: [draft.photos[i], ...draft.photos.filter((_, n) => n !== i)], image_urls: [draft.image_urls[i], ...draft.image_urls.filter((_, n) => n !== i)] })}>Usar de portada</button>}{i === 0 && <span className="text-xs text-slate-500">Portada</span>}</div>)}<label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-xs text-slate-500">{uploading ? <Loader2 className="animate-spin"/> : <ImagePlus />}Agregar fotos<input type="file" multiple accept=".jpg,.jpeg,.jfif,.png,.webp,image/jpeg,image/png,image/webp" className="sr-only" disabled={uploading} onChange={e => { const files = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ''; void upload(files); }}/></label></div>
+    {uploading && <p role="status" className="text-sm text-slate-500">Cargando fotos…</p>}
+    {photoErrors.length > 0 && <ul role="alert" className="space-y-1 break-words text-sm text-red-700">{photoErrors.map((message, i) => <li key={i}>{message}</li>)}</ul>}
     <label className="block space-y-1 text-sm">Motivo<input className={field} placeholder={draft.condition === 'outlet' ? 'Exhibición, embalaje dañado…' : 'Motivo de segunda'} value={draft.reason} onChange={e => update({ reason: e.target.value })}/></label><label className="block space-y-1 text-sm">Falla u observaciones<textarea rows={3} className={field} value={draft.defect} onChange={e => update({ defect: e.target.value })}/></label>
     {draft.base_product_id && !draft.product_id && <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={!!draft.take_from_base_stock} onChange={e => update({ take_from_base_stock: e.target.checked })}/>Reclasificar una unidad del stock del producto base</label>}</section>
     <section className="grid gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-3"><label className="text-sm sm:col-span-3">Cómo tomar el precio de lista<select className={field} value={draft.price_mode || 'manual'} onChange={e => update({ price_mode: e.target.value as 'base' | 'manual', ...(e.target.value === 'manual' ? { list_price: draftList } : {}) })}><option value="base">Automático · lista vigente del producto</option><option value="manual">Manual · fijar precio de lista</option></select></label><label className="text-sm">Precio de lista<input type="number" min="0" step="0.01" className={field} disabled={draft.price_mode === 'base'} value={draft.price_mode === 'base' ? (products.find(p => p.id === draft.base_product_id)?.price ?? '') : draft.list_price ?? ''} onChange={e => update({ list_price: e.target.value === '' ? null : Number(e.target.value) })}/></label><label className="text-sm">Descuento (%)<input type="number" min={draft.condition === 'segunda' ? 5 : 0.01} max={draft.condition === 'segunda' ? 50 : 99.99} step="0.01" className={field} value={draft.discount ?? ''} onChange={e => update({ discount: e.target.value === '' ? null : Number(e.target.value) })}/></label><div><p className="text-sm text-slate-500">Precio final</p><p className="mt-2 text-xl font-bold">{outletPrice(draftList, draft.discount) === null ? '—' : formatPrice(outletPrice(draftList, draft.discount)!)}</p></div></section>
