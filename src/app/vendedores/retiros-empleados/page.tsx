@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import ErpDateInput from '@/components/ui/ErpDateInput';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
 import { displayDateField, displayErpInstant } from '@/lib/dates/dateFields';
-import { displayPayrollPeriod, payrollPeriodEnd, shiftPayrollDate, withdrawalStates, type WithdrawalCadence } from '@/lib/employeeWithdrawals';
+import { displayPayrollPeriod, employeeDiscountCents, employeeDiscountRate, employeeProductSku, employeeReviewLabels, payrollPeriodEnd, shiftPayrollDate, withdrawalStates, type WithdrawalCadence } from '@/lib/employeeWithdrawals';
 import { supabase } from '@/lib/supabase';
 
 const request = createAuthenticatedRequester(supabase);
@@ -24,7 +24,7 @@ function requestErrorMessage(error: unknown) {
 
 interface Employee { id: string; name: string }
 interface Account extends Employee { employee_id: string | null; can_review: boolean }
-interface Line { product_id: string; name: string; quantity: number; price: number }
+interface Line { product_id: string; name: string; sku?: string; quantity: number; price: number }
 interface Product { id: string; name: string; sku: string | null; price: number }
 interface Installment {
   cadence: WithdrawalCadence; period_start: string; period_end: string; expected_on: string; amount: number;
@@ -33,6 +33,8 @@ interface Installment {
 interface Withdrawal {
   id: string; code: string; employee_id: string; employee: string; state: string; status: string; version: number; created_by: string;
   amount: number; created_at: string; notes: string; review_note: string; category: string; sheet_pending: boolean;
+  mode: 'pickup' | 'home'; address: string; locality: string; delivery_date: string; phone: string | null;
+  discount_rate: number; discount_amount: number; operational_note: string | null;
   agreement: string | null; credited_amount: number | null; installments: Installment[] | null; delivery_closed: boolean;
   items: (Line & { id: string })[];
   delivery_events: { item_id: string; delta: number; at: string }[];
@@ -45,27 +47,36 @@ interface Inbox {
 type Save = (action: string, id: string, version: number | null, data?: object) => Promise<boolean>;
 const deliveredUnits = (order: Withdrawal, id: string) => order.delivery_events
   .reduce((total, entry) => total + (entry.item_id === id ? entry.delta : 0), 0);
-const deliveredAmount = (order: Withdrawal) => order.items.reduce((sum, item) => sum + deliveredUnits(order, item.id) * cents(item.price), 0) / 100;
+const deliveredAmount = (order: Withdrawal) => {
+  const gross = order.items.reduce((sum, item) => sum + deliveredUnits(order, item.id) * cents(item.price), 0);
+  return (gross - employeeDiscountCents(gross, order.discount_rate ?? 0)) / 100;
+};
 
 function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
   order?: Withdrawal; employees: Employee[]; ownEmployee: string | null; save: Save; busy: boolean; close: () => void;
 }) {
   const [employee, setEmployee] = useState(order?.employee_id || ownEmployee || '');
   const [lines, setLines] = useState<Line[]>(order?.items || []);
-  const [note, setNote] = useState(order?.notes.replace(/^Retiro de empleado(?: · )?/, '') || '');
+  const [note, setNote] = useState(order?.operational_note ?? order?.notes.replace(/^Retiro de empleado(?: · )?/, '') ?? '');
+  const [mode, setMode] = useState(order?.mode ?? 'pickup');
+  const [address, setAddress] = useState(order?.mode === 'home' ? order.address : '');
+  const [locality, setLocality] = useState(order?.mode === 'home' ? order.locality : '');
+  const [phone, setPhone] = useState(order?.phone ?? '');
+  const [deliveryDate, setDeliveryDate] = useState(order?.mode === 'home' ? order.delivery_date : '');
   const [query, setQuery] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
   const [searchError, setSearchError] = useState('');
   const [id] = useState(() => order?.id || crypto.randomUUID());
 
   useEffect(() => {
-    const term = query.trim().replace(/[%_]/g, '');
+    const term = query.trim().replace(/[%_(),."\\]/g, ' ').trim();
     if (term.length < 2) return;
     let current = true;
     const timer = setTimeout(async () => {
       const { data, error } = await supabase.from('products').select('id,name,sku,price')
         .eq('is_active', true).eq('is_service', false).not('is_outlet_unit', 'is', true)
-        .not('is_generic', 'is', true).ilike('name', `%${term}%`).order('name').limit(20);
+        .not('is_generic', 'is', true).not('sku', 'is', null).neq('sku', '').not('name', 'ilike', 'descuento%')
+        .or(`name.ilike.%${term}%,sku.ilike.%${term}%`).order('sku').limit(20);
       if (current) {
         setProducts(data ?? []);
         setSearchError(error ? 'No se pudo buscar en el catálogo.' : '');
@@ -76,44 +87,77 @@ function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (await save(order ? 'edit' : 'create', id, order?.version ?? null, { employee_id: employee, items: lines, note })) close();
+    if (await save(order ? 'edit' : 'create', id, order?.version ?? null, {
+      employee_id: employee, items: lines, note, mode, address, locality, phone, delivery_date: deliveryDate,
+    })) close();
   }
 
-  return <form className={card} onSubmit={submit}>
-    <h2 className="text-lg font-bold">{order ? 'Corregir retiro' : 'Cargar retiro de empleado'}</h2>
-    <label className="block max-w-md">Empleado
+  const subtotal = lines.reduce((total, line) => total + line.quantity * cents(line.price), 0);
+  const discount = employeeDiscountCents(subtotal);
+
+  return <form className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" onSubmit={submit}>
+    <header className="border-b border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
+      <h2 className="text-lg font-bold">{order ? 'Corregir retiro' : 'Nuevo pedido de empleado'}</h2>
+      <p className="text-sm text-slate-600">El pedido queda pendiente de validación antes de habilitar la entrega.</p>
+    </header>
+    <div className="space-y-5 p-5 sm:p-6">
+    <div className="grid gap-4 sm:grid-cols-2">
+    <label className="block text-sm font-semibold">Empleado
       <select required className={field} value={employee} onChange={event => setEmployee(event.target.value)}>
         <option value="">Elegí un empleado</option>
         {employees.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
       </select>
     </label>
+    <label className="block text-sm font-semibold">Modalidad de entrega
+      <select className={field} value={mode} onChange={event => setMode(event.target.value === 'home' ? 'home' : 'pickup')}>
+        <option value="pickup">Retiro en depósito</option>
+        <option value="home">Envío a domicilio</option>
+      </select>
+    </label>
+    </div>
+    {mode === 'home' && <fieldset className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+      <legend className="px-2 text-sm font-semibold">Datos del envío</legend>
+      <label className="text-sm font-semibold">Domicilio<input required maxLength={250} className={field} value={address} onChange={event => setAddress(event.target.value)} /></label>
+      <label className="text-sm font-semibold">Localidad<input required maxLength={150} className={field} value={locality} onChange={event => setLocality(event.target.value)} /></label>
+      <label className="text-sm font-semibold">Teléfono de contacto<input required type="tel" maxLength={50} className={field} value={phone} onChange={event => setPhone(event.target.value)} /></label>
+      <label className="text-sm font-semibold">Fecha de entrega<ErpDateInput required className={field} value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} /></label>
+    </fieldset>}
     {!employees.length && <p>Pedile a Administración que vincule tu cuenta con tu ficha de personal.</p>}
-    <label className="block max-w-md">Buscar producto por nombre
-      <input className={field} value={query} onChange={event => { setProducts([]); setQuery(event.target.value); }} />
+    <div className="space-y-3 border-t border-slate-200 pt-4">
+    <label className="block max-w-md text-sm font-semibold">Buscar producto por nombre o SKU
+      <input className={field} placeholder="Ej. escalera o SKU" value={query} onChange={event => { setProducts([]); setQuery(event.target.value); }} />
     </label>
     {searchError && <p role="alert">{searchError}</p>}
     {products.length > 0 && <ul className="max-h-48 overflow-auto rounded border">
       {products.map(product => <li key={product.id}>
         <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50" onClick={() => {
-          setLines(current => [...current, { product_id: product.id, name: product.name, quantity: 1, price: product.price }]);
+          setLines(current => [...current, { product_id: product.id, name: product.name, sku: product.sku ?? undefined, quantity: 1, price: product.price }]);
           setQuery(''); setProducts([]);
-        }}>{product.name} {product.sku && `· ${product.sku}`}</button>
+        }}>{employeeProductSku(product.sku ?? '')}</button>
       </li>)}
     </ul>}
-    {lines.map((line, index) => <div key={index} className="grid items-end gap-2 sm:grid-cols-[2fr_1fr_1fr_auto]">
-      <p className="pb-2">{line.name}</p>
+    {lines.map((line, index) => <div key={index} className="grid items-end gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
+      <div className="pb-1 text-sm"><p className="font-semibold">{line.name}</p>{line.sku && <p className="text-slate-500">{employeeProductSku(line.sku)}</p>}</div>
       <label>Cantidad<input required type="number" min="1" max="10000" step="1" className={field} value={line.quantity}
         onChange={event => setLines(lines.map((item, i) => i === index ? { ...item, quantity: Number(event.target.value) } : item))} /></label>
       <label>Precio unitario<input required type="number" min="0" step="0.01" className={field} value={line.price}
         onChange={event => setLines(lines.map((item, i) => i === index ? { ...item, price: Number(event.target.value) } : item))} /></label>
       <button type="button" className={button} onClick={() => setLines(lines.filter((_, i) => i !== index))}>Quitar</button>
     </div>)}
-    <label className="block">Observaciones operativas<textarea maxLength={500} className={field} value={note} onChange={event => setNote(event.target.value)} /></label>
-    <p className="font-semibold">Importe {money(lines.reduce((total, line) => total + line.quantity * cents(line.price), 0) / 100)}</p>
+    </div>
+    <label className="block text-sm font-semibold">Observaciones operativas<textarea maxLength={500} className={field} value={note} onChange={event => setNote(event.target.value)} /></label>
+    </div>
+    <footer className="flex flex-wrap items-end justify-between gap-4 border-t border-slate-200 bg-slate-50 p-5 sm:px-6">
+    <dl className="w-full max-w-xs space-y-1 text-sm tabular-nums">
+      <div className="flex justify-between gap-4"><dt>Subtotal</dt><dd>{money(subtotal / 100)}</dd></div>
+      <div className="flex justify-between gap-4 text-emerald-800"><dt>Descuento empleado ({employeeDiscountRate}%)</dt><dd>−{money(discount / 100)}</dd></div>
+      <div className="flex justify-between gap-4 border-t border-slate-200 pt-2 text-base font-bold"><dt>Total del pedido</dt><dd>{money((subtotal - discount) / 100)}</dd></div>
+    </dl>
     <div className="flex flex-wrap gap-2">
       <button className={primary} disabled={busy || !employee || !lines.length}>Enviar a RR. HH.</button>
       <button type="button" className={button} onClick={close}>Cerrar</button>
     </div>
+    </footer>
   </form>;
 }
 
@@ -264,8 +308,15 @@ function OrderCard({ order, inbox, save, busy, period, onEdit }: {
     <header className="flex flex-wrap justify-between gap-2">
       <div><h2 className="text-lg font-bold">{order.employee} · {money(order.amount)}</h2>
         <p className="break-all text-xs text-slate-500">{order.code} · {displayErpInstant(order.created_at)} · {order.category}</p></div>
-      <span className="self-start rounded-full bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-900">{withdrawalStates[order.state]}</span>
+      <span className={`self-start rounded-full px-3 py-1 text-sm font-semibold ${order.state === 'approved' ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>
+        {employeeReviewLabels[order.state] ?? withdrawalStates[order.state]}
+      </span>
     </header>
+    <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+      <p className="font-semibold">{order.mode === 'home' ? 'Envío a domicilio' : 'Retiro en depósito'}</p>
+      {order.mode === 'home' && <p>{order.address}, {order.locality} · {displayDateField(order.delivery_date)}{order.phone && ` · ${order.phone}`}</p>}
+      {Number(order.discount_rate) > 0 && <p>Descuento empleado ({order.discount_rate}%) · {money(order.discount_amount)}</p>}
+    </div>
     <p className="text-sm">{order.notes}{order.review_note && ` · ${order.review_note}`}</p>
     <ul className="divide-y rounded-lg border">
       {order.items.map(item => {
@@ -393,9 +444,10 @@ export default function EmployeeWithdrawalsPage() {
 
   const orders = inbox?.orders ?? [];
   return <main className="mx-auto max-w-6xl space-y-4 p-4 text-slate-900">
-    <header className="flex flex-wrap items-center justify-between gap-3">
-      <div><h1 className="text-2xl font-bold">Retiros de empleados</h1>
-        <p className="text-sm text-slate-600">Pedidos internos, autorización de RR. HH. y entrega en depósito.</p></div>
+    <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:px-6">
+      <div><p className="text-xs font-semibold uppercase tracking-wide text-blue-800">Pedidos internos</p>
+        <h1 className="text-2xl font-bold">Retiros de empleados</h1>
+        <p className="text-sm text-slate-600">Validación de RR. HH., retiro en depósito y envío a domicilio.</p></div>
       {inbox?.capabilities.create && <button className={primary} onClick={() => setEditor('new')}>Cargar retiro</button>}
     </header>
     {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-900">{error}</p>}

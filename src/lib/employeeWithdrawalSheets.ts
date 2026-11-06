@@ -1,6 +1,6 @@
 import { CENTRAL_ORDERS_SHEET, DELIVERIES_CURRENT_SHEET, SELLER_SHEET_CONFIG, getGoogleAccessToken } from '@/lib/googleSheets';
-import { displayErpInstant } from '@/lib/dates/dateFields';
-import { withdrawalStates } from '@/lib/employeeWithdrawals';
+import { displayDateField, displayErpInstant } from '@/lib/dates/dateFields';
+import { employeeReviewLabels } from '@/lib/employeeWithdrawals';
 
 interface Snapshot {
   row: number;
@@ -12,11 +12,18 @@ interface Snapshot {
   status: string;
   delivery_closed: boolean;
   creator: string;
+  mode?: 'pickup' | 'home';
+  address?: string;
+  locality?: string;
+  delivery_date?: string;
+  total?: number;
+  discount_rate?: number;
   items: { name: string; quantity: number; delivered: number }[];
 }
 
 const title = 'Retiros de empleados';
-const header = ['Código ERP', 'Tipo', 'Empleado', 'Carga', 'Categoría logística', 'Autorización', 'Entrega', 'Productos y cantidades'];
+const header = ['Código ERP', 'Tipo', 'Empleado', 'Carga', 'Categoría logística', 'Autorización', 'Entrega', 'Productos y cantidades',
+  'Modalidad', 'Destino y fecha', 'Descuento empleado', 'Total del pedido'];
 
 async function writeSnapshot(spreadsheet: string, token: string, snapshot: Snapshot) {
   const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet}`;
@@ -31,7 +38,7 @@ async function writeSnapshot(spreadsheet: string, token: string, snapshot: Snaps
     return response.json();
   }
   async function findTab() {
-    const metadata = await request('?fields=sheets(properties(sheetId,title,gridProperties(rowCount)))');
+    const metadata = await request('?fields=sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))');
     return metadata.sheets?.find((sheet: { properties: { title: string } }) => sheet.properties.title === title)?.properties;
   }
   let tab = await findTab();
@@ -51,6 +58,11 @@ async function writeSnapshot(spreadsheet: string, token: string, snapshot: Snaps
       sheetId: tab.sheetId, dimension: 'ROWS', length: Math.max(500, snapshot.row - tab.gridProperties.rowCount),
     } }] });
   }
+  if (tab.gridProperties.columnCount < header.length) {
+    await request(':batchUpdate', { requests: [{ appendDimension: {
+      sheetId: tab.sheetId, dimension: 'COLUMNS', length: header.length - tab.gridProperties.columnCount,
+    } }] });
+  }
   const codes = await request(`/values/${encodeURIComponent(`'${title}'!A2:A`)}`);
   const prior = (codes.values as string[][] | undefined)?.findIndex(row => row[0] === snapshot.code) ?? -1;
   const row = prior >= 0 ? prior + 2 : snapshot.row;
@@ -59,18 +71,23 @@ async function writeSnapshot(spreadsheet: string, token: string, snapshot: Snaps
   }
   const partial = snapshot.items.some(item => item.delivered > 0);
   const status = snapshot.status === 'Entregado' ? 'Entregado' : snapshot.delivery_closed ? 'Entrega cerrada' : partial ? 'Entrega parcial' :
-    snapshot.state === 'approved' ? 'Habilitado para retiro' : 'No entregar';
+    snapshot.state === 'approved' ? (snapshot.mode === 'home' ? 'Habilitado para envío' : 'Habilitado para retiro') : 'No entregar';
   const values = [
     snapshot.code, 'Retiro de empleado', snapshot.employee, displayErpInstant(snapshot.created_at),
-    snapshot.category, withdrawalStates[snapshot.state], status,
+    snapshot.category, employeeReviewLabels[snapshot.state], status,
     snapshot.items.map(item => `${item.name} (${item.delivered}/${item.quantity})`).join(' · '),
+    snapshot.mode === 'home' ? 'Envío a domicilio' : 'Retiro en depósito',
+    snapshot.mode === 'home' ? [snapshot.address, snapshot.locality, displayDateField(snapshot.delivery_date ?? '')].filter(Boolean).join(' · ') : '',
+    snapshot.discount_rate ? `${snapshot.discount_rate}%` : '',
+    snapshot.total ?? '',
   ];
   const written = await request('/values:batchUpdate', {
     valueInputOption: 'RAW',
     includeValuesInResponse: true,
+    responseValueRenderOption: 'UNFORMATTED_VALUE',
     data: [
-      { range: `'${title}'!A1:H1`, values: [header] },
-      { range: `'${title}'!A${row}:H${row}`, values: [values] },
+      { range: `'${title}'!A1:L1`, values: [header] },
+      { range: `'${title}'!A${row}:L${row}`, values: [values] },
     ],
   });
   const echoed = written.responses?.[1]?.updatedData?.values?.[0];

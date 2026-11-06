@@ -3240,7 +3240,6 @@ export default function PedidosPage() {
                 ? '*, zones(name), sellers(full_name), clients(is_wholesale), order_items!inner(product_id, product_name)'
                 : '*, zones(name), sellers(full_name), clients(is_wholesale)'
             )
-            .eq('employee_withdrawal', false)
             .order('order_date', { ascending: false })
             .order('created_at', { ascending: false });
 
@@ -3422,6 +3421,10 @@ export default function PedidosPage() {
 
   // Generic loader: can be used for editing (isClone=false) or cloning/re-creating (isClone=true)
   const handleLoadOrderIntoForm = async (order: any, isClone: boolean = false) => {
+    if (order.employee_withdrawal || order.employee_review_status) {
+      window.location.assign('/vendedores/retiros-empleados');
+      return;
+    }
     // La lista puede terminar de cargar antes que la inicialización del formulario.
     // Verificar la sesión actual evita confundir un ID vacío o anterior con falta de permisos.
     let authenticatedUserId: string;
@@ -4032,6 +4035,7 @@ export default function PedidosPage() {
       whaticket_link: rawOrder.whaticket_link || "",
       seller_name: sellerName,
       status: rawOrder.status || "Pendiente",
+      employee_review_status: rawOrder.employee_review_status,
       channel: rawOrder.channel || "",
       commercial_brand: rawOrder.commercial_brand || (rawOrder.channel === 'mayorista' ? 'aquafort' : 'zono'),
       advertising_source_name: advName,
@@ -4041,7 +4045,7 @@ export default function PedidosPage() {
       max_delivery_date: rawOrder.max_delivery_date || "",
       delivery_notes: cleanDeliveryNotes(rawOrder.delivery_notes) || "",
       delivery_detail: cleanDeliveryNotes(rawOrder.delivery_detail) || "",
-      payment_method_name: pmName,
+      payment_method_name: rawOrder.employee_withdrawal ? "Descuento por nómina" : pmName,
       payment_status: rawOrder.payment_status || "Impago",
       total_amount: rawOrder.total_amount || totalsObj.total || 0,
       subtotal: totalsObj.subtotal,
@@ -4181,6 +4185,10 @@ export default function PedidosPage() {
 
   // Reintentar o sincronizar un pedido existente en BD directamente a la Planilla de Google
   const handleSyncExistingOrderToSheet = async (order: any) => {
+    if (order.employee_withdrawal || order.employee_review_status) {
+      window.location.assign('/vendedores/retiros-empleados');
+      return;
+    }
     if (order.channel === 'mayorista') {
       setOrderSaveNotice('Los pedidos mayoristas se gestionan en el ERP y no se sincronizan con planillas.');
       return;

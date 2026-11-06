@@ -127,6 +127,7 @@ export interface Delivery {
 
 export interface RouteOrder {
   id: string;
+  employee_withdrawal?: boolean;
   status: string;
   client_id: string;
   customer_name: string;
@@ -147,6 +148,7 @@ export interface RouteOrder {
   delivery_detail?: string;
   logistics_zone_id?: string;
   totals?: {
+    delivery_phone?: string;
     subtotal?: number;
     freight?: number;
     tax?: number;
