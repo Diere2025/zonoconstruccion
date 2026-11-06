@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import ErpDateInput from '@/components/ui/ErpDateInput';
-import { createAuthenticatedRequester, requestErrorMessage } from '@/lib/authenticatedRequest';
+import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
 import { displayDateField, displayErpInstant } from '@/lib/dates/dateFields';
 import { displayPayrollPeriod, payrollPeriodEnd, shiftPayrollDate, withdrawalStates, type WithdrawalCadence } from '@/lib/employeeWithdrawals';
 import { supabase } from '@/lib/supabase';
@@ -15,6 +15,12 @@ const primary = 'rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-whi
 const card = 'space-y-4 rounded-xl border border-slate-200 bg-white p-4';
 const money = (amount: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(amount);
 const cents = (amount: number) => Math.round(amount * 100);
+
+function requestErrorMessage(error: unknown) {
+  const message = error && typeof error === 'object' && 'message' in error ? error.message : null;
+  return typeof message === 'string' && message.trim() && !/<\s*(?:!doctype|html|body)/i.test(message)
+    ? message : 'No se pudo completar la operación.';
+}
 
 interface Employee { id: string; name: string }
 interface Account extends Employee { employee_id: string | null; can_review: boolean }
