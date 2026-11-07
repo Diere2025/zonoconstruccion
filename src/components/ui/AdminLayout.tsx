@@ -191,7 +191,6 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
   const [isSwitchingSession, setIsSwitchingSession] = useState(false);
   const [impersonationError, setImpersonationError] = useState('');
   const [navigationSearch, setNavigationSearch] = useState('');
-  const [expandedArea, setExpandedArea] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -614,8 +613,6 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
       : section.links.filter(link => normalizeNavigationSearch(link.name).includes(navigationTerm))
   })).filter(section => section.links.length > 0);
   const activeLink = activeErpLink(visibleModules, pathname, searchParams.toString());
-  const activeArea = presentationModules.find(section => section.links.some(link => link.id === activeLink?.link.id))?.id;
-  useEffect(() => { setExpandedArea(activeArea || null); }, [activeArea, pathname]);
   const isActive = (path: string) => activeLink?.link.href === path;
 
   // Compute dynamic breadcrumbs from current pathname
@@ -732,59 +729,46 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
               </div>
             </div>
           ) : (
-            filteredModules.map(section => {
-              const visibleLinks = section.links;
-              const hasActive = visibleLinks.some(link => isActive(link.href));
-              const expanded = Boolean(navigationTerm) || expandedArea === section.id || visibleLinks.length === 1;
-
-              return (
-                <div key={section.id} className="space-y-1">
-                  <button type="button" aria-expanded={expanded} aria-controls={`navigation-${section.id}`} onClick={() => setExpandedArea(expandedArea === section.id ? null : section.id)} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-bold text-slate-300 hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-brand-400">
-                    <span className="flex items-center gap-1.5 truncate">
-                      {section.title}
-                      {hasActive && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0" title="Página activa en este módulo" />
-                      )}
-                    </span>
-                    <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-                  </button>
-
-                    {expanded && <div id={`navigation-${section.id}`} className="space-y-0.5">
-                      {visibleLinks.map((link, index) => {
-                        const Icon = link.icon;
-                        const active = isActive(link.href);
-                        return (
-                          <React.Fragment key={link.id}>
-                          {section.id === 'logistica' && (index === 0 || logisticsGroup(visibleLinks[index - 1].id) !== logisticsGroup(link.id)) && <p className="px-3 pt-3 pb-1 text-[10px] font-semibold text-slate-400">{logisticsGroup(link.id)}</p>}
-                          <Link
-                            key={link.href}
-                            href={link.href}
-                            onClick={() => {
-                              closeSidebarOnMobile();
-                              if (link.href.includes('/vendedores/pedidos')) {
-                                window.dispatchEvent(new CustomEvent('zono_nav_pedidos', { detail: { href: link.href } }));
-                              }
-                            }}
-                            className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
-                              active 
-                                ? "bg-brand-600 text-white font-semibold shadow-xs" 
-                                : "text-slate-300 hover:text-white hover:bg-slate-800/60"
-                            }`}
-                          >
-                            <Icon className={`w-4 h-4 shrink-0 transition-colors ${
-                              active 
-                                ? "text-white" 
-                                : "text-slate-400 group-hover:text-slate-200"
-                            }`} />
-                            <span className="truncate">{link.name}</span>
-                          </Link>
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>}
+            filteredModules.map(section => (
+              <div key={section.id} className="space-y-1">
+                <h2 className="px-3 py-2 text-xs font-bold text-slate-300">{section.title}</h2>
+                <div className="space-y-0.5">
+                  {section.links.map((link, index) => {
+                    const Icon = link.icon;
+                    const active = isActive(link.href);
+                    return (
+                      <React.Fragment key={link.id}>
+                        {section.id === 'logistica' && (index === 0 || logisticsGroup(section.links[index - 1].id) !== logisticsGroup(link.id)) && (
+                          <p className="px-3 pt-3 pb-1 text-[10px] font-semibold text-slate-400">{logisticsGroup(link.id)}</p>
+                        )}
+                        <Link
+                          href={link.href}
+                          aria-current={active ? 'page' : undefined}
+                          onClick={() => {
+                            closeSidebarOnMobile();
+                            if (link.href.includes('/vendedores/pedidos')) {
+                              window.dispatchEvent(new CustomEvent('zono_nav_pedidos', { detail: { href: link.href } }));
+                            }
+                          }}
+                          className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
+                            active
+                              ? "bg-brand-600 text-white font-semibold shadow-xs"
+                              : "text-slate-300 hover:text-white hover:bg-slate-800/60"
+                          }`}
+                        >
+                          <Icon className={`w-4 h-4 shrink-0 transition-colors ${
+                            active
+                              ? "text-white"
+                              : "text-slate-400 group-hover:text-slate-200"
+                          }`} />
+                          <span className="truncate">{link.name}</span>
+                        </Link>
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
-              );
-            })
+              </div>
+            ))
           )}
           {isRoleLoaded && screenAccess.ready && filteredModules.length === 0 && (
             <p role="status" className="px-3 py-4 text-xs text-slate-400">No encontramos opciones para “{navigationSearch}”.</p>
