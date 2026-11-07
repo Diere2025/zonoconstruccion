@@ -7,6 +7,7 @@ import { financialContext,financialMutationContext } from '@/lib/financialOperat
 import { isUuid, OperationError, validateOperation } from '@/lib/financialOperations/validation';
 import {prepareOperationForm} from '@/lib/financialOperations/formDefaults';
 import {specialTypes} from '@/lib/financialOperations/specialized';
+import {isSupplierApplicationSource} from '@/lib/financialOperations/types';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
@@ -80,7 +81,15 @@ export async function GET(request: Request) {
       const scopeResult=purchaseIds.length?await db.from('supplier_document_account_scope').select('id,account_included').in('id',purchaseIds):{data:[],error:null};
       if(scopeResult.error)throw scopeResult.error;
       const scope=new Map((scopeResult.data||[]).map(p=>[p.id,p.account_included]));
-      return NextResponse.json({...snapshot,purchases:(purchases.data||[]).map(p=>({...p,account_included:scope.get(p.id)===true,editable_allocation_amount:snapshot.payload.allocations?.find((a:{purchase_id:string;amount:string})=>a.purchase_id===p.id)?.amount||'0'})),order:order.data,client:client.data},{headers:{'Cache-Control':'no-store'}});
+      const t=snapshot.transaction;
+      const supplierApplicationEligible=isSupplierApplicationSource(snapshot.payload.operation_type,t.type)
+        && !snapshot.payload.supplier_id && !snapshot.payload.client_payment_id && !snapshot.payload.person_id && !t.employee_id && !t.register_id
+        && !t.treasury_settlement_id && !t.reversal_of_transaction_id && !snapshot.planning
+        && (!snapshot.operation || snapshot.operation.status==='posted') && t.category!=='Movimiento de cuentas'
+        && !snapshot.applications.some((a:{kind:string})=>a.kind!=='Comprobante');
+      const partnerLinks=supplierApplicationEligible?await db.from('financial_partner_allocations').select('id').eq('cash_transaction_id',t.id).is('reversed_at',null).limit(1):null;
+      if(partnerLinks?.error)throw partnerLinks.error;
+      return NextResponse.json({...snapshot,supplierApplicationEligible:supplierApplicationEligible&&!partnerLinks?.data?.length,purchases:(purchases.data||[]).map(p=>({...p,account_included:scope.get(p.id)===true,editable_allocation_amount:snapshot.payload.allocations?.find((a:{purchase_id:string;amount:string})=>a.purchase_id===p.id)?.amount||'0'})),order:order.data,client:client.data},{headers:{'Cache-Control':'no-store'}});
     }
     const [methods,vouchers,conceptTypes] = await Promise.all([
       db.from('payment_methods').select('id,name').order('name'),
@@ -126,7 +135,7 @@ export async function POST(request: Request) {
           if(result.error)throw result.error;
           methods=result.data||[];
         }
-        body.payload=prepareOperationForm(body.payload,methods);
+        body.payload=prepareOperationForm(body.payload,methods,body.supplierApplication===true);
       }
       validateOperation(body.payload);
       requireSupplierVoucherConfirmation(body.payload);
@@ -135,6 +144,10 @@ export async function POST(request: Request) {
       || (body.target.operation_id && !isUuid(body.target.operation_id))
       || (body.target.expected_version !== undefined && (!Number.isInteger(body.target.expected_version) || body.target.expected_version < 1)))) throw new OperationError('Referencia de edición inválida.');
     if (body.action !== 'save' && !body.target) throw new OperationError('Elegí el movimiento.');
+    if (body.supplierApplication === true && (body.action !== 'link' || body.payload?.operation_type !== 'supplier_payment'
+      || !body.payload.supplier_id || body.payload.detail.supplier_kind === 'eventual')) {
+      throw new OperationError('La vinculación requiere un egreso existente y un proveedor.');
+    }
     if (body.action === 'cancel' && (typeof body.reason !== 'string' || body.reason.trim().length < 3 || body.reason.length > 1000)) throw new OperationError('Indicá el motivo de anulación.');
     if(body.action==='cancel'&&body.target.operation_id){
       const op=await db.from('financial_operations').select('operation_type').eq('id',body.target.operation_id).single();if(op.error)throw op.error;
@@ -144,7 +157,7 @@ export async function POST(request: Request) {
         return NextResponse.json({result:cancelled.data},{headers:{'Cache-Control':'no-store'}});
       }
     }
-    const {data,error} = await db.rpc(body.action==='cancel'?'mutate_financial_operation':body.action==='save'?'save_catalog_financial_operation':'save_financial_operation',{
+    const {data,error} = await db.rpc(body.supplierApplication===true?'link_supplier_financial_movement':body.action==='cancel'?'mutate_financial_operation':body.action==='save'?'save_catalog_financial_operation':'save_financial_operation',{
       p_actor:actor,p_key:body.key,p_action:body.action,p_payload:body.payload || {},p_target:body.target || {},p_reason:body.reason || ''
     });
     if (error) throw error;

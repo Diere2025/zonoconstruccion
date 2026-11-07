@@ -52,6 +52,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ suppliers: data });
     }
     if (!isUuid(supplierId)) return failure(new Error('Proveedor inválido.'), 400);
+    const view=params.get('view');
+    if(view==='documents'){
+      const documents=await allRows<{source_id:string;reference:string;currency:string}>(db.from('supplier_account_entries')
+        .select('source_id,reference,currency').eq('supplier_id',supplierId).eq('source','purchase')
+        .eq('voided',false).neq('kind','Nota de Crédito').order('entry_date').order('source_id'));
+      return NextResponse.json({documents:documents.map(({source_id,reference,currency})=>({id:source_id,reference,currency}))});
+    }
+    const currency=params.get('currency'), page=Number(params.get('page')??0), query=(params.get('q')||'').toLowerCase();
+    if(view!==null&&(!['current','history'].includes(view)||!['ARS','USD'].includes(currency||'')
+      ||!Number.isSafeInteger(page)||page<0||page>1_000_000)){
+      return failure(new Error('Selección de extracto inválida.'),400);
+    }
     const [config, entries, history] = await Promise.all([
       db.from('supplier_account_starts').select('*').eq('supplier_id', supplierId).maybeSingle(),
       allRows(db.from('supplier_account_entries').select('*').eq('supplier_id', supplierId).order('entry_date').order('source').order('source_id')),
@@ -59,15 +71,23 @@ export async function GET(request: Request) {
     ]);
     if (config.error) throw config.error;
     const references=await supplierReferenceData(db,supplierId);
+    const movements=new Map(references.movements.map(t=>[t.id,t]));
     for(const entry of entries as AccountEntry[]){
       entry.applications=(entry.source==='purchase'?references.byPurchase:references.byPayment).get(entry.source_id)||[];
       if(entry.source==='payment'){
-        const movement=references.movements.find(t=>t.id===entry.cash_transaction_id);
+        const movement=entry.cash_transaction_id?movements.get(entry.cash_transaction_id):undefined;
         entry.reference=movement?movementCode(movement):`PAG-${entry.source_id.toUpperCase()}`;
       }
     }
     const start = config.data as AccountStart | null;
-    return NextResponse.json({ start, ...supplierLedger(start, entries as AccountEntry[], history as HistoryChoice[], { from, to }) });
+    const ledger=supplierLedger(start,entries as AccountEntry[],history as HistoryChoice[],{from,to});
+    if(view===null)return NextResponse.json({start,...ledger});
+    const rows=ledger.rows.filter(row=>row.currency===currency
+      && (view==='current'?row.included:!row.included||row.historical||row.reconciled)
+      && (!query||`${row.reference} ${row.kind} ${row.notes||''} ${(row.applications||[]).map(a=>a.code).join(' ')}`.toLowerCase().includes(query)));
+    if(view==='history')rows.reverse();
+    const pageSize=50, currentPage=Math.min(page,Math.max(0,Math.ceil(rows.length/pageSize)-1));
+    return NextResponse.json({start,...ledger,total:rows.length,page:currentPage,pageSize,rows:rows.slice(currentPage*pageSize,(currentPage+1)*pageSize)});
   } catch (error) { return failure(error); }
 }
 

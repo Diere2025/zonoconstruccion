@@ -25,12 +25,12 @@ export function PersonnelFields({value,onChange,employees,onManage}:{value:Opera
     {value.detail.payroll_kind==='salary' && value.employee_id && Number(employees.find(e=>e.id===value.employee_id)?.base_salary)>0 && <button type="button" className="self-end rounded-lg border border-slate-200 px-3 py-2 text-xs" onClick={()=>onChange({...value,amount:String(employees.find(e=>e.id===value.employee_id)?.base_salary || '')})}>Usar sueldo base como importe</button>}
   </div>;
 }
-export function SupplierFields({value,onChange,suppliers,purchases,currency}:{value:OperationInput;onChange:(value:OperationInput)=>void;suppliers:SupplierOption[];purchases:PurchaseOption[];currency?:string}) {
+export function SupplierFields({value,onChange,suppliers,purchases,currency,registeredOnly=false}:{value:OperationInput;onChange:(value:OperationInput)=>void;suppliers:SupplierOption[];purchases:PurchaseOption[];currency?:string;registeredOnly?:boolean}) {
   const eventual=value.detail.supplier_kind==='eventual';
   return <div className="space-y-3">
-    <label className="block text-xs font-semibold">Tipo de pago<AdaptiveSelect aria-label="Tipo de pago a proveedor" className={fieldClass} value={eventual?'eventual':'registered'} onChange={e=>{const detail={...value.detail};delete detail.supplier_allocation_mode;onChange({...value,supplier_id:undefined,allocations:[],detail:{...detail,supplier_kind:e.target.value as 'registered'|'eventual',supplier_name:'',...(e.target.value==='registered'?{supplier_allocation_mode:'oldest_first' as const}:{})}});}}>
+    {!registeredOnly&&<label className="block text-xs font-semibold">Tipo de pago<AdaptiveSelect aria-label="Tipo de pago a proveedor" className={fieldClass} value={eventual?'eventual':'registered'} onChange={e=>{const detail={...value.detail};delete detail.supplier_allocation_mode;onChange({...value,supplier_id:undefined,allocations:[],detail:{...detail,supplier_kind:e.target.value as 'registered'|'eventual',supplier_name:'',...(e.target.value==='registered'?{supplier_allocation_mode:'oldest_first' as const}:{})}});}}>
       <option value="registered">Proveedor registrado · recepción, documento o anticipo</option><option value="eventual">Compra eventual · sin alta de proveedor</option>
-    </AdaptiveSelect></label>
+    </AdaptiveSelect></label>}
     {eventual ? <div className="space-y-2">
       <label className="block text-xs font-semibold">Comercio / proveedor (opcional)<input aria-label="Comercio de la compra eventual" className={fieldClass} maxLength={240} placeholder="Ej.: ferretería" value={value.detail.supplier_name || ''} onChange={e=>onChange({...value,detail:{...value.detail,supplier_name:e.target.value}})}/></label>
 

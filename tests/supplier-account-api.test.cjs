@@ -17,7 +17,9 @@ function load(denied, database, purchaseDenied = denied) {
       if (name === '@/lib/financeAdminAccess') return { requireFinanceAdmin: async () => denied };
       if (name === '@/lib/supplierAccount') return helpers;
       if (name === '@/lib/financialOperations/references') return {};
-      if (name === '@/lib/financialOperations/referenceServer') return {};
+      if (name === '@/lib/financialOperations/referenceServer') return {
+        supplierReferenceData:async()=>({movements:[],byPayment:new Map(),byPurchase:new Map([[documentId(1),[{code:'DOC-VINCULADO'}]]])})
+      };
       if (name === '@/lib/supplierAccounts/sheetSync') return { processSupplierSheetJob: async () => ({synced:true,queued:false}) };
       throw new Error(name);
     }
@@ -25,6 +27,7 @@ function load(denied, database, purchaseDenied = denied) {
   return exports;
 }
 const request = body => ({ url: 'https://example.com/api/admin/supplier-accounts', headers: new Headers({ authorization: 'Bearer test' }), json: async () => body });
+const documentId=n=>'10000000-0000-0000-0000-'+String(n).padStart(12,'0');
 (async () => {
   for (const status of [401, 403]) {
     const api = load({ status, error: 'Denied' });
@@ -62,6 +65,27 @@ const request = body => ({ url: 'https://example.com/api/admin/supplier-accounts
   assert.equal((await load(null,db,{status:403,error:'No compras'}).POST(request(receiptBody))).status,403);
   const legacy={...receiptBody};delete legacy.poIds;
   assert.equal((await api.POST(request(legacy))).status,200);assert.equal(rpc.name,'register_supplier_receipt');
+  const entries=Array.from({length:52},(_,i)=>({
+    source:'purchase',source_id:documentId(i+1),currency:'ARS',reference:'REM-'+(i+1),kind:'Remito',
+    entry_date:new Date(Date.UTC(2026,7,i+1)).toISOString().slice(0,10),amount:10,voided:false
+  }));
+  const history=[{source:'purchase',source_id:documentId(1),included:true,notes:'Revisado'}];
+  db.from=table=>({
+    select(){return this;},eq(){return this;},order(){return this;},
+    maybeSingle:async()=>({data:{start_date:'2026-10-01',opening_ars:200,opening_usd:0}}),
+    range:async()=>({data:structuredClone(table==='supplier_account_entries'?entries:history)})
+  });
+  const get=(query)=>api.GET({...request(),url:'https://example.com/api/admin/supplier-accounts?supplierId='+supplierId+query});
+  const first=(await get('&view=history&currency=ARS')).body;
+  const last=(await get('&view=history&currency=ARS&page=1')).body;
+  assert.equal(first.total,52);assert.equal(first.rows.length,50);assert.equal(first.rows[0].reference,'REM-52');
+  assert.equal(last.rows.length,2);assert.equal(last.rows[1].reference,'REM-1');
+  assert.equal(last.rows[1].balance,210);assert.equal(first.balance_ars,210);
+  const found=(await get('&view=history&currency=ARS&q=doc-vinculado')).body;
+  assert.equal(found.total,1);assert.equal(found.rows[0].reference,'REM-1');
+  assert.equal((await get('&view=history&currency=ARS&page=-1')).status,400);
+  const old=(await get('')).body;
+  assert.equal(old.rows.length,52);assert.equal(old.rows[0].reference,'REM-1');
   console.log('Multi-order API payload, duplicate selection and legacy clients: OK');
   console.log('Supplier account API authentication, invalid openings and document ownership: OK');
 })().catch(e => { console.error(e); process.exitCode = 1; });

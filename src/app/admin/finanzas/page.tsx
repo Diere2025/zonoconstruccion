@@ -14,7 +14,7 @@ import MovementClassificationDetail from '@/components/finanzas/MovementClassifi
 import OperationChooser from '@/components/finanzas/operations/OperationChooser';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
 import CollectionOrderLinkModal from '@/components/finanzas/operations/CollectionOrderLinkModal';
-import { inferOperationType, isInactiveFinancialMovement, operationLabels, type OperationType, type OperationSummary } from '@/lib/financialOperations/types';
+import { inferOperationType, isInactiveFinancialMovement, isSupplierApplicationSource, operationLabels, type OperationType, type OperationSummary } from '@/lib/financialOperations/types';
 const financialRequest = createAuthenticatedRequester(supabase);
 const localOperationRead = (url:string,options?:RequestInit) => {
   if(options && (options.method || 'GET')!=='GET')throw new Error('La revisión local solo permite consultar.');
@@ -297,6 +297,7 @@ interface CashTransactionWithRelations {
   } | null;
   client_payments?: Array<{
     id: string;
+    reversed_at?: string | null;
     order_id: string | null;
     amount: number;
     orders: {
@@ -307,6 +308,7 @@ interface CashTransactionWithRelations {
   }>;
   supplier_payments?: Array<{
     id: string;
+    reversed_at?: string | null;
     purchase_id: string | null;
     amount: number;
     supplier_purchases: {
@@ -418,7 +420,7 @@ export default function AdminFinanzasPage() {
 
 function FinanceWorkspace() {
   const approvalAttempt = useRef<{signature:string;key:string}|null>(null);
-  const [operationEditor, setOperationEditor] = useState<{compact?:boolean;kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean}|null>(null);
+  const [operationEditor, setOperationEditor] = useState<{compact?:boolean;kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean;linkSupplier?:boolean}|null>(null);
   const [choosingOperation,setChoosingOperation]=useState(false);
   const operationSaved = async () => { await Promise.all([loadTransactions(false, true), initData(), ...(activeTab==='validations'?[loadValidationOrders()]:[])]); };
   const transactionLoadVersion = useRef(0);
@@ -1333,6 +1335,12 @@ function FinanceWorkspace() {
                       return paginatedTransactions.map(t => {
                         const isIngreso = t.type === 'ingreso';
                         const inactive = isInactiveFinancialMovement(t);
+                        const canLinkSupplier = operationsAvailable!==false && !inactive
+                          && isSupplierApplicationSource(inferOperationType(t),t.type)
+                          && !t.register_id && !t.treasury_settlement_id && !t.employee_id
+                          && !t.supplier_payments?.some(p=>!p.reversed_at) && !t.client_payments?.some(p=>!p.reversed_at)
+                          && !t.payment_planning_realizations?.length
+                          && t.category!=='Movimiento de cuentas' && !t.applications?.some(a=>a.kind!=='Comprobante');
                         const currentDate = formatDateDDMMYYYY(t.created_at);
                         const showDateDivider = currentDate !== lastDate;
                         lastDate = currentDate;
@@ -1426,6 +1434,7 @@ function FinanceWorkspace() {
                                       <summary aria-label="Más acciones del movimiento" className="cursor-pointer list-none rounded p-1 text-slate-400 hover:bg-slate-100"><MoreHorizontal className="h-3.5 w-3.5" /></summary>
                                       <div className="absolute right-0 top-full z-20 min-w-48 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
                                     <button type="button" className="block w-full rounded px-2 py-2 text-left text-xs hover:bg-slate-50" onClick={()=>setClassificationTransactionId(t.id)}>Ver pago / cambiar clasificación</button>
+                                    {canLinkSupplier&&<button type="button" disabled={Boolean(cancellingTransactionId)} className="block w-full rounded px-2 py-2 text-left text-xs hover:bg-slate-50" onClick={e=>{const menu=e.currentTarget.closest('details');if(menu)menu.open=false;setOperationEditor({kind:'supplier_payment',transactionId:t.id,linkSupplier:true});}}>Vincular a proveedor y comprobantes</button>}
                                     <button
                                       type="button" disabled={operationsAvailable===false || inactive || Boolean(cancellingTransactionId)}
                                       onClick={() => handleDuplicateTx(t)}

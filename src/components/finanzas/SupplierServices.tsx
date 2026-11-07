@@ -7,16 +7,22 @@ import {treasuryToday} from '@/lib/treasuryTransactionTime';
 import ErpDateInput from '@/components/ui/ErpDateInput';
 type Document={bill_id:string;document_type:string;description:string;evidence:string;bill:{id:string;number:string;bill_date:string;currency:string;declared_total:number;status:string;version:number}};
 const input='w-full border rounded p-2 text-sm',money=(n:number,c:string)=>c+' '+Number(n).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
-export default function SupplierServices({supplierId,documents,onChanged}:{supplierId:string;documents:{id:string;reference:string;currency:string}[];onChanged:()=>Promise<void>}){
+export default function SupplierServices({supplierId,onChanged}:{supplierId:string;onChanged:()=>Promise<void>}){
  const api=useMemo(()=>createAuthenticatedRequester(supabase),[]),[rows,setRows]=useState<Document[]>([]),[type,setType]=useState('Factura'),[number,setNumber]=useState(''),[date,setDate]=useState(treasuryToday()),[dueDate,setDueDate]=useState(''),[currency,setCurrency]=useState('ARS'),[description,setDescription]=useState(''),[evidence,setEvidence]=useState(''),[reason,setReason]=useState(''),[linkedPurchaseId,setLinked]=useState(''),[total,setTotal]=useState(''),[lines,setLines]=useState([{description:'',quantity:'1',unitPrice:'',vat:'21'}]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[voiding,setVoiding]=useState<Document|null>(null),[notice,setNotice]=useState('');
  const retry=useRef<{fingerprint:string;requestId:string;id:string}|null>(null),sending=useRef(false);
- const load=useCallback(async()=>{const d=await api('/api/admin/supplier-services?supplierId='+supplierId);setRows(d.documents);},[api,supplierId]);
- useEffect(()=>{let active=true;api('/api/admin/supplier-services?supplierId='+supplierId).then(d=>{if(active)setRows(d.documents);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[api,supplierId]);
+ const [documents,setDocuments]=useState<Array<{id:string;reference:string;currency:string}>>([]);
+ const read=useCallback(()=>Promise.all([
+  api('/api/admin/supplier-services?supplierId='+supplierId),
+  api('/api/admin/supplier-accounts?view=documents&supplierId='+supplierId)
+ ]),[api,supplierId]);
+ useEffect(()=>{let active=true;read().then(([services,related])=>{if(active){setRows(services.documents);setDocuments(related.documents);}}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[read]);
  const calculated=lines.reduce((sum,l)=>{const net=Math.round(Number(l.quantity)*Number(l.unitPrice)*100);return sum+net+Math.round(net*Number(l.vat)/100);},0)/100;
  async function save(){if(sending.current)return;setError('');setNotice('');try{
   const body=voiding?{id:voiding.bill_id,supplierId,void:true,version:voiding.bill.version,reason}:{supplierId,type,number,date,dueDate,currency,description,evidence,reason,linkedPurchaseId,total,lines};
   const fingerprint=JSON.stringify(body);if(retry.current?.fingerprint!==fingerprint)retry.current={fingerprint,requestId:crypto.randomUUID(),id:crypto.randomUUID()};const payload=validateSupplierService({...body,id:voiding?.bill_id||retry.current.id,requestId:retry.current.requestId});sending.current=true;setBusy(true);
-  await api('/api/admin/supplier-services',{method:'POST',body:JSON.stringify(payload)});retry.current=null;setVoiding(null);setNumber('');setReason('');setDescription('');setEvidence('');setTotal('');setLines([{description:'',quantity:'1',unitPrice:'',vat:'21'}]);await load();await onChanged();setNotice('Comprobante guardado. Consultalo en el extracto y en partidas y vencimientos.');
+  await api('/api/admin/supplier-services',{method:'POST',body:JSON.stringify(payload)});retry.current=null;setVoiding(null);setNumber('');setReason('');setDescription('');setEvidence('');setTotal('');setLines([{description:'',quantity:'1',unitPrice:'',vat:'21'}]);
+  const [services,related]=await read();setRows(services.documents);setDocuments(related.documents);
+  await onChanged();setNotice('Comprobante guardado. Consultalo en el extracto y en partidas y vencimientos.');
  }catch(e){setError((e as Error).message);}finally{sending.current=false;setBusy(false);}}
  return <section className="border rounded-xl p-4 space-y-3"><h5 className="font-semibold">Servicios y ajustes sin recepción</h5><p className="text-xs text-slate-600">Para servicios sin mercadería y notas de débito/crédito. La factura de mercadería recibida se concilia desde Compras con su remito. Este registro no mueve stock ni caja.</p>
   {error&&<p role="alert" className="text-sm text-rose-700">{error}</p>}{notice&&<p role="status" className="text-sm text-emerald-700">{notice}</p>}

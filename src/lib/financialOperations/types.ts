@@ -23,6 +23,10 @@ export function isInactiveFinancialMovement(tx: { financial_operations?: { statu
   return tx.financial_operations?.status === 'cancelled' || Boolean(tx.reversal_of_transaction_id);
 }
 
+export function isSupplierApplicationSource(type: OperationType, direction: string): boolean {
+  return direction === 'egreso' && (type === 'general' || type === 'operating_expense');
+}
+
 export function inferOperationType(tx: { category: string; type: string; employee_id?: string | null;
   supplier_payments?: unknown[]; client_payments?: unknown[]; notes?: string | null;financial_operations?:OperationSummary|null }): OperationType {
   if(tx.financial_operations)return tx.financial_operations.operation_type;
