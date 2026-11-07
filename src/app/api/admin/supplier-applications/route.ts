@@ -32,8 +32,10 @@ export async function GET(request:Request){try{
  if(config.error)throw config.error;
  const ledger=supplierLedger(config.data as AccountStart|null,entries,choices),eligible=new Set(ledger.rows.filter(r=>r.included).map(r=>r.source+':'+r.source_id));
  const openingUsed=(key:string)=>openingApplications.filter(a=>a.source_key===key).reduce((n,a)=>n+Math.round(Number(a.amount)*100),0)/100;
- return NextResponse.json({configured:!!config.data,payments:payments.map(p=>({...p,included:eligible.has('payment:'+p.id),opening_applied:openingUsed('payment:'+p.id),reserved_amount:reservations.filter(r=>r.payment_id===p.id).reduce((n,r)=>n+Math.round(Number(r.amount)*100),0)/100,applied:p.allocations.reduce((n,a)=>n+Math.round(Number(a.amount)*100),0)/100+openingUsed('payment:'+p.id)})),
- credits:credits.map(c=>({...c,kind:'credit',created_at:c.purchase_date,cash_transaction_id:null,included:eligible.has('purchase:'+c.id),opening_applied:openingUsed('credit:'+c.id),applied:c.allocations.reduce((n,a)=>n+Math.round(Number(a.amount)*100),0)/100+openingUsed('credit:'+c.id)})),
+ const recentPayments=payments.sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)||b.id.localeCompare(a.id));
+ const recentCredits=credits.sort((a,b)=>Date.parse(b.purchase_date)-Date.parse(a.purchase_date)||b.id.localeCompare(a.id));
+ return NextResponse.json({configured:!!config.data,payments:recentPayments.map(p=>({...p,included:eligible.has('payment:'+p.id),opening_applied:openingUsed('payment:'+p.id),reserved_amount:reservations.filter(r=>r.payment_id===p.id).reduce((n,r)=>n+Math.round(Number(r.amount)*100),0)/100,applied:p.allocations.reduce((n,a)=>n+Math.round(Number(a.amount)*100),0)/100+openingUsed('payment:'+p.id)})),
+ credits:recentCredits.map(c=>({...c,kind:'credit',created_at:c.purchase_date,cash_transaction_id:null,included:eligible.has('purchase:'+c.id),opening_applied:openingUsed('credit:'+c.id),applied:c.allocations.reduce((n,a)=>n+Math.round(Number(a.amount)*100),0)/100+openingUsed('credit:'+c.id)})),
  purchases:purchases.map(p=>({...p,included:eligible.has('purchase:'+p.id)}))},{headers:{'Cache-Control':'no-store'}});
 }catch(error){return failure(error);}}
 export async function POST(request:Request){try{

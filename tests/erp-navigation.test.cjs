@@ -30,7 +30,7 @@ test('specialized roles keep their authorized links and multi-role users receive
   }
   const combined = new Set(urls(visibleErpModules(identity(['administracion', 'compras']))));
   for (const href of [...urls(visibleErpModules(identity(['administracion']))), ...urls(visibleErpModules(identity(['compras'])))]) assert.ok(combined.has(href), href);
-  assert.deepEqual(Array.from(urls(visibleErpModules(identity(['fletero'])))).sort(), ['/admin/cobros-mp', '/incidencias', '/solicitudes-logistica'].sort());
+  assert.deepEqual(Array.from(urls(visibleErpModules(identity(['fletero'])))).sort(), ['/admin/cobros-mp', '/incidencias', '/solicitudes-logistica', '/vendedores/retiros-empleados'].sort());
 });
 
 test('restricted sellers receive wholesale links only when individually enabled', () => {

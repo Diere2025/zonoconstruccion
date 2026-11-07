@@ -10,7 +10,7 @@ export function withInternalPaymentMethod<T extends {payment_method_id:string}>(
  if(!method)throw new OperationError('Falta configurar el medio interno Transferencia para registrar movimientos.');
  return {...input,payment_method_id:method.id};
 }
-export function prepareOperationForm(input:OperationInput,methods:Method[]):OperationInput {
+export function prepareOperationForm(input:OperationInput,methods:Method[],preserveMovementReferences=false):OperationInput {
  const p=prepareTransfer(withInternalPaymentMethod(input,methods),methods);
  const categories:Partial<Record<OperationInput['operation_type'],string>>={supplier_payment:'Proveedores',customer_collection:'Cobranza',payroll_payment:'Sueldos',operating_expense:'Gastos Operativos'};
  const category=categories[p.operation_type];
@@ -21,7 +21,9 @@ export function prepareOperationForm(input:OperationInput,methods:Method[]):Oper
  const {beneficiary,reference,...detail}=p.detail;
  void beneficiary;void reference;
  return {...p,category,concept:optional&&!p.concept.trim()?operationLabels[p.operation_type]:p.concept,
-  financial_concept_id:undefined,sub_category:undefined,cost_center_id:undefined,route_sheet_id:undefined,
+  financial_concept_id:undefined,sub_category:undefined,
+  cost_center_id:preserveMovementReferences?p.cost_center_id:undefined,
+  route_sheet_id:preserveMovementReferences?p.route_sheet_id:undefined,
   efe_category:p.operation_type==='supplier_payment'?'Pago a Proveedores':undefined,
   ...(p.operation_type==='operating_expense'?{person_id:undefined,...(p.financial_concept_id?{financial_concept_id:p.financial_concept_id,category:p.category,sub_category:p.sub_category,efe_category:p.efe_category}:{})}:{}),
   ...(selectedClassification?{financial_concept_id:p.financial_concept_id,category:p.category,sub_category:p.sub_category,efe_category:p.efe_category}:{}),

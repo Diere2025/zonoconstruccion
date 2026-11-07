@@ -110,11 +110,22 @@ test('daily supplier save uses one mutation RPC, with no catalog or FIFO preflig
   '@/lib/financialClassification/server':{selectableConcepts:async()=>{throw new Error('Unexpected catalog read during mutation');}},
   '@/lib/financialOperations/specialized':{specialTypes:[]},
   '@/lib/financialOperations/references':load('src/lib/financialOperations/references.ts'),
-  '@/lib/financialOperations/referenceServer':{movementApplications:async()=>{throw new Error('Unexpected read during mutation');}}
+  '@/lib/financialOperations/referenceServer':{movementApplications:async()=>{throw new Error('Unexpected read during mutation');}},
+  '@/lib/financialOperations/types':types
  },{Response});
  const payload={...base,operation_type:'supplier_payment',supplier_id:id(3),detail:{supplier_allocation_mode:'oldest_first'},confirm_without_voucher:true};
  const request=()=>new Request('https://example.test',{method:'POST',body:JSON.stringify({action:'save',key:id(10),payload})});
  assert.equal((await route.POST(request())).status,200);assert.equal(calls.length,1);assert.equal(calls[0].name,'save_catalog_financial_operation');assert.equal(calls[0].args.p_actor,id(9));assert.equal(calls[0].args.p_key,id(10));
+ const linkRequest=(action)=>new Request('https://example.test',{method:'POST',body:JSON.stringify({
+  action,key:id(11),supplierApplication:true,target:{transaction_id:id(12)},
+  payload:{...payload,cost_center_id:id(13),route_sheet_id:id(14),detail:{supplier_allocation_mode:'documents'}}
+ })});
+ assert.equal((await route.POST(linkRequest('link'))).status,200);
+ assert.equal(calls[1].name,'link_supplier_financial_movement');
+ assert.equal(calls[1].args.p_payload.cost_center_id,id(13));
+ assert.equal(calls[1].args.p_payload.route_sheet_id,id(14));
+ assert.equal((await route.POST(linkRequest('save'))).status,400);
+ assert.equal(calls.length,2);
  error={code:'42501',message:'No tenés permisos'};assert.equal((await route.POST(request())).status,403);
 });
 

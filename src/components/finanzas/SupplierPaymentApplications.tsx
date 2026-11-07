@@ -35,7 +35,7 @@ export default function SupplierPaymentApplications({supplierId,onChanged,revisi
   setSelected(null);await load();await onChanged();
  }catch(e){setError((e as Error).message);}finally{setBusy(false);}}
  return <section className="space-y-3 rounded-xl border bg-slate-50 p-4">
-  <div><h5 className="font-semibold">Pagos, anticipos y notas de crédito</h5><p className="text-xs text-slate-600">Distribuí pagos y créditos entre documentos o liberá sus aplicaciones. Cambia qué documentos quedan pendientes; el descuento de la nota de crédito ya figura en el extracto y no se repite al aplicarla.</p></div>
+  <div><p className="text-xs text-slate-600">Distribuí pagos y créditos entre documentos o liberá sus aplicaciones. Cambia qué documentos quedan pendientes; el descuento de la nota de crédito ya figura en el extracto y no se repite al aplicarla.</p></div>
   {error&&<p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
   {!data&&!error&&<p className="text-xs">Cargando pagos…</p>}
   {data&&!data.configured&&<p className="text-xs text-amber-800">Definí el punto de partida del proveedor para aplicar pagos al saldo vigente.</p>}
