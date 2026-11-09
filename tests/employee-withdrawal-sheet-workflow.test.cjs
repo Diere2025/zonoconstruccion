@@ -6,11 +6,12 @@ const ts = require('typescript');
 
 test('the historical sheet receives requests before approval and operational sheets only receive approved orders', async () => {
   const calls = [];
+  const operational = [];
   const exports = {};
   const dependencies = {
     googleSheets: {
       getGoogleAccessToken: async () => 'token',
-      upsertEmployeeWithdrawalInOperationalSheets: async () => { calls.push('operational'); },
+      upsertEmployeeWithdrawalInOperationalSheets: async (_, payload) => { calls.push('operational'); operational.push(payload); },
       removeEmployeeWithdrawalFromOperationalSheets: async () => { calls.push('remove operational'); },
     },
     advertisingSources: { EMPLOYEE_WITHDRAWAL_SOURCE: 'Retiro de empleado' },
@@ -27,4 +28,14 @@ test('the historical sheet receives requests before approval and operational she
   await exports.syncEmployeeWithdrawalSheets({ ...order, state: 'approved' });
   await exports.syncEmployeeWithdrawalSheets({ ...order, state: 'returned', reconcile_operational: true });
   assert.deepEqual(calls, ['pending', 'operational', 'approved', 'returned', 'remove operational']);
+
+  calls.length = 0;
+  await exports.syncEmployeeWithdrawalSheets({ ...order, state: 'approved', beneficiary_type: 'personal' });
+  assert.deepEqual(calls, ['operational']);
+  const personal = operational.at(-1);
+  assert.equal(personal.withoutCollection, true);
+  assert.equal(personal.items[0].unitPrice, 0);
+  assert.equal(personal.paymentMethod, 'Sin cobro en la entrega');
+  assert.match(personal.deliveryNotes, /A nombre de Diego Bóveda/);
+  assert.doesNotMatch(personal.deliveryNotes, /nómina|RR\. HH\./);
 });

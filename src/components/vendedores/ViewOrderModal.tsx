@@ -282,7 +282,7 @@ export default function ViewOrderModal({
                 <Package className="w-3.5 h-3.5 text-brand-400" />
                 Artículos ({order.order_items?.length || 0})
               </span>
-              <span className="text-[11px] text-slate-300 font-medium">Precios con IVA incluido</span>
+              {!order.personal_withdrawal && <span className="text-[11px] text-slate-300 font-medium">Precios con IVA incluido</span>}
             </div>
 
             <div className="overflow-x-auto">
@@ -291,8 +291,10 @@ export default function ViewOrderModal({
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black uppercase text-[10px] tracking-wider select-none">
                     <th className="py-2.5 px-3 text-center w-14">Cant.</th>
                     <th className="py-2.5 px-3">SKU</th>
-                    <th className="py-2.5 px-3 text-right w-28">P. Unitario</th>
-                    <th className="py-2.5 px-3 text-right w-32">Total</th>
+                    {!order.personal_withdrawal && <>
+                      <th className="py-2.5 px-3 text-right w-28">P. Unitario</th>
+                      <th className="py-2.5 px-3 text-right w-32">Total</th>
+                    </>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
@@ -312,12 +314,12 @@ export default function ViewOrderModal({
                         <td className="py-2.5 px-3">
                           <div className="font-extrabold text-slate-900">{displaySku}</div>
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                        {!order.personal_withdrawal && <><td className="py-2.5 px-3 text-right font-mono text-slate-600">
                           {formatPrice(price)}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">
                           {formatPrice(subtotal)}
-                        </td>
+                        </td></>}
                       </tr>
                     );
                   })}
@@ -327,6 +329,7 @@ export default function ViewOrderModal({
           </div>
 
           {/* Bloque Financiero y Estado de Cobro */}
+          {order.personal_withdrawal ? <p className="text-sm font-semibold text-slate-700">Sin cobro en la entrega</p> :
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
             
             {/* Estado de Cobro */}
@@ -452,7 +455,7 @@ export default function ViewOrderModal({
               </div>
             </div>
 
-          </div>
+          </div>}
 
         </div>
 

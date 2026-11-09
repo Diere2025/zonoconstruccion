@@ -49,7 +49,9 @@ export interface PrintableOrderData {
   whaticket_link?: string;
   seller_name?: string;
   status?: string;
+  employee_withdrawal?: boolean;
   employee_review_status?: string | null;
+  personal_withdrawal?: boolean;
   channel?: string;
   commercial_brand?: 'zono' | 'aquafort';
   advertising_source_name?: string;
@@ -528,8 +530,10 @@ export default function PrintableOrderModal({
                   <tr style={{ backgroundColor: "#001538", color: "#ffffff", textAlign: "left", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                     <th style={{ padding: "7px 10px", textAlign: "center", width: "50px", borderTopLeftRadius: "6px" }}>Cant.</th>
                     <th style={{ padding: "7px 12px" }}>SKU</th>
-                    <th style={{ padding: "7px 10px", textAlign: "right", width: "110px" }}>Precio Unitario</th>
-                    <th style={{ padding: "7px 12px", textAlign: "right", width: "120px", borderTopRightRadius: "6px" }}>Subtotal</th>
+                    {!order.personal_withdrawal && <>
+                      <th style={{ padding: "7px 10px", textAlign: "right", width: "110px" }}>Precio Unitario</th>
+                      <th style={{ padding: "7px 12px", textAlign: "right", width: "120px", borderTopRightRadius: "6px" }}>Subtotal</th>
+                    </>}
                   </tr>
                 </thead>
                 <tbody>
@@ -552,12 +556,12 @@ export default function PrintableOrderModal({
                             {displaySku}
                           </div>
                         </td>
-                        <td style={{ padding: "7px 10px", textAlign: "right", color: "#475569", fontFamily: "monospace" }}>
+                        {!order.personal_withdrawal && <><td style={{ padding: "7px 10px", textAlign: "right", color: "#475569", fontFamily: "monospace" }}>
                           {formatPrice(unitPrice)}
                         </td>
                         <td style={{ padding: "7px 12px", textAlign: "right", fontWeight: 900, color: "#0f172a", fontFamily: "monospace" }}>
                           {formatPrice(subtotal)}
-                        </td>
+                        </td></>}
                       </tr>
                     );
                   })}
@@ -565,6 +569,7 @@ export default function PrintableOrderModal({
               </table>
 
               {/* SECCIÓN INFERIOR: CONDICIÓN DE PAGO Y TOTALES */}
+              {order.personal_withdrawal ? <p style={{ fontWeight: 800 }}>Sin cobro en la entrega</p> :
               <div data-pdf-keep-together style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: "14px", alignItems: "start" }}>
                 
                 {/* Izquierda: Forma de Pago y Estado de Cobro */}
@@ -735,7 +740,7 @@ export default function PrintableOrderModal({
                     <span style={{ fontFamily: "monospace" }}>{formatPrice(finalTotal)}</span>
                   </div>
                 </div>
-              </div>
+              </div>}
             </div>
 
             {/* PIE DE PÁGINA INSTITUCIONAL CON FIRMAS */}

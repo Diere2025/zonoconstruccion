@@ -289,6 +289,7 @@ export interface SheetOrderPayload {
   freightType?: string;
   freightCost?: number;
   items?: SheetOrderItem[];
+  withoutCollection?: boolean;
 }
 
 /** Keep old browser payloads compatible with the renamed payment method. */
@@ -852,7 +853,7 @@ function buildOrderUpdateBatchData(
 
   batchData.push(
     { range: makeRange(sheetName, 'U', 'W', rowNumber, columnOffset), values: [[normalizeCategoryForSheet(order.category, order.items), normalizePaymentMethodForSheet(order.paymentMethod), order.identification || '']] },
-    { range: makeRange(sheetName, 'X', 'Y', rowNumber, columnOffset), values: [[order.paymentStatus || 'No Abonado', order.depositOrPaidAmount ?? 0]] },
+    { range: makeRange(sheetName, 'X', 'Y', rowNumber, columnOffset), values: [order.withoutCollection ? ['', ''] : [order.paymentStatus || 'No Abonado', order.depositOrPaidAmount ?? 0]] },
     { range: makeRange(sheetName, 'AA', 'AB', rowNumber, columnOffset), values: [[normalizeFreightForSheet(order.freightType), order.freightCost ?? 0]] }
   );
 
@@ -863,7 +864,7 @@ function buildOrderUpdateBatchData(
     batchData.push({
       range: makeRange(sheetName, startColumn, endColumn, rowNumber, columnOffset),
       values: [item
-        ? [normalizeProductNameForSheet(item.name, item.sku), item.quantity || 1, item.unitPrice || 0]
+        ? [normalizeProductNameForSheet(item.name, item.sku), item.quantity || 1, order.withoutCollection ? '' : item.unitPrice || 0]
         : ['', '', '']]
     });
   }
