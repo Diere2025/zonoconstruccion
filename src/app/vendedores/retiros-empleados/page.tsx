@@ -681,7 +681,7 @@ function EmployeeWithdrawalsInbox({ queue }: { queue: '' | 'pending' | 'rejected
   function openDetail(order: Withdrawal) {
     setError(''); setNotice(''); setSelectedId(order.id);
     if (order.state === 'rejected') {
-      void supabase.rpc('employee_withdrawal_rejection_notices', { p_seen: order.id }).then(({ data, error }) => {
+      void Promise.resolve(supabase.rpc('employee_withdrawal_rejection_notices', { p_seen: order.id })).then(({ data, error }) => {
         if (!error && typeof data === 'number') window.dispatchEvent(new Event(WITHDRAWAL_REVIEWS_REFRESH));
       }).catch(() => {});
     }
