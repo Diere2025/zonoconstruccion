@@ -114,6 +114,40 @@ test('Central and Entregas Actual support a split order at the grid boundary',as
   assert.ok(calls.some(c=>c.body?.data?.some(d=>d.range==="'Vendedores'!A2701:A2701")));
 });
 
+test('employee withdrawals enter the standard sheets and update their routed row on retry', async () => {
+  const f = fixture();
+  vm.runInContext(`
+    getNextEmptyOperationalRows = async () => [24];
+    fetchSpreadsheetValueRanges = async (_, ranges) => ranges.map(() => []);
+    findOrderRowsInSheet = async () => [];
+  `, f.context);
+  const order = { clientName: 'Persona de prueba', paymentMethod: 'Descuento Sueldo', items: [
+    { name: 'Escalera', quantity: 1, unitPrice: 159000 },
+    { name: 'Descuento de empleado', quantity: 1, unitPrice: -7950 },
+  ] };
+  await f.exports.upsertEmployeeWithdrawalInOperationalSheets('RMRH00155', order, '🔸 Validado');
+  const first = f.calls.flatMap(call => call.body?.data ?? []);
+  assert.ok(first.some(cell => cell.range === "'Central pedidos'!B24:B24" && cell.values[0][0] === 'RMRH00155'));
+  assert.ok(first.some(cell => cell.range === "'Vendedores'!A24:A24" && cell.values[0][0] === 'RMRH00155'));
+  assert.ok(first.some(cell => cell.range === "'Vendedores'!P24:P24" && cell.values[0][0] === '🔸 Validado'));
+  assert.ok(first.some(cell => cell.range === "'Central pedidos'!Q24:T24" && cell.values[0][0] === '🔹 Pasado'));
+  const paymentValidation = f.calls.flatMap(call => call.body?.requests ?? []).find(request => request.setDataValidation);
+  assert.equal(paymentValidation.setDataValidation.rule.condition.values[0].userEnteredValue, 'Descuento Sueldo');
+  assert.equal(paymentValidation.setDataValidation.range.startColumnIndex, 21);
+  assert.deepEqual(first.find(cell => cell.range === "'Vendedores'!AH24:AJ24").values[0],
+    ['Descuento de empleado', 1, -7950]);
+
+  f.calls.length = 0;
+  vm.runInContext(`
+    fetchSpreadsheetValueRanges = async (_, ranges) => ranges.map(range => range.includes("'L1'") ? [['RMRH00155']] : []);
+    findOrderRowsInSheet = async () => [{ rowNumber: 2, code: 'RMRH00155' }];
+  `, f.context);
+  await f.exports.upsertEmployeeWithdrawalInOperationalSheets('RMRH00155', order, '🔸 Validado');
+  const retried = f.calls.flatMap(call => call.body?.data ?? []);
+  assert.ok(retried.some(cell => cell.range === "'L1'!AH2:AJ2"));
+  assert.ok(retried.every(cell => !/^'Vendedores'|^'L1'!P/.test(cell.range)));
+});
+
 test('seller split orders grow before format restoration and save every original code',async()=>{
   const f=fixture();
   vm.runInContext("getNextAvailableSheetSlots=async()=>[{code:'JS1',rowNumber:2700},{code:'JS2',rowNumber:2701}]",f.context);

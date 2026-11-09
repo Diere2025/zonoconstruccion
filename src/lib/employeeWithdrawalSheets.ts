@@ -1,107 +1,64 @@
-import { CENTRAL_ORDERS_SHEET, DELIVERIES_CURRENT_SHEET, SELLER_SHEET_CONFIG, getGoogleAccessToken } from '@/lib/googleSheets';
-import { displayDateField, displayErpInstant } from '@/lib/dates/dateFields';
-import { employeeReviewLabels } from '@/lib/employeeWithdrawals';
+import { upsertEmployeeWithdrawalInOperationalSheets, removeEmployeeWithdrawalFromOperationalSheets, getGoogleAccessToken, type SheetOrderItem } from '@/lib/googleSheets';
+import { EMPLOYEE_WITHDRAWAL_SOURCE } from '@/lib/advertisingSources';
+import { displayDateField } from '@/lib/dates/dateFields';
+import { EMPLOYEE_WITHDRAWAL_PAYMENT, employeeReviewLabels, withdrawalMapUrl } from '@/lib/employeeWithdrawals';
+import { writeLegacyWithdrawal, type LegacyWithdrawal } from '@/lib/legacyWithdrawalSheet';
 
-interface Snapshot {
-  row: number;
-  code: string;
-  employee: string;
-  category: string;
-  created_at: string;
-  state: string;
-  status: string;
-  delivery_closed: boolean;
-  creator: string;
-  mode?: 'pickup' | 'home';
-  address?: string;
-  locality?: string;
-  delivery_date?: string;
-  total?: number;
-  discount_rate?: number;
-  items: { name: string; quantity: number; delivered: number }[];
-}
+type Snapshot = LegacyWithdrawal & { reconcile_operational?: boolean };
 
-const title = 'Retiros de empleados';
-const header = ['Código ERP', 'Tipo', 'Empleado', 'Carga', 'Categoría logística', 'Autorización', 'Entrega', 'Productos y cantidades',
-  'Modalidad', 'Destino y fecha', 'Descuento empleado', 'Total del pedido'];
-
-async function writeSnapshot(spreadsheet: string, token: string, snapshot: Snapshot) {
-  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet}`;
-  async function request(path: string, body?: unknown) {
-    const response = await fetch(endpoint + path, {
-      method: body ? 'POST' : 'GET',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!response.ok) throw new Error(`Google Sheets respondió ${response.status}.`);
-    return response.json();
-  }
-  async function findTab() {
-    const metadata = await request('?fields=sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))');
-    return metadata.sheets?.find((sheet: { properties: { title: string } }) => sheet.properties.title === title)?.properties;
-  }
-  let tab = await findTab();
-  if (!tab) {
-    try {
-      const created = await request(':batchUpdate', {
-        requests: [{ addSheet: { properties: { title, gridProperties: { rowCount: Math.max(1000, snapshot.row), columnCount: header.length, frozenRowCount: 1 } } } }],
-      });
-      tab = created.replies[0].addSheet.properties;
-    } catch (error) {
-      tab = await findTab();
-      if (!tab) throw error;
-    }
-  }
-  if (snapshot.row > tab.gridProperties.rowCount) {
-    await request(':batchUpdate', { requests: [{ appendDimension: {
-      sheetId: tab.sheetId, dimension: 'ROWS', length: Math.max(500, snapshot.row - tab.gridProperties.rowCount),
-    } }] });
-  }
-  if (tab.gridProperties.columnCount < header.length) {
-    await request(':batchUpdate', { requests: [{ appendDimension: {
-      sheetId: tab.sheetId, dimension: 'COLUMNS', length: header.length - tab.gridProperties.columnCount,
-    } }] });
-  }
-  const codes = await request(`/values/${encodeURIComponent(`'${title}'!A2:A`)}`);
-  const prior = (codes.values as string[][] | undefined)?.findIndex(row => row[0] === snapshot.code) ?? -1;
-  const row = prior >= 0 ? prior + 2 : snapshot.row;
-  if (prior < 0 && codes.values?.[row - 2]?.[0]) {
-    throw new Error('La fila asignada al retiro está ocupada por otro código.');
-  }
-  const partial = snapshot.items.some(item => item.delivered > 0);
-  const status = snapshot.status === 'Entregado' ? 'Entregado' : snapshot.delivery_closed ? 'Entrega cerrada' : partial ? 'Entrega parcial' :
-    snapshot.state === 'approved' ? (snapshot.mode === 'home' ? 'Habilitado para envío' : 'Habilitado para retiro') : 'No entregar';
-  const values = [
-    snapshot.code, 'Retiro de empleado', snapshot.employee, displayErpInstant(snapshot.created_at),
-    snapshot.category, employeeReviewLabels[snapshot.state], status,
-    snapshot.items.map(item => `${item.name} (${item.delivered}/${item.quantity})`).join(' · '),
-    snapshot.mode === 'home' ? 'Envío a domicilio' : 'Retiro en depósito',
-    snapshot.mode === 'home' ? [snapshot.address, snapshot.locality, displayDateField(snapshot.delivery_date ?? '')].filter(Boolean).join(' · ') : '',
-    snapshot.discount_rate != null ? `${snapshot.discount_rate}%` : '',
-    snapshot.total ?? '',
-  ];
-  const written = await request('/values:batchUpdate', {
-    valueInputOption: 'RAW',
-    includeValuesInResponse: true,
-    responseValueRenderOption: 'UNFORMATTED_VALUE',
-    data: [
-      { range: `'${title}'!A1:L1`, values: [header] },
-      { range: `'${title}'!A${row}:L${row}`, values: [values] },
-    ],
-  });
-  const echoed = written.responses?.[1]?.updatedData?.values?.[0];
-  if (!echoed || values.some((value, index) => String(echoed[index] ?? '') !== String(value ?? ''))) {
-    throw new Error('Google Sheets no confirmó los datos del retiro.');
+async function syncHistoricalWithdrawal(snapshot: Snapshot) {
+  if (process.env.EMPLOYEE_WITHDRAWAL_LEGACY_SHEET_ENABLED !== 'false' && /^RMRH\d{5,}$/.test(snapshot.code)) {
+    await writeLegacyWithdrawal(await getGoogleAccessToken(), snapshot);
   }
 }
 
 export async function syncEmployeeWithdrawalSheets(snapshot: Snapshot) {
-  const spreadsheets = new Set([CENTRAL_ORDERS_SHEET.spreadsheetId, DELIVERIES_CURRENT_SHEET.spreadsheetId]);
-  const config = SELLER_SHEET_CONFIG[snapshot.creator];
-  if (config?.enabled) spreadsheets.add(config.spreadsheetId);
-  const token = await getGoogleAccessToken();
-  const results = await Promise.allSettled([...spreadsheets].map(sheet => writeSnapshot(sheet, token, snapshot)));
-  const failure = results.find(result => result.status === 'rejected');
-  if (failure?.status === 'rejected') throw failure.reason;
+  if (snapshot.state !== 'approved') {
+    await syncHistoricalWithdrawal(snapshot);
+    if (snapshot.reconcile_operational) await removeEmployeeWithdrawalFromOperationalSheets(snapshot.code);
+    return;
+  }
+  const items: SheetOrderItem[] = snapshot.items.map(item => {
+    if (item.price == null || !Number.isFinite(item.price)) throw new Error('Falta el precio de un producto del retiro.');
+    return { name: item.name, sku: item.sku, quantity: item.quantity, unitPrice: item.price };
+  });
+  if (snapshot.total == null || !Number.isFinite(snapshot.total)) throw new Error('Falta el total del retiro.');
+  const gross = items.reduce((sum, item) => sum + item.quantity * Math.round(item.unitPrice * 100), 0);
+  const discount = gross - Math.round(snapshot.total * 100);
+  if (discount < 0) throw new Error('El total del retiro supera el importe de sus productos.');
+  const productSlots = discount > 0 ? 11 : 12;
+  const extra = items.length > productSlots ? items.splice(productSlots - 1) : [];
+  if (extra.length) {
+    const extraGross = extra.reduce((sum, item) => sum + item.quantity * Math.round(item.unitPrice * 100), 0);
+    items.push({ name: 'Varios', quantity: 1, unitPrice: extraGross / 100 });
+  }
+  if (discount > 0) items.push({ name: 'Descuento de empleado', quantity: 1, unitPrice: -discount / 100 });
+  const beneficiary = snapshot.beneficiary_type;
+  const type = beneficiary === 'carrier' ? 'Retiro de fletero' : beneficiary === 'external' ? 'Retiro de tercero' : EMPLOYEE_WITHDRAWAL_SOURCE;
+  await upsertEmployeeWithdrawalInOperationalSheets(snapshot.code, {
+    clientName: snapshot.employee,
+    deliveryDate: displayDateField(snapshot.delivery_date ?? ''),
+    orderDate: displayDateField(snapshot.order_date ?? ''),
+    maxDeliveryDate: displayDateField(snapshot.deadline ?? snapshot.delivery_date ?? ''),
+    phonePrimary: snapshot.phone,
+    sellerName: snapshot.seller_name,
+    source: EMPLOYEE_WITHDRAWAL_SOURCE,
+    paymentMethod: type === EMPLOYEE_WITHDRAWAL_SOURCE ? EMPLOYEE_WITHDRAWAL_PAYMENT : undefined,
+    deliveryNotes: [
+      type, employeeReviewLabels[snapshot.state],
+      snapshot.mode === 'pickup' ? 'Retiro en depósito' : undefined,
+      type === EMPLOYEE_WITHDRAWAL_SOURCE ? 'Descuento por nómina. Sin cobro en la entrega.' : 'Acuerdo fuera de nómina.',
+      snapshot.operational_note,
+      extra.length ? 'Productos adicionales: ' + extra.map(item => `${item.quantity} × ${item.sku || item.name}`).join(' · ') : undefined,
+    ].filter(Boolean).join(' · '),
+    locality: snapshot.locality,
+    address: snapshot.address,
+    mapsLink: snapshot.mode === 'home'
+      ? snapshot.maps_link || withdrawalMapUrl(snapshot.address ?? '', snapshot.locality ?? '')
+      : undefined,
+    category: snapshot.category,
+    freightType: snapshot.mode === 'home' ? 'Flete Regular' : 'Retiro en depósito',
+    items,
+  }, snapshot.status === 'Entregado' ? '🟢 Entregado' : '🔸 Validado');
+  await syncHistoricalWithdrawal(snapshot);
 }

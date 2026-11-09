@@ -1,6 +1,8 @@
 "use client";
 
-import { AdvertisingSource, advertisingSourcesForChannel } from "@/lib/advertisingSources";
+import { AdvertisingSource, EMPLOYEE_WITHDRAWAL_SOURCE, advertisingSourcesForChannel } from "@/lib/advertisingSources";
+import { regularDeliveryWindow } from '@/lib/dates/regularDelivery';
+import { EMPLOYEE_WITHDRAWAL_PAYMENT } from '@/lib/employeeWithdrawals';
 import { isServiceProduct } from '@/lib/serviceProducts';
 import { sellerFirstName, cancellationReasonText } from "@/lib/orderNotificationText";
 import PaymentMethodSelector from "@/components/vendedores/PaymentMethodSelector";
@@ -401,22 +403,6 @@ const calculateNextDeliveryDate = (
     }
   }
   return null;
-};
-
-const calculateNthBusinessDay = (baseDateStr: string, n: number): Date | null => {
-  if (!baseDateStr) return null;
-  const date = new Date(baseDateStr + 'T12:00:00');
-  if (isNaN(date.getTime())) return null;
-
-  let count = 0;
-  while (count < n) {
-    date.setDate(date.getDate() + 1);
-    const day = date.getDay();
-    if (day !== 0) { // Omitir domingo (0)
-      count++;
-    }
-  }
-  return date;
 };
 
 const formatDateInput = (date: Date | null): string => {
@@ -1298,7 +1284,8 @@ export default function PedidosPage() {
   });
   const isFacundoSelectedSeller = FACUNDO_SELLER_IDS.includes(selectedSellerId || currentUserId);
   const filteredAdvertisingSources = useMemo(() => {
-    const sources = advertisingSourcesForChannel(advertisingSources, isWholesaleContext ? 'mayorista' : 'minorista');
+    const sources = advertisingSourcesForChannel(advertisingSources, isWholesaleContext ? 'mayorista' : 'minorista')
+      .filter(source => source.name !== EMPLOYEE_WITHDRAWAL_SOURCE);
     return !isWholesaleContext && isFacundoSelectedSeller
       ? sources.filter(source => source.name === FACUNDO_RETAIL_SOURCE)
       : sources;
@@ -1701,17 +1688,20 @@ export default function PedidosPage() {
     if(sourceVisitId)return; // A visit's agreed date, or pending date, takes precedence over locality defaults.
     const isRegular = deliveryTimes.find(dt => dt.name === deliveryTime?.name)?.category === 'Regular'
       || deliveryTime?.name === 'Regular';
-    const deliveryDays = isRegular ? [1, 2, 3, 4, 5, 6] : deliveryTime?.delivery_days;
+    if (isRegular) {
+      const { from, to } = regularDeliveryWindow(fechaPedido);
+      setEntregaInicial(from);
+      setEntregaMaxima(to);
+      return;
+    }
     const nextDate = calculateNextDeliveryDate(
       deliveryTime?.description || selectedLocality.zones?.delivery_schedule,
       fechaPedido,
-      deliveryDays
+      deliveryTime?.delivery_days
     );
     const initialDate = formatDateInput(nextDate);
     setEntregaInicial(initialDate);
-    setEntregaMaxima(isRegular
-      ? formatDateInput(calculateNthBusinessDay(fechaPedido, 4)) || initialDate
-      : initialDate);
+    setEntregaMaxima(initialDate);
     // La fecha del pedido y la configuración cargada después no deben reescribir ajustes manuales.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localidadId, localities, isPickup, isViaCargo]);
@@ -4017,7 +4007,8 @@ export default function PedidosPage() {
       ? (Array.isArray(rawOrder.zones) ? rawOrder.zones[0]?.name : rawOrder.zones.name)
       : undefined;
 
-    const advName = advertisingSources.find(a => a.id === rawOrder.advertising_source_id)?.name;
+    const advName = advertisingSources.find(a => a.id === rawOrder.advertising_source_id)?.name
+      ?? (rawOrder.employee_withdrawal ? EMPLOYEE_WITHDRAWAL_SOURCE : undefined);
     const medName = orderMediums.find(m => m.id === rawOrder.order_medium_id)?.name;
 
     return {
@@ -4045,7 +4036,9 @@ export default function PedidosPage() {
       max_delivery_date: rawOrder.max_delivery_date || "",
       delivery_notes: cleanDeliveryNotes(rawOrder.delivery_notes) || "",
       delivery_detail: cleanDeliveryNotes(rawOrder.delivery_detail) || "",
-      payment_method_name: rawOrder.employee_withdrawal ? "Descuento por nómina" : pmName,
+      payment_method_name: rawOrder.employee_withdrawal
+        ? (['carrier', 'external'].includes(totalsObj.withdrawal_beneficiary_type) ? "Acuerdo fuera de nómina" : EMPLOYEE_WITHDRAWAL_PAYMENT)
+        : pmName,
       payment_status: rawOrder.payment_status || "Impago",
       total_amount: rawOrder.total_amount || totalsObj.total || 0,
       subtotal: totalsObj.subtotal,

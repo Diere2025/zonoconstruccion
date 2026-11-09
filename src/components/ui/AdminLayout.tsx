@@ -14,6 +14,8 @@ import { supabase, clearLocalSupabaseSession } from "@/lib/supabase";
 import { loadUserRoleProfile, type UserRoleProfile } from "@/lib/userRoleProfile";
 import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
 import { SupportNotifications } from "@/components/support/SupportNotifications";
+import { WithdrawalReviewShortcut } from "@/components/vendedores/WithdrawalReviewShortcut";
+import { EMPLOYEE_WITHDRAWALS_PATH } from "@/lib/employeeWithdrawals";
 
 const adminRequest = createAuthenticatedRequester(supabase);
 const normalizeNavigationSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -413,6 +415,9 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     if (isAdminRole) return true;
 
     const allowedPaths = new Set<string>();
+    if (hasRole('administracion') || hasRole('logistica') || hasRole('compras') || hasRole('fletero')) {
+      allowedPaths.add(EMPLOYEE_WITHDRAWALS_PATH);
+    }
     if (hasRole('instalador')) allowedPaths.add('/visitas');
     if (hasRole('logistica')) {
       allowedPaths.add('/admin/via-cargo');
@@ -872,6 +877,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <ThemeToggle />
+            {isRoleLoaded && cachedIdentityUserId && <WithdrawalReviewShortcut key={cachedIdentityUserId} />}
             {!(userRoles.length === 1 && userRoles[0] === 'instalador') && <SupportNotifications />}
             {/* Live System Status Pill */}
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">

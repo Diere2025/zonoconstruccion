@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { detectOrderCategory } from '@/lib/orderCategory';
+import { withdrawalMapUrl } from '@/lib/employeeWithdrawals';
 import { syncEmployeeWithdrawalSheets } from '@/lib/employeeWithdrawalSheets';
 
 export const runtime = 'edge';
@@ -33,24 +34,29 @@ export async function POST(request: NextRequest) {
   const data = body.data ?? {};
 
   if (action === 'sync') {
-    const { data: snapshot, error } = await db.rpc('employee_withdrawal_claim_sheet', { p_id: id });
-    if (error) return respond({ error: error.message }, 400);
-    if (!snapshot.lease) return respond({ synced: snapshot.synced });
-    let success = false;
-    try {
-      await syncEmployeeWithdrawalSheets(snapshot);
-      success = true;
-    } catch (error) {
-      console.error('[employee-withdrawal-sheets]', error);
-    }
     const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data: synced, error: finishError } = await admin.rpc('employee_withdrawal_finish_sheet', {
-      p_id: id, p_lease: snapshot.lease, p_version: snapshot.version, p_success: success,
-    });
-    if (finishError) console.error('[employee-withdrawal-sheet-finish]', finishError);
-    return respond({ synced: synced === true });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { data: snapshot, error } = await db.rpc('employee_withdrawal_claim_sheet', { p_id: id });
+      if (error) return respond({ error: error.message }, 400);
+      if (!snapshot.lease) return respond({ synced: snapshot.synced });
+      let success = false;
+      try {
+        await syncEmployeeWithdrawalSheets(snapshot);
+        success = true;
+      } catch (error) {
+        console.error('[employee-withdrawal-sheets]', error);
+      }
+      const { data: synced, error: finishError } = await admin.rpc('employee_withdrawal_finish_sheet', {
+        p_id: id, p_lease: snapshot.lease, p_version: snapshot.version, p_success: success,
+      });
+      if (finishError) console.error('[employee-withdrawal-sheet-finish]', finishError);
+      if (synced === true) return respond({ synced: true });
+      if (!success || finishError) break;
+      // The order changed during the write. Reconcile once with the current review state.
+    }
+    return respond({ synced: false });
   }
 
   if (action === 'create' || action === 'edit') {
@@ -63,6 +69,12 @@ export async function POST(request: NextRequest) {
     const { data: products, error } = await db.from('products').select('id,name,sku,category')
       .in('id', [...new Set(data.items.map((item: { product_id: string }) => item.product_id))]);
     if (error) return respond({ error: 'No se pudieron verificar los productos.' }, 400);
+    if (data.maps_link != null && typeof data.maps_link !== 'string') {
+      return respond({ error: 'Ingresá un enlace válido de Google Maps.' }, 400);
+    }
+    if (data.mode === 'home' && !data.maps_link?.trim() && typeof data.address === 'string' && typeof data.locality === 'string') {
+      data.maps_link = withdrawalMapUrl(data.address, data.locality);
+    }
     data.category = detectOrderCategory(data.items.map((item: { product_id: string; quantity: number; price: number }) => ({
       ...products?.find(product => product.id === item.product_id), quantity: item.quantity, unit_price: item.price,
     })));
