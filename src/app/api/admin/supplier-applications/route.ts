@@ -31,7 +31,7 @@ async function paymentDetail(db:SupabaseClient,supplierId:string,paymentId:strin
  const {amount,currency,created_at,cash_transaction_id,signature,allocations}=current;
  const documentIds=allocations.map(a=>a.purchase_id);
  const [movement,documents,opening]=await Promise.all([
-  cash_transaction_id?db.from('cash_transactions').select('id,type,movement_code,concept,notes,financial_accounts(name)')
+  cash_transaction_id?db.from('cash_transactions').select('id,type,movement_code,concept,notes,financial_accounts(name),financial_operations!cash_transactions_operation_id_fkey(detail)')
    .eq('id',cash_transaction_id).maybeSingle():Promise.resolve({data:null,error:null}),
   documentIds.length?db.from('supplier_purchases').select('id,invoice_number,document_type')
    .eq('supplier_id',supplierId).in('id',documentIds):Promise.resolve({data:[],error:null}),
@@ -44,6 +44,8 @@ async function paymentDetail(db:SupabaseClient,supplierId:string,paymentId:strin
  const names=new Map((documents.data||[]).map(doc=>[doc.id,[doc.document_type,doc.invoice_number].filter(Boolean).join(' · ')]));
  const partNames=new Map(parts.map(part=>[part.item_key,part.reference]));
  const account=movement.data?.financial_accounts;
+ const operation=movement.data?.financial_operations;
+ const operationDetail=(Array.isArray(operation)?operation[0]:operation)?.detail;
  let payableDocuments;
  if(review&&scope.data?.included){
   const purchases=await all<{id:string;invoice_number:string|null;document_type:string|null;purchase_date:string|null;
@@ -70,6 +72,8 @@ async function paymentDetail(db:SupabaseClient,supplierId:string,paymentId:strin
  return {
   code:movement.data?movementCode(movement.data):'PAG-'+paymentId.toUpperCase(),
   amount,currency,date:created_at,signature,included:scope.data?.included===true,movementId:movement.data?.id,
+  automaticApplication:operationDetail?.supplier_allocation_mode==='oldest_first',
+  bankLinked:operationDetail?.supplier_link_source==='bank_classification',
   concept:movement.data?.concept,
   notes:scope.data?.reference && scope.data.reference!=='Pago'?scope.data.reference:movement.data?.notes,
   account:(Array.isArray(account)?account[0]:account)?.name,

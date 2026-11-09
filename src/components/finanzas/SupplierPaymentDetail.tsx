@@ -10,6 +10,7 @@ type Amount = number | string;
 type PayableDocument = { id:string; reference:string; date:string|null; availableCents:number };
 type Payment = {
   code:string; amount:Amount; currency:string; date:string; account?:string; concept?:string; notes?:string; movementId?:string;
+  automaticApplication?:boolean; bankLinked?:boolean;
   included:boolean; signature:string; openingSignature:string|null; reserved:number;
   documents:Array<{ purchase_id:string; reference:string; amount:Amount }>;
   opening:Array<{ target_key:string; reference:string; amount:Amount }>;
@@ -32,7 +33,7 @@ export default function SupplierPaymentDetail({supplierId,paymentId,code,onClose
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState(false);
   const [loadingReview,setLoadingReview]=useState(false);
-  const [review,setReview]=useState<{documents:PayableDocument[]; draft:Record<string,string>; reason:string}|null>(null);
+  const [review,setReview]=useState<{documents:PayableDocument[]; draft:Record<string,string>}|null>(null);
   const reviewRequest=useRef<{payload:string;id:string}|null>(null);
   const sending=useRef(false);
   const detailUrl='/api/admin/supplier-applications?'+new URLSearchParams({supplierId,paymentId});
@@ -86,7 +87,7 @@ export default function SupplierPaymentDetail({supplierId,paymentId,code,onClose
       setPayment(current);
       if(!current.included)return;
       const draft=Object.fromEntries(current.documents.map(doc=>[doc.purchase_id,Number(doc.amount).toFixed(2)]));
-      setReview({documents:current.payableDocuments||[],draft,reason:''});
+      setReview({documents:current.payableDocuments||[],draft});
       reviewRequest.current=null;
     }catch(e){setError((e as Error).message);}
     finally{setLoadingReview(false);}
@@ -108,16 +109,15 @@ export default function SupplierPaymentDetail({supplierId,paymentId,code,onClose
 
   async function saveReview(){
     if(!payment||!review||sending.current)return;
-    const reason=review.reason.trim();
     const allocations=Object.entries(review.draft).map(([purchase_id,amount])=>({purchase_id,amount}));
     setError('');
-    if(reason.length<3||!Number.isFinite(reviewTotal)||reviewTotal>documentBudget||unavailable?.length||
+    if(!Number.isFinite(reviewTotal)||reviewTotal>documentBudget||unavailable?.length||
       allocations.some(({purchase_id,amount})=>!/^\d+(?:\.\d{1,2})?$/.test(amount)||cents(amount)<=0||
         cents(amount)>(review.documents.find(doc=>doc.id===purchase_id)?.availableCents||0))){
-      setError('Revisá los importes, el saldo disponible y el motivo de la aplicación.');
+      setError('Revisá los importes y el saldo disponible.');
       return;
     }
-    const body={paymentId,signature:payment.signature,reason,allocations};
+    const body={paymentId,signature:payment.signature,reason:'Aplicaciones actualizadas desde CC Proveedores.',allocations};
     const fingerprint=JSON.stringify(body);
     if(reviewRequest.current?.payload!==fingerprint)reviewRequest.current={payload:fingerprint,id:crypto.randomUUID()};
     sending.current=true;
@@ -151,13 +151,17 @@ export default function SupplierPaymentDetail({supplierId,paymentId,code,onClose
         <p className="font-semibold">{money(payment.amount)}</p>
         <p>{payment.date?dateFormat.format(new Date(payment.date)):'Sin fecha'}{payment.account&&' · '+payment.account}</p>
         {payment.concept&&<p>{payment.concept}</p>}
-        {payment.notes&&<p className="mt-1 text-xs text-slate-600">{payment.notes}</p>}
+        {payment.bankLinked
+          ? <p className="mt-1 text-xs text-slate-600">Vinculado a la cuenta del proveedor al clasificar el extracto bancario.</p>
+          : payment.notes&&<p className="mt-1 text-xs text-slate-600">{payment.notes}</p>}
         {payment.movementId&&<a href={movementHref(payment.movementId)} target="_blank" rel="noopener noreferrer"
           className="mt-2 inline-block text-sm text-brand-700 underline">Ver en Movimientos ↗</a>}
       </div>
       <div>
         <h4 className="font-semibold">Aplicaciones registradas</h4>
-        {!payment.documents.length&&!payment.opening.length&&<p className="mt-1">Pago a cuenta del proveedor.</p>}
+        {payment.automaticApplication&&(payment.documents.length>0||payment.opening.length>0)&&
+          <p className="mt-1 text-slate-600">Aplicación automática por antigüedad.</p>}
+        {!payment.documents.length&&!payment.opening.length&&<p className="mt-1">Pago a cuenta, sin documentos aplicados.</p>}
         <ul className="divide-y">
           {payment.documents.map(doc=><li key={doc.purchase_id} className="flex flex-wrap items-center justify-between gap-2 py-2">
             <span>{doc.reference} · {money(doc.amount)}</span>
@@ -205,10 +209,6 @@ export default function SupplierPaymentDetail({supplierId,paymentId,code,onClose
           </div>)}
         </div>
         <p>Aplicado a documentos · <strong>{money(reviewTotal/100)}</strong> · A cuenta · {money((documentBudget-reviewTotal)/100)}</p>
-        <label className="block text-xs">Motivo de la aplicación
-          <input required minLength={3} maxLength={2000} disabled={saving} value={review.reason} className="mt-1 w-full rounded border p-2"
-            onChange={event=>setReview({...review,reason:event.target.value})}/>
-        </label>
         <div className="flex flex-wrap gap-3">
           <button type="submit" disabled={saving||reviewTotal>documentBudget||!!unavailable?.length}
             className="rounded bg-brand-600 px-3 py-2 text-white disabled:opacity-50">{saving?'Guardando…':'Guardar aplicaciones'}</button>
