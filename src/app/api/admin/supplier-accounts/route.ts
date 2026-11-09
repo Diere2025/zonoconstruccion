@@ -114,11 +114,12 @@ export async function POST(request: Request) {
     const { db, user } = context;
     if(body?.action==='exportSheets'){
       const {exportSupplierReportToSheets,parseSupplierSpreadsheetUrl}=await import('@/lib/supplierAccounts/googleExport');
-      const {buildSupplierAccountReport}=await import('@/lib/supplierAccounts/report');
+      const {buildSupplierAccountReport,defaultSupplierDashboardView,supplierDashboardViewFromParams}=await import('@/lib/supplierAccounts/report');
       const spreadsheetId=parseSupplierSpreadsheetUrl(body.spreadsheetUrl);
       if(!spreadsheetId)throw invalidAccountRequest('Ingresá un enlace válido de Google Sheets.');
       const params=new URLSearchParams();
-      for(const key of ['supplierId','view','currency','from','to','q','showHidden']){
+      const dashboardKeys=Object.keys(defaultSupplierDashboardView).map(key=>'dashboard.'+key);
+      for(const key of ['supplierId','view','currency','from','to','q','showHidden',...dashboardKeys]){
         const value=body.filters?.[key];
         if(typeof value==='string'&&value)params.set(key,value);
       }
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
       if(supplier?.error)throw supplier.error;
       const report=buildSupplierAccountReport(data,{supplier:supplier?.data?.name,from:params.get('from')||'',to:params.get('to')||'',
         currency:params.get('currency')||'ARS',view:params.get('view')||'current',query:params.get('q')||'',
-        showHidden:params.get('showHidden')==='1'});
+        showHidden:params.get('showHidden')==='1',dashboard:supplierDashboardViewFromParams(params)});
       return NextResponse.json({url:await exportSupplierReportToSheets(spreadsheetId,report)});
     }
     const audit = { updated_by: user.id, updated_at: new Date().toISOString() };

@@ -11,7 +11,31 @@ export type SupplierStatement = {
 };
 export type ReportCell = string | number;
 export type SupplierAccountReport = { title:string; context:string; notes:ReportCell[][]; headers:string[]; rows:ReportCell[][] };
-export type SupplierReportFilters = { supplier?:string; from:string; to:string; currency:string; view:string; query:string; showHidden?:boolean };
+export type SupplierReportFilters = { supplier?:string; from:string; to:string; currency:string; view:string; query:string; showHidden?:boolean; dashboard?:SupplierDashboardView };
+export const supplierDashboardColumns = [
+  ['name','Proveedor'],['start_date','Inicio de cuenta'],['balance_ars','Estado en ARS'],
+  ['balance_usd','Estado en USD'],['last_movement','Último movimiento'],['visibility','Visibilidad'],
+] as const;
+export type SupplierDashboardColumn = typeof supplierDashboardColumns[number][0];
+export const defaultSupplierDashboardView = {
+  name:'', ars:'', usd:'', startFrom:'', startTo:'', movementFrom:'', movementTo:'', visibility:'',
+  sort:'name' as SupplierDashboardColumn, direction:'asc' as 'asc'|'desc', tab:'visible' as 'visible'|'hidden',
+};
+export type SupplierDashboardView = typeof defaultSupplierDashboardView;
+
+export function supplierDashboardViewFromParams(params:URLSearchParams):SupplierDashboardView {
+  const sort=params.get('dashboard.sort');
+  return {
+    name:params.get('dashboard.name')?.slice(0,200)||'',
+    ars:params.get('dashboard.ars')||'', usd:params.get('dashboard.usd')||'',
+    startFrom:params.get('dashboard.startFrom')||'', startTo:params.get('dashboard.startTo')||'',
+    movementFrom:params.get('dashboard.movementFrom')||'', movementTo:params.get('dashboard.movementTo')||'',
+    visibility:params.get('dashboard.visibility')||'',
+    sort:supplierDashboardColumns.find(([key])=>key===sort)?.[0]||'name',
+    direction:params.get('dashboard.direction')==='desc'?'desc':'asc',
+    tab:params.get('dashboard.tab')==='hidden'?'hidden':'visible',
+  };
+}
 
 export const visibleSuppliers=(suppliers:SupplierAccountSummary[],showHidden=false)=>
   showHidden?suppliers:suppliers.filter(supplier=>supplier.visible!==false);
@@ -20,6 +44,39 @@ export const supplierEntryNote=(row:LedgerEntry)=>row.source==='payment'&&row.no
   ? '' : row.notes||'';
 export const hasSupplierBalance=(supplier:SupplierAccountSummary,to:string)=>!!supplier.start_date&&(!to||supplier.start_date<=to);
 export const supplierBalanceStatus=(balance:number)=>balance>0?'Debemos':balance<0?'A favor':'Al día';
+const compareNames=new Intl.Collator('es-AR',{sensitivity:'base',numeric:true});
+const normalizeName=(name:string)=>name.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'');
+const within=(date:string|null|undefined,from:string,to:string)=>!from&&!to||!!date&&(!from||date>=from)&&(!to||date<=to);
+const visibilityLabel={automatic:'Automática',visible:'Siempre visible',hidden:'Oculto'};
+const accountStatus=(supplier:SupplierAccountSummary,to:string,field:'balance_ars'|'balance_usd')=>
+  hasSupplierBalance(supplier,to)?supplierBalanceStatus(Number(supplier[field])):'Sin saldo calculable';
+
+export function listSupplierDashboard(suppliers:SupplierAccountSummary[],to:string,showHidden=false,view=defaultSupplierDashboardView) {
+  const name=normalizeName(view.name.trim());
+  const group=view.tab==='hidden'?suppliers.filter(supplier=>supplier.visible===false):visibleSuppliers(suppliers,showHidden);
+  const listed=group.filter(supplier=>
+    (!name||normalizeName(supplier.name).includes(name))&&
+    within(supplier.start_date,view.startFrom,view.startTo)&&
+    within(supplier.last_movement,view.movementFrom,view.movementTo)&&
+    (!view.ars||accountStatus(supplier,to,'balance_ars')===view.ars)&&
+    (!view.usd||accountStatus(supplier,to,'balance_usd')===view.usd)&&
+    (!view.visibility||(supplier.visibility||'automatic')===view.visibility));
+  const value=(supplier:SupplierAccountSummary)=>{
+    switch(view.sort){
+      case 'balance_ars': case 'balance_usd':
+        return hasSupplierBalance(supplier,to)?Number(supplier[view.sort]):null;
+      case 'visibility': return visibilityLabel[supplier.visibility||'automatic'];
+      default: return supplier[view.sort]||null;
+    }
+  };
+  return listed.sort((a,b)=>{
+    const first=value(a),second=value(b);
+    if(first===null&&second!==null)return 1;
+    if(first!==null&&second===null)return -1;
+    const order=typeof first==='number'&&typeof second==='number'?first-second:compareNames.compare(String(first??''),String(second??''));
+    return order*(view.direction==='desc'?-1:1)||compareNames.compare(a.name,b.name);
+  });
+}
 const amount=(balance:number|string)=>Math.round(Number(balance)*100);
 export function supplierBalanceTotals(suppliers:SupplierAccountSummary[],to:string) {
   return (['ARS','USD'] as const).map(currency=>{
@@ -38,7 +95,7 @@ export function supplierBalanceTotals(suppliers:SupplierAccountSummary[],to:stri
 export function buildSupplierAccountReport(data:Partial<SupplierStatement> & {suppliers?:SupplierAccountSummary[]},filters:SupplierReportFilters):SupplierAccountReport {
   const period=[filters.from&&'Desde '+dateLabel(filters.from),filters.to&&'Hasta '+dateLabel(filters.to)].filter(Boolean).join(' · ')||'Todo el período';
   if(data.suppliers){
-    const listed=visibleSuppliers(data.suppliers,filters.showHidden);
+    const listed=listSupplierDashboard(data.suppliers,filters.to,filters.showHidden,filters.dashboard);
     return {
       title:'Cuentas corrientes de proveedores',context:filters.to?'Saldos al '+dateLabel(filters.to):'Saldos vigentes',
       notes:[['Totales de todos los proveedores'],['Moneda','Deuda total','A favor total','Saldo neto'],...supplierBalanceTotals(data.suppliers,filters.to)
