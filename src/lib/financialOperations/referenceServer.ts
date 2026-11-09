@@ -1,11 +1,38 @@
 import { readBatches } from './readBatches';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { movementCode, movementHref, supplierApplications, supplierCreditReferences, type ApplicationReference, type CodedMovement } from './references';
+import { movementCode, movementHref, purchaseHref, supplierApplications, supplierCreditReferences, type ApplicationReference, type CodedMovement, type SupplierPaymentApplicationSummary } from './references';
 async function all<T>(query: {range:(start:number,end:number)=>PromiseLike<{data:T[]|null;error:unknown}>}): Promise<T[]> {
   const rows:T[]=[];
   for(let offset=0;;offset+=500){const {data,error}=await query.range(offset,offset+499);if(error)throw error;rows.push(...(data||[]));if(!data||data.length<500)return rows;}
 }
 function one<T>(value:T|T[]|null):T|undefined{return Array.isArray(value)?value[0]:value??undefined;}
+
+export async function supplierPaymentApplicationSummary(db: SupabaseClient, transactionId: string, references: ApplicationReference[]): Promise<SupplierPaymentApplicationSummary | null> {
+  const payments = await all<{id:string;amount:number|string;currency:string;reversed_at:string|null}>(db.from('supplier_payments')
+    .select('id,amount,currency,reversed_at').eq('cash_transaction_id',transactionId).order('id'));
+  const active = payments.filter(payment => !payment.reversed_at);
+  if (!active.length) return null;
+
+  const documents = references.filter(ref => ref.href === purchaseHref(ref.id));
+  const applications = await all<{id:string;target_key:string;amount:number|string}>(db.from('supplier_opening_applications')
+    .select('id,target_key,amount').in('source_key',active.map(payment => 'payment:'+payment.id)).order('target_key').order('id'));
+  const keys = [...new Set(applications.map(application => application.target_key))];
+  const names = new Map<string,string>();
+  for (let i = 0; i < keys.length; i += 100) {
+    const parts = await all<{item_key:string;reference:string}>(db.from('supplier_opening_parts')
+      .select('item_key,reference').in('item_key',keys.slice(i,i+100)).order('item_key'));
+    for (const part of parts) names.set(part.item_key,part.reference);
+  }
+  const opening = applications.map(application => ({
+    id: application.id,
+    reference: names.get(application.target_key) || 'Partida de apertura',
+    amount: Number(application.amount),
+  }));
+  const cents = (amount:number|string) => Math.round(Number(amount) * 100);
+  const total = active.reduce((sum,payment) => sum+cents(payment.amount),0);
+  const applied = [...documents,...opening].reduce((sum,application) => sum+cents(application.amount ?? 0),0);
+  return {currency:active[0].currency,documents,opening,available:Math.max(0,total-applied)/100};
+}
 export async function supplierReferenceData(db: SupabaseClient, supplierId: string) {
   const [payments,purchases]=await Promise.all([
     all(db.from('supplier_payments').select('*').eq('supplier_id',supplierId).order('id')),

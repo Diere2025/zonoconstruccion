@@ -86,6 +86,49 @@ const documentId=n=>'10000000-0000-0000-0000-'+String(n).padStart(12,'0');
   assert.equal((await get('&view=history&currency=ARS&page=-1')).status,400);
   const old=(await get('')).body;
   assert.equal(old.rows.length,52);assert.equal(old.rows[0].reference,'REM-1');
+  const currentStart='2026-08-01';
+  const from=db.from;
+  db.from=table=>table==='supplier_account_starts'
+    ? {...from(table),maybeSingle:async()=>({data:{start_date:currentStart,opening_ars:200,opening_usd:0}})}
+    : from(table);
+  const recent=(await get('&view=current&currency=ARS')).body;
+  const earliest=(await get('&view=current&currency=ARS&page=1')).body;
+  assert.equal(recent.total,52);
+  assert.deepEqual([recent.rows[0].reference,recent.rows[0].balance],['REM-52',720]);
+  assert.equal(recent.rows[49].reference,'REM-3');
+  assert.deepEqual(Array.from(earliest.rows,row=>[row.reference,row.balance]),[['REM-2',220],['REM-1',210]]);
+  const period=(await get('&view=current&currency=ARS&from=2026-08-06&to=2026-08-12&all=1')).body;
+  assert.equal(period.total,7);
+  assert.equal(period.previous_balance_ars,250);
+  assert.equal(period.balance_ars,320);
+  assert.deepEqual([period.rows[0].reference,period.rows.at(-1).reference],['REM-12','REM-6']);
+  const exportRows=(await get('&view=current&currency=ARS&page=1&all=1')).body;
+  assert.equal(exportRows.rows.length,52);
+  assert.equal(exportRows.rows[0].reference,'REM-52');
+  let dashboardRpc;
+  db.rpc=(name,params)=>{dashboardRpc={name,params};return {range:async()=>({data:[{name:'Cooper',balance_ars:320}],error:null})};};
+  const dashboard=(await api.GET({...request(),url:'https://example.com/api/admin/supplier-accounts?to=2026-08-12'})).body;
+  assert.equal(dashboardRpc.name,'get_supplier_account_balances_at');
+  assert.equal(dashboardRpc.params.p_to,'2026-08-12');
+  assert.equal(dashboard.suppliers[0].balance_ars,320);
+  const settingsWrites=[];
+  db.from=table=>({
+    select(){return this;},eq(){return this;},
+    single:async()=>({data:{inactivity_months:9},error:null}),
+    upsert:async value=>{settingsWrites.push({table,value});return {error:null};},
+  });
+  const visibility=(await api.GET({...request(),url:'https://example.com/api/admin/supplier-accounts?view=dashboard'})).body;
+  assert.equal(dashboardRpc.name,'get_supplier_account_dashboard');
+  assert.equal(visibility.inactivityMonths,9);
+  assert.equal((await api.POST(request({action:'setVisibilityMonths',months:0}))).status,400);
+  assert.equal((await api.POST(request({action:'setSupplierVisibility',supplierId,visibility:'invalid'}))).status,400);
+  assert.equal(settingsWrites.length,0);
+  assert.equal((await api.POST(request({action:'setVisibilityMonths',months:9}))).status,200);
+  assert.equal((await api.POST(request({action:'setSupplierVisibility',supplierId,visibility:'hidden'}))).status,200);
+  assert.equal(settingsWrites[0].table,'supplier_account_visibility_settings');
+  assert.equal(settingsWrites[0].value.inactivity_months,9);
+  assert.equal(settingsWrites[1].table,'supplier_account_visibility_overrides');
+  assert.equal(settingsWrites[1].value.visibility,'hidden');
   console.log('Multi-order API payload, duplicate selection and legacy clients: OK');
   console.log('Supplier account API authentication, invalid openings and document ownership: OK');
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');
 function load(file,imports={}){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:name=>imports[name]});return exports;}
 const references=load('src/lib/financialOperations/references.ts');
-const {movementApplications,voucherMovementReferences,supplierReferenceData}=load('src/lib/financialOperations/referenceServer.ts',{'./references':references,'./readBatches':load('src/lib/financialOperations/readBatches.ts')});
+const {movementApplications,voucherMovementReferences,supplierReferenceData,supplierPaymentApplicationSummary}=load('src/lib/financialOperations/referenceServer.ts',{'./references':references,'./readBatches':load('src/lib/financialOperations/readBatches.ts')});
 function database(tables){return {from(name){let rows=tables[name]||[];return {select(){return this;},or(){return this;},order(){return this;},eq(key,value){rows=rows.filter(r=>r[key]===value);return this;},in(key,values){rows=rows.filter(r=>values.includes(r[key]));return this;},async range(start,end){return {data:rows.slice(start,end+1),error:null};}};}};}
 test('movement reads normalize object/array relations and vouchers list all associated operations',async()=>{
  const tx=[{id:'t1',type:'egreso',movement_code:'PAG-1',operation_id:'o1'},{id:'t2',type:'ingreso',movement_code:'COB-2',operation_id:'o2'}];
@@ -25,6 +25,31 @@ test('allocation pagination retains every document past the database page bounda
  const allocations=Array.from({length:501},(_,i)=>({id:`a${i}`,payment_id:'p',purchase_id:`d${i}`,amount:1,supplier_purchases:{id:`d${i}`,invoice_number:`F-${i}`}}));
  const result=await movementApplications(database({supplier_payments:[{id:'p',cash_transaction_id:'t'}],supplier_payment_allocations:allocations}),[{id:'t',type:'egreso'}]);
  assert.equal(result.get('t').length,501);assert.equal(result.get('t').at(-1).code,'F-500');
+});
+test('payment detail distinguishes recorded documents, opening parts, and an available balance',async()=>{
+ const tx={id:'cash',type:'egreso',operation_id:'operation'};
+ const db=database({
+  supplier_payments:[
+   {id:'active',cash_transaction_id:tx.id,amount:'2500.00',currency:'ARS',reversed_at:null},
+   {id:'old',cash_transaction_id:tx.id,amount:'5000.00',currency:'ARS',reversed_at:'2026-11-07'}
+  ],
+  supplier_payment_allocations:[{id:'a',payment_id:'active',purchase_id:'d',amount:'2026.10',
+   supplier_purchases:{id:'d',invoice_number:'3.405',status:'Pagado'}}],
+  supplier_opening_applications:[
+   {id:'opening',source_key:'payment:active',target_key:'opening:1',amount:'473.89'},
+   {id:'old-opening',source_key:'payment:old',target_key:'opening:1',amount:'5000.00'}
+  ],
+  supplier_opening_parts:[{item_key:'opening:1',reference:'Deuda anterior'}],
+  operation_vouchers:[{operation_id:'operation',voucher_id:'voucher',treasury_vouchers:{reference:'Transferencia'}}],
+ });
+ const movements=await movementApplications(db,[tx]);
+ const summary=await supplierPaymentApplicationSummary(db,tx.id,movements.get(tx.id));
+ assert.equal(summary.documents.length,1);
+ assert.equal(summary.documents[0].code,'3.405');
+ assert.equal(summary.documents[0].amount,2026.10);
+ assert.equal(summary.opening.length,1);
+ assert.equal(summary.opening[0].reference,'Deuda anterior');
+ assert.equal(summary.available,0.01);
 });
 test('statement order references appear on existing movements without duplicating client references',async()=>{
  const source=order=>({bank_statement_order_links:{order_id:order.id,orders:order}});

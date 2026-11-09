@@ -7,7 +7,7 @@ import SupplierPicker from './SupplierPicker';
 import SupplierDocuments from './SupplierDocuments';
 import GuidedClassificationPicker from '../GuidedClassificationPicker';
 
-import type {ApplicationReference} from '@/lib/financialOperations/references';
+import type {ApplicationReference,SupplierPaymentApplicationSummary} from '@/lib/financialOperations/references';
 import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -39,7 +39,30 @@ type Helpers={financialAccounts:Account[];employees:EmployeeOption[];suppliers:S
   pendingPurchases:PurchaseOption[];costCenters:Array<{id:string;name:string}>;routeSheets:Array<{id:string;run_number:number;delivery_date:string}>;people?:Array<Person&{financial_people_concepts:Array<{concept_id:string}>}>};
 type Options={paymentMethods:Array<{id:string;name:string}>;concepts:FinancialConcept[];conceptTypes:Array<{financial_concept_id:string;operation_type:OperationType}>;
  vouchers:Array<{id:string;reference:string|null;counterparty:string|null;voucher_date:string}>};
-type Snapshot={transaction:Record<string,unknown>;operation:{id:string;version:number;status:string}|null;planning:boolean;payload:OperationInput;purchases:PurchaseOption[];order:Order|null;supplierApplicationEligible?:boolean};
+type Snapshot={transaction:Record<string,unknown>;operation:{id:string;version:number;status:string}|null;planning:boolean;payload:OperationInput;purchases:PurchaseOption[];order:Order|null;supplierApplicationEligible?:boolean;supplierPaymentApplications?:SupplierPaymentApplicationSummary|null};
+type MovementReference={code:string;applications:ApplicationReference[];supplierPayment?:SupplierPaymentApplicationSummary|null};
+function RegisteredApplications({reference}:{reference:MovementReference}) {
+ const payment=reference.supplierPayment;
+ const other=reference.applications.filter(ref=>!payment?.documents.some(doc=>doc.href===ref.href));
+ const money=(amount:number)=>amount.toLocaleString('es-AR',{style:'currency',currency:payment?.currency||'ARS'});
+ const link=(ref:ApplicationReference)=>ref.href
+   ? <a href={ref.href} className="text-brand-700 underline">{ref.kind} · {ref.code}</a>
+   : <span>{ref.kind} · {ref.code}</span>;
+ return <section className="mb-4 space-y-2 rounded-lg bg-slate-50 p-3 text-xs">
+   <p className="font-semibold">Código: {reference.code}</p>
+   {payment&&<>
+     <p className="font-semibold">Aplicación registrada del pago</p>
+     {payment.documents.length+payment.opening.length===0&&<p>Pago a cuenta del proveedor, pendiente de aplicar.</p>}
+     {payment.documents.map(doc=><p key={doc.id}>{link(doc)}{doc.amount!==undefined&&<> · {money(doc.amount)}</>}</p>)}
+     {payment.opening.map(part=><p key={part.id}>Saldo inicial · {part.reference} · {money(part.amount)}</p>)}
+     <p>Disponible para aplicar: <strong>{money(payment.available)}</strong></p>
+     {payment.documents.length>0&&payment.opening.length===0&&<p>Al guardar otra distribución, se reemplazan las aplicaciones de este pago.</p>}
+   </>}
+   {other.length>0&&<div><p className="font-semibold">{payment?'Otros vínculos':'Aplicaciones'}</p>
+     {other.map((ref,i)=><p className="mt-1" key={ref.id+'-'+i}>{link(ref)}</p>)}</div>}
+   {!payment&&!other.length&&<p>Sin vínculos registrados.</p>}
+ </section>;
+}
 type Props={initialSupplierId?:string;initialPurchaseId?:string;initialAmount?:string;initialCurrency?:string;inline?:boolean;compact?:boolean;onMoreOperations?:()=>void;operationId?:string;initialAction?:string;initialResourceId?:string;linkedTransactionId?:string;kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean;linkSupplier?:boolean;mode?:'save'|'link';onClose:()=>void;onSaved:()=>void;requestOverride?:typeof request;preview?:boolean;realDataPreview?:boolean;readOnly?:boolean};
 function defaults(kind:OperationType,payrollKind?:string):OperationInput {
  return {operation_type:kind,effective_date:treasuryToday(),account_id:'',direction:kind==='customer_collection'?'ingreso':'egreso',amount:'',payment_method_id:'',concept:'',
@@ -52,7 +75,7 @@ export default function OperationEditor(props:Props){
 }
 function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCurrency,inline=false,compact=false,onMoreOperations,kind,payrollKind,transactionId,sourceAccountId,duplicate=false,linkSupplier=false,mode:initialMode='save',onClose,onSaved,requestOverride,preview=false,realDataPreview=false,readOnly=false}:Props) {
  const api=requestOverride || request;
- const [reference,setReference]=useState<{code:string;applications:ApplicationReference[]}|null>(null);
+ const [reference,setReference]=useState<MovementReference|null>(null);
  const [supplierApplication,setSupplierApplication]=useState(linkSupplier);
  const [supplierDraft,setSupplierDraft]=useState<OperationInput|null>(null);
  const mode=supplierApplication?'link':initialMode;
@@ -95,7 +118,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
     setHelpers(h);setOptions(o);
     if(s){
       const snapshot=s as Snapshot;
-      if(!duplicate)setReference({code:s.code,applications:s.applications||[]});
+      if(!duplicate)setReference({code:s.code,applications:s.applications||[],supplierPayment:snapshot.supplierPaymentApplications});
       if(snapshot.transaction.treasury_settlement_id)setBlocked('Este movimiento se corrige desde Rendiciones.');
       else if(snapshot.planning)setBlocked('Desconciliá este movimiento desde Planificación antes de corregirlo.');
       else if(snapshot.operation?.status==='cancelled' || snapshot.transaction.reversal_of_transaction_id)setBlocked('Esta operación está anulada y conserva su compensación.');
@@ -180,7 +203,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
   <div className={inline?'p-3':'max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl'}>
    {inline?<h2 className="mb-2 text-sm font-semibold">Carga rápida</h2>:<div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">{compact?'Nuevo movimiento':mode==='link'?'Vincular movimiento':operationLabels[value.operation_type]}</h2><button type="button" disabled={busy} onClick={onClose} className="rounded-lg px-3 py-2 text-sm">Cerrar</button></div>}
    {savedNotice&&<p role="status" className="mb-2 text-xs text-emerald-700">{savedNotice}</p>}
-   {reference && <div className="mb-4 rounded-lg bg-slate-50 p-3 text-xs"><p className="font-semibold">Código: {reference.code}</p><p className="mt-2 font-semibold">Aplicaciones</p>{reference.applications.length?reference.applications.map((a,i)=><a key={a.id+'-'+i} href={a.href} className="mt-1 block text-brand-700 underline">{a.kind} · {a.code}</a>):<p>Sin comprobantes vinculados.</p>}</div>}
+   {reference&&<RegisteredApplications reference={reference}/>}
    {!compact&&<OperationHelp kind={value.operation_type}/>}
    {compact&&!inline&&<p className="mb-4 text-sm text-slate-500">Buscá un movimiento común y su clasificación se completa automáticamente.</p>}
    {preview && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Vista local · {realDataPreview?'datos reales en consulta':'datos de ejemplo'}. Guardar solo registra una simulación en esta pantalla.</p>}
@@ -188,7 +211,10 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
    {supplierApplication&&!blocked&&<p className="mb-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">El egreso quedará clasificado como pago a proveedor y conservará su código, fecha, cuenta e importe.</p>}
    {mode==='save'&&supplierDraft&&!blocked&&<section className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3"><p className="text-sm">Podés aplicar este pago a documentos de un proveedor conservando su código e importe.</p><button type="button" disabled={busy||loading} className="mt-2 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white" onClick={()=>{setValue(supplierDraft);setSupplierApplication(true);setError('');}}>Vincular a proveedor y comprobantes</button></section>}
    {error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-   {loading?<p className="py-6 text-sm">Cargando datos actuales…</p>:blocked?<div className="space-y-3"><p className="text-sm">{blocked}</p>{!blocked.includes('anulada')&&!blocked.includes('no está disponible') && <a className="text-sm text-brand-700 underline" href={blocked.includes('Rendiciones')?'/admin/rendiciones':blocked.includes('vendedores')?'/vendedores/caja':'/admin/finanzas/planificacion'}>Abrir módulo de origen</a>}</div>:helpers && options?<form data-shortcut-submit onSubmit={submit}><fieldset disabled={busy} className={inline?'grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]':'space-y-4'}>
+   {loading?<p className="py-6 text-sm">Cargando datos actuales…</p>:blocked?<div className="space-y-3"><p className="text-sm">{blocked}</p>{!blocked.includes('anulada')&&!blocked.includes('no está disponible') && <a className="text-sm text-brand-700 underline" href={blocked.includes('Rendiciones')?'/admin/rendiciones':blocked.includes('vendedores')?'/vendedores/caja':'/admin/finanzas/planificacion'}>Abrir módulo de origen</a>}</div>:Boolean(reference?.supplierPayment?.opening.length)?<div className="space-y-2">
+     <p className="text-sm">Para cambiar la aplicación al saldo inicial, abrí Herramientas y ajustes → Aplicar pagos y créditos a apertura.</p>
+     <a className="text-sm text-brand-700 underline" href="/admin/finanzas?tab=cc">Abrir CC Proveedores</a>
+   </div>:helpers && options?<form data-shortcut-submit onSubmit={submit}><fieldset disabled={busy} className={inline?'grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]':'space-y-4'}>
     {compact&&<GuidedClassificationPicker compact dense={inline} disabled={busy} label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>c.movement_type!=='Mov. Financiero'&&c.category!=='Movimiento de cuentas')} onChange={id=>{if(!id){change({financial_concept_id:undefined});return;}const c=options.concepts.find(x=>x.id===id);if(c)setValue(v=>selectCommonMovement(v,c,helpers.suppliers,helpers.employees));}}/>}
     <div className={inline?'grid min-w-0 items-start gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)_auto]':'grid gap-3 sm:grid-cols-2'}>
      <label className="text-xs font-semibold">Fecha<ErpDateInput className={fieldClass} type="date" required disabled={mode==='link'} value={value.effective_date} onChange={e=>change({effective_date:e.target.value})}/></label>
