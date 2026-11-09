@@ -12,6 +12,15 @@ async function resources(db:Awaited<ReturnType<typeof financialContext>>['db']):
 }
 export async function GET(request:Request){try{
  const {db,actor}=await financialContext(request);const u=new URL(request.url);
+ if(u.searchParams.has('partner_withdrawals')){
+  const id=u.searchParams.get('withdrawal_id');
+  if(id&&!isUuid(id))throw new OperationError('Extracción inválida.');
+  let query=db.rpc('partner_withdrawal_balances',{p_id:id,p_search:(u.searchParams.get('q')||'').slice(0,120)});
+  if(!id)query=query.gt('remaining',0).limit(100);
+  const result=await query;
+  if(result.error)throw result.error;
+  return json({withdrawals:result.data});
+ }
  if(u.searchParams.has('account_id')){
   const id=u.searchParams.get('account_id'),cutoff=u.searchParams.get('cutoff');if(!isUuid(id)||!cutoff||!Number.isFinite(Date.parse(cutoff))||Date.parse(cutoff)>Date.now())throw new OperationError('Cuenta o corte inválido.');
   const r=await db.rpc('financial_account_cut',{p_account:id,p_cutoff:cutoff});
@@ -50,6 +59,11 @@ export async function POST(request:Request){try{
   const result=await db.rpc('financial_account_cut',{p_account:input.account_id,p_cutoff:cutoff});if(result.error)throw result.error;cut=result.data;
  }
  const plan=buildSpecialPlan(input,r,cut);
+ if(input.operation_type==='partner_equity'&&input.action==='reimbursement'){
+  const result=await db.rpc('persist_partner_reimbursement',{p_actor:actor,p_key:body.key,p_input:input});
+  if(result.error)throw result.error;
+  return json({result:result.data});
+ }
  if(input.operation_type==='asset_trade'&&input.action==='purchase'){
   const purchase=await db.from('supplier_purchases').select('id').eq('invoice_number',input.reference!.trim()).limit(1);if(purchase.error)throw purchase.error;
   if(purchase.data?.length)throw new OperationError('Ese documento ya está registrado en Compras. Usá Pago a proveedor para cancelarlo.');
