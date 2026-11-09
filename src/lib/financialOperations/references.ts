@@ -1,4 +1,10 @@
 export type ApplicationReference = { id: string; code: string; kind: string; href: string; amount?: number };
+export type SupplierPaymentApplicationSummary = {
+  currency: string;
+  documents: ApplicationReference[];
+  opening: Array<{ id: string; reference: string; amount: number }>;
+  available: number;
+};
 export type CodedMovement = { id: string; type: string; movement_code?: string | null };
 export function movementCode(row: CodedMovement): string {
   return row.movement_code || `${row.type === 'ingreso' ? 'COB' : 'PAG'}-${row.id.toUpperCase()}`;

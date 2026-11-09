@@ -101,5 +101,54 @@ function definition(name){const sql=fs.readFileSync('database/db_migration_v136_
  assert.equal((await db.query('select * from financial_classification_snapshots where transaction_id=$1',[expenseId])).rows.length,0);
  assert.equal((await db.query('select * from financial_movement_classification_events where transaction_id=$1',[expenseId])).rows.length,1);
  await rejected(()=>link(randomUUID()),/ya tiene una imputación/);
+
+ // Exercise both bank entry points with original cash rows and real payment writes.
+ await db.query(`
+   alter table suppliers add column is_active boolean not null default true;
+   alter table financial_concepts add column concept text, add column movement_type text;
+   alter table financial_operations add column origin text;
+   alter table cash_transactions add column is_imported boolean, add column bank_import_key text;
+   alter table bank_entry_ledger_links add column kind text, add column created_by uuid;
+   create table bank_statement_entries(id uuid primary key, financial_account_id uuid, signed_amount numeric);
+   create table supplier_account_starts(supplier_id uuid, start_date date);
+   create function bank_reference_key(text) returns text language sql immutable as $$select lower(trim($1))$$;
+   create function bank_statement_active_transaction(uuid) returns boolean language sql as $$select true$$;
+ `);
+ const bankMigration=fs.readFileSync('database/db_migration_v272_automatic_bank_supplier_payments.sql','utf8')
+   .replace(/^begin;/im,'').replace(/^commit;/im,'');
+ await db.query(bankMigration);
+ await db.query(bankMigration);
+ const supplierConcept=randomUUID(),ambiguousConcept=randomUUID();
+ await db.query("insert into suppliers(id,name) values($1,'Other ')",[randomUUID()]);
+ await db.query(`insert into financial_concepts(id,concept,category,movement_type,is_active)
+   values($1,'Test','Proveedores','Egreso',true),($2,'Other','Proveedores','Egreso',true)`,[supplierConcept,ambiguousConcept]);
+ await db.query("insert into financial_concept_operation_types values($1,'supplier_payment'),($2,'supplier_payment')",[supplierConcept,ambiguousConcept]);
+ async function bankMovement(concept){
+   const entry=randomUUID(),operation=randomUUID(),cash=randomUUID();
+   await db.query("insert into bank_statement_entries values($1,$2,-45.67)",[entry,account]);
+   await db.query("insert into financial_operations(id,operation_type,origin) values($1,'general','bank-statement')",[operation]);
+   await db.query(`insert into cash_transactions(id,operation_id,operation_line,financial_concept_id,financial_account_id,
+     payment_method_id,type,amount,currency,is_imported,bank_import_key,created_at)
+     values($1,$2,'main',$3,$4,$5,'egreso',45.67,'ARS',true,'bank-statement:'||$6,'2026-10-06T15:33:00Z')`,
+     [cash,operation,concept,account,method,entry]);
+   await db.query("insert into bank_entry_ledger_links values($1,$2,'created',$3)",[entry,cash,actor]);
+   return {cash,operation};
+ }
+ const bankPayments=async cash=>(await db.query(`select p.supplier_id,p.amount::text,p.created_at=c.created_at same_time
+   from supplier_payments p join cash_transactions c on c.id=p.cash_transaction_id where c.id=$1`,[cash])).rows;
+ const expectedBankPayment=[{supplier_id:supplier,amount:'45.67',same_time:true}];
+ const imported=await bankMovement(supplierConcept);
+ assert.deepEqual(await bankPayments(imported.cash),expectedBankPayment);
+ const pending=await bankMovement(ambiguousConcept);
+ assert.deepEqual(await bankPayments(pending.cash),[]);
+ const classify=async concept=>{
+   await db.query('update cash_transactions set financial_concept_id=$1 where id=$2',[concept,pending.cash]);
+   await db.query("insert into financial_operation_events(operation_id,action,actor_id) values($1,'movement.classify',$2)",[pending.operation,actor]);
+ };
+ await classify(supplierConcept);
+ await classify(supplierConcept);
+ assert.deepEqual(await bankPayments(pending.cash),expectedBankPayment);
+ await rejected(()=>classify(ambiguousConcept),/ya está vinculado a un proveedor/);
+ assert.deepEqual(await bankPayments(pending.cash),expectedBankPayment);
  await db.query('rollback');console.log('PASS isolated PostgreSQL cents regression: FIFO, partial payment, exclusions, repeatable migration, retry, editing, surplus, manual override and cancellation; isolated fixtures rolled back.');
 }catch(e){await db.query('rollback');throw e;}finally{await db.end();}})().catch(e=>{console.error(e.message, e.position, e.internalQuery, e.query);process.exitCode=1;});

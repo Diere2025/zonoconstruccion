@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { supplierAccountContext } from '@/lib/supplierAccounts/server';
 import { isUuid, openingAmount, supplierLedger, type AccountEntry, type HistoryChoice, type AccountStart } from '@/lib/supplierAccount';
 import { OperationError } from '@/lib/financialOperations/validation';
+import { movementCode } from '@/lib/financialOperations/references';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime='edge';
 export const dynamic='force-dynamic';
@@ -9,6 +11,44 @@ async function all<T>(query:{range:(from:number,to:number)=>PromiseLike<{data:T[
  const rows:T[]=[];for(let offset=0;;offset+=500){const result=await query.range(offset,offset+499);if(result.error)throw result.error;rows.push(...result.data||[]);if(!result.data||result.data.length<500)return rows;}
 }
 function failure(error:unknown){const e=error as {code?:string;message?:string};const missing=['42P01','PGRST202','PGRST205'].includes(e.code||'');return NextResponse.json({error:missing?'Falta habilitar las aplicaciones de pagos (migración 245).':e.message||'No se pudo aplicar el pago.'},{status:error instanceof OperationError?error.status:missing?503:e.code==='42501'?403:['40001','23505'].includes(e.code||'')?409:400});}
+
+async function paymentDetail(db:SupabaseClient,supplierId:string,paymentId:string) {
+ const sourceKey='payment:'+paymentId;
+ const [payment,scope,openingSignature,reservations]=await Promise.all([
+  db.rpc('get_supplier_application_payments',{p_supplier:supplierId}).eq('id',paymentId).maybeSingle(),
+  db.from('supplier_opening_sources').select('included,reference').eq('supplier_id',supplierId).eq('source_key',sourceKey).maybeSingle(),
+  db.rpc('supplier_opening_application_signature',{p_source:sourceKey}),
+  db.rpc('supplier_reserved_amount',{p_key:sourceKey}),
+ ]);
+ for(const result of [payment,scope,openingSignature,reservations])if(result.error)throw result.error;
+ if(!payment.data)throw new OperationError('Este pago ya no está disponible.',404);
+ const {amount,currency,created_at,cash_transaction_id,signature,allocations}=payment.data;
+ const documentIds=(allocations as Array<{purchase_id:string;amount:number|string}>).map(a=>a.purchase_id);
+ const [movement,documents,opening]=await Promise.all([
+  cash_transaction_id?db.from('cash_transactions').select('id,type,movement_code,concept,notes,financial_accounts(name)')
+   .eq('id',cash_transaction_id).maybeSingle():Promise.resolve({data:null,error:null}),
+  documentIds.length?db.from('supplier_purchases').select('id,invoice_number,document_type')
+   .eq('supplier_id',supplierId).in('id',documentIds):Promise.resolve({data:[],error:null}),
+  all<{target_key:string;amount:number|string}>(db.from('supplier_opening_applications').select('target_key,amount')
+   .eq('supplier_id',supplierId).eq('source_key',sourceKey).order('target_key')),
+ ]);
+ for(const result of [movement,documents])if(result.error)throw result.error;
+ const parts=opening.length?await all<{item_key:string;reference:string}>(db.from('supplier_opening_parts').select('item_key,reference')
+  .eq('supplier_id',supplierId).order('item_key')):[];
+ const names=new Map((documents.data||[]).map(doc=>[doc.id,[doc.document_type,doc.invoice_number].filter(Boolean).join(' · ')]));
+ const partNames=new Map(parts.map(part=>[part.item_key,part.reference]));
+ const account=movement.data?.financial_accounts;
+ return {
+  code:movement.data?movementCode(movement.data):'PAG-'+paymentId.toUpperCase(),
+  amount,currency,date:created_at,signature,included:scope.data?.included===true,
+  concept:movement.data?.concept,
+  notes:scope.data?.reference && scope.data.reference!=='Pago'?scope.data.reference:movement.data?.notes,
+  account:(Array.isArray(account)?account[0]:account)?.name,
+  documents:(allocations as Array<{purchase_id:string;amount:number|string}>).map(a=>({...a,reference:names.get(a.purchase_id)||'Documento de compra'})),
+  opening:opening.map(a=>({...a,reference:partNames.get(a.target_key)||'Partida de apertura'})),
+  openingSignature:openingSignature.data,reserved:Number(reservations.data||0),
+ };
+}
 export async function GET(request:Request){try{
  const {db}=await supplierAccountContext(request),params=new URL(request.url).searchParams,supplier=params.get('supplierId');
  const creditHistory=params.get('creditHistory'),paymentHistory=params.get('paymentHistory');
@@ -19,6 +59,11 @@ export async function GET(request:Request){try{
   return NextResponse.json({events:result.data},{headers:{'Cache-Control':'no-store'}});
  }
  if(!isUuid(supplier))throw new Error('Proveedor inválido.');
+ const paymentId=params.get('paymentId');
+ if(paymentId!==null){
+  if(!isUuid(paymentId))throw new Error('Pago inválido.');
+  return NextResponse.json(await paymentDetail(db,supplier,paymentId),{headers:{'Cache-Control':'no-store'}});
+ }
  const [config,entries,choices,payments,purchases,credits,openingApplications,reservations]=await Promise.all([
   db.from('supplier_account_starts').select('*').eq('supplier_id',supplier).maybeSingle(),
   all<AccountEntry>(db.from('supplier_account_entries').select('*').eq('supplier_id',supplier).order('source').order('source_id')),

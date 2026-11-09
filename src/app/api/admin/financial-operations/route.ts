@@ -1,6 +1,6 @@
 import {selectableConcepts} from '@/lib/financialClassification/server';
 import {movementCode,movementHref} from '@/lib/financialOperations/references';
-import {movementApplications} from '@/lib/financialOperations/referenceServer';
+import {movementApplications,supplierPaymentApplicationSummary} from '@/lib/financialOperations/referenceServer';
 import {requireSupplierVoucherConfirmation} from '@/lib/financialOperations/voucherStatus';
 import { NextResponse } from 'next/server';
 import { financialContext,financialMutationContext } from '@/lib/financialOperations/server';
@@ -65,6 +65,15 @@ export async function GET(request: Request) {
       if (result.error) throw result.error;
       const snapshot = result.data;
       snapshot.applications=(await movementApplications(db,[snapshot.transaction])).get(id)||[];
+      if(snapshot.payload.operation_type==='supplier_payment'){
+        snapshot.supplierPaymentApplications=await supplierPaymentApplicationSummary(db,id,snapshot.applications);
+        // Legacy payments may reference their document directly rather than via an allocation row.
+        if(!snapshot.payload.allocations?.length && snapshot.supplierPaymentApplications?.documents.length){
+          snapshot.payload.allocations=snapshot.supplierPaymentApplications.documents.map(doc=>({
+            purchase_id:doc.id,amount:String(doc.amount),
+          }));
+        }
+      }
       snapshot.code=movementCode(snapshot.transaction);
       snapshot.payload.person_id=snapshot.operation?.person_id || undefined;
       const receipt=snapshot.payload.operation_type==='customer_collection'?await db.from('client_payments').select('client_id,order_id,id').eq('cash_transaction_id',id).is('reversed_at',null).order('order_id',{nullsFirst:false}).limit(1).maybeSingle():{data:null,error:null};

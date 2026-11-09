@@ -1,11 +1,12 @@
 import {movementCode} from '@/lib/financialOperations/references';
 import {supplierReferenceData} from '@/lib/financialOperations/referenceServer';
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { requirePurchaseOperator } from '@/lib/purchaseAccess';
 import { requireFinanceAdmin } from '@/lib/financeAdminAccess';
 import { isAccountDate, isUuid, openingAmount, supplierLedger, type AccountEntry, type AccountStart, type HistoryChoice } from '@/lib/supplierAccount';
 import { processSupplierSheetJob } from '@/lib/supplierAccounts/sheetSync';
+import type { SupplierAccountSummary } from '@/lib/supplierAccounts/report';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -38,31 +39,36 @@ const failure = (error: unknown, status = 500) => {
   return NextResponse.json({ error: message }, { status });
 };
 
-export async function GET(request: Request) {
-  try {
-    const context = await access(request);
-    if (context.response) return context.response;
-    const { db } = context;
-    const params = new URL(request.url).searchParams;
+const invalidAccountRequest = (message:string) => Object.assign(new Error(message),{status:400});
+
+async function readAccounts(db: SupabaseClient, params: URLSearchParams) {
     const supplierId = params.get('supplierId');
     const from = params.get('from') || undefined, to = params.get('to') || undefined;
-    if ((from && !isAccountDate(from)) || (to && !isAccountDate(to)) || (from && to && from > to)) return failure(new Error('Período de cuenta corriente inválido.'), 400);
+    if ((from && !isAccountDate(from)) || (to && !isAccountDate(to)) || (from && to && from > to)) throw invalidAccountRequest('Período de cuenta corriente inválido.');
     if (!supplierId) {
-      const data = await allRows(db.rpc('get_supplier_account_balances'));
-      return NextResponse.json({ suppliers: data });
+      if(params.get('view')==='dashboard'){
+        const [suppliers,settings]=await Promise.all([
+          allRows<SupplierAccountSummary>(db.rpc('get_supplier_account_dashboard',{p_to:to??null})),
+          db.from('supplier_account_visibility_settings').select('inactivity_months').eq('singleton',true).single(),
+        ]);
+        if(settings.error)throw settings.error;
+        return {suppliers,inactivityMonths:settings.data.inactivity_months as number};
+      }
+      const data = await allRows<SupplierAccountSummary>(to ? db.rpc('get_supplier_account_balances_at',{p_to:to}) : db.rpc('get_supplier_account_balances'));
+      return { suppliers: data };
     }
-    if (!isUuid(supplierId)) return failure(new Error('Proveedor inválido.'), 400);
+    if (!isUuid(supplierId)) throw invalidAccountRequest('Proveedor inválido.');
     const view=params.get('view');
     if(view==='documents'){
       const documents=await allRows<{source_id:string;reference:string;currency:string}>(db.from('supplier_account_entries')
         .select('source_id,reference,currency').eq('supplier_id',supplierId).eq('source','purchase')
         .eq('voided',false).neq('kind','Nota de Crédito').order('entry_date').order('source_id'));
-      return NextResponse.json({documents:documents.map(({source_id,reference,currency})=>({id:source_id,reference,currency}))});
+      return {documents:documents.map(({source_id,reference,currency})=>({id:source_id,reference,currency}))};
     }
     const currency=params.get('currency'), page=Number(params.get('page')??0), query=(params.get('q')||'').toLowerCase();
     if(view!==null&&(!['current','history'].includes(view)||!['ARS','USD'].includes(currency||'')
       ||!Number.isSafeInteger(page)||page<0||page>1_000_000)){
-      return failure(new Error('Selección de extracto inválida.'),400);
+      throw invalidAccountRequest('Selección de extracto inválida.');
     }
     const [config, entries, history] = await Promise.all([
       db.from('supplier_account_starts').select('*').eq('supplier_id', supplierId).maybeSingle(),
@@ -81,14 +87,23 @@ export async function GET(request: Request) {
     }
     const start = config.data as AccountStart | null;
     const ledger=supplierLedger(start,entries as AccountEntry[],history as HistoryChoice[],{from,to});
-    if(view===null)return NextResponse.json({start,...ledger});
+    if(view===null)return {start,...ledger};
     const rows=ledger.rows.filter(row=>row.currency===currency
       && (view==='current'?row.included:!row.included||row.historical||row.reconciled)
       && (!query||`${row.reference} ${row.kind} ${row.notes||''} ${(row.applications||[]).map(a=>a.code).join(' ')}`.toLowerCase().includes(query)));
-    if(view==='history')rows.reverse();
+    // Reverse the display only, after computing balances and before taking the page.
+    rows.reverse();
     const pageSize=50, currentPage=Math.min(page,Math.max(0,Math.ceil(rows.length/pageSize)-1));
-    return NextResponse.json({start,...ledger,total:rows.length,page:currentPage,pageSize,rows:rows.slice(currentPage*pageSize,(currentPage+1)*pageSize)});
-  } catch (error) { return failure(error); }
+    return {...ledger,start,total:rows.length,page:currentPage,pageSize,
+      rows:params.get('all')==='1'?rows:rows.slice(currentPage*pageSize,(currentPage+1)*pageSize)};
+}
+
+export async function GET(request: Request) {
+  try {
+    const context = await access(request);
+    if (context.response) return context.response;
+    return NextResponse.json(await readAccounts(context.db,new URL(request.url).searchParams));
+  } catch (error) { return failure(error,(error as {status?:number})?.status===400?400:500); }
 }
 
 export async function POST(request: Request) {
@@ -97,9 +112,42 @@ export async function POST(request: Request) {
     const context = await access(request, body?.action === 'receipt');
     if (context.response) return context.response;
     const { db, user } = context;
-    if (!isUuid(body.supplierId)) return failure(new Error('Proveedor inválido.'), 400);
+    if(body?.action==='exportSheets'){
+      const {exportSupplierReportToSheets,parseSupplierSpreadsheetUrl}=await import('@/lib/supplierAccounts/googleExport');
+      const {buildSupplierAccountReport}=await import('@/lib/supplierAccounts/report');
+      const spreadsheetId=parseSupplierSpreadsheetUrl(body.spreadsheetUrl);
+      if(!spreadsheetId)throw invalidAccountRequest('Ingresá un enlace válido de Google Sheets.');
+      const params=new URLSearchParams();
+      for(const key of ['supplierId','view','currency','from','to','q','showHidden']){
+        const value=body.filters?.[key];
+        if(typeof value==='string'&&value)params.set(key,value);
+      }
+      const supplierId=params.get('supplierId');
+      if(supplierId&&!['current','history'].includes(params.get('view')||''))throw invalidAccountRequest('Elegí un extracto para exportar.');
+      params.set('all','1');
+      const data=await readAccounts(db,params);
+      const supplier=supplierId?await db.from('suppliers').select('name').eq('id',supplierId).single():null;
+      if(supplier?.error)throw supplier.error;
+      const report=buildSupplierAccountReport(data,{supplier:supplier?.data?.name,from:params.get('from')||'',to:params.get('to')||'',
+        currency:params.get('currency')||'ARS',view:params.get('view')||'current',query:params.get('q')||'',
+        showHidden:params.get('showHidden')==='1'});
+      return NextResponse.json({url:await exportSupplierReportToSheets(spreadsheetId,report)});
+    }
     const audit = { updated_by: user.id, updated_at: new Date().toISOString() };
-    if (body.action === 'start') {
+    if(body?.action==='setVisibilityMonths'){
+      if(!Number.isInteger(body.months)||body.months<1||body.months>120)throw invalidAccountRequest('Ingresá una cantidad de meses entre 1 y 120.');
+      const {error}=await db.from('supplier_account_visibility_settings')
+        .upsert({singleton:true,inactivity_months:body.months,...audit});
+      if(error)throw error;
+      return NextResponse.json({ok:true});
+    }
+    if (!isUuid(body.supplierId)) return failure(new Error('Proveedor inválido.'), 400);
+    if(body.action==='setSupplierVisibility'){
+      if(!['automatic','visible','hidden'].includes(body.visibility))throw invalidAccountRequest('Elegí una opción de visibilidad.');
+      const {error}=await db.from('supplier_account_visibility_overrides')
+        .upsert({supplier_id:body.supplierId,visibility:body.visibility,...audit});
+      if(error)throw error;
+    } else if (body.action === 'start') {
       if (!isAccountDate(body.startDate)) return failure(new Error('Fecha de inicio inválida.'), 400);
       let ars: number; let usd: number;
       try { ars = openingAmount(body.openingArs); usd = openingAmount(body.openingUsd); } catch (error) { return failure(error, 400); }
@@ -151,5 +199,5 @@ export async function POST(request: Request) {
       return NextResponse.json({ id: data, sheetSynced, sheetSyncWarning });
     } else return failure(new Error('Operación inválida.'), 400);
     return NextResponse.json({ ok: true });
-  } catch (error) { return failure(error); }
+  } catch (error) { return failure(error,(error as {status?:number})?.status===400?400:500); }
 }
