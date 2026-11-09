@@ -1084,3 +1084,104 @@
     padding-left: 1mm !important;
   }
 }
+
+/* Theme compatibility for existing neutral surfaces. Print retains the light palette. */
+@media screen {
+  html.dark { color-scheme: dark; }
+  html.dark body { background: var(--background); color: var(--foreground); }
+  html.dark :is(.bg-white, .card-enterprise, .card-enterprise-hover, .product-card, .input-standard, .select-standard) { background-color: #0f172a; }
+  html.dark :is(.bg-slate-50, .bg-gray-50, .bg-background) { background-color: #020617; }
+  html.dark :is(.bg-slate-100, .bg-gray-100) { background-color: #1e293b; }
+  html.dark :is(.bg-slate-200, .bg-gray-200) { background-color: #334155; }
+  html.dark :is(.text-slate-900, .text-slate-800, .text-gray-900, .text-gray-800, .text-foreground, .input-standard, .select-standard) { color: #f1f5f9; }
+  html.dark :is(.text-slate-700, .text-slate-600, .text-gray-700, .text-gray-600) { color: #cbd5e1; }
+  html.dark :is(.text-slate-500, .text-gray-500) { color: #94a3b8; }
+  html.dark :is(.border-slate-100, .border-slate-200, .border-gray-200, .border-slate-300, .card-enterprise, .card-enterprise-hover, .input-standard, .select-standard) { border-color: #334155; }
+  html.dark :is(.text-brand-900) { color: #bfdbfe; }
+  html.dark :is(.hover\:bg-slate-100:hover, .hover\:bg-slate-50:hover, .hover\:bg-gray-50:hover) { background-color: #334155; }
+}
+
+@media screen {
+  html.dark .bg-slate-50 { background-color: color-mix(in srgb, var(--color-slate-500) 12%, #0f172a); }
+  html.dark .bg-slate-100 { background-color: color-mix(in srgb, var(--color-slate-500) 12%, #0f172a); }
+  html.dark .bg-gray-50 { background-color: color-mix(in srgb, var(--color-gray-500) 12%, #0f172a); }
+  html.dark .bg-gray-100 { background-color: color-mix(in srgb, var(--color-gray-500) 12%, #0f172a); }
+  html.dark .bg-blue-50 { background-color: color-mix(in srgb, var(--color-blue-500) 12%, #0f172a); }
+  html.dark .bg-blue-100 { background-color: color-mix(in srgb, var(--color-blue-500) 12%, #0f172a); }
+  html.dark .text-blue-600 { color: var(--color-blue-300, #93c5fd); }
+  html.dark .text-blue-700 { color: var(--color-blue-300, #93c5fd); }
+  html.dark .text-blue-800 { color: var(--color-blue-300, #93c5fd); }
+  html.dark .text-blue-900 { color: var(--color-blue-300, #93c5fd); }
+  html.dark .bg-emerald-50 { background-color: color-mix(in srgb, var(--color-emerald-500) 12%, #0f172a); }
+  html.dark .bg-emerald-100 { background-color: color-mix(in srgb, var(--color-emerald-500) 12%, #0f172a); }
+  html.dark .text-emerald-600 { color: var(--color-emerald-300, #93c5fd); }
+  html.dark .text-emerald-700 { color: var(--color-emerald-300, #93c5fd); }
+  html.dark .text-emerald-800 { color: var(--color-emerald-300, #93c5fd); }
+  html.dark .text-emerald-900 { color: var(--color-emerald-300, #93c5fd); }
+  html.dark .bg-amber-50 { background-color: color-mix(in srgb, var(--color-amber-500) 12%, #0f172a); }
+  html.dark .bg-amber-100 { background-color: color-mix(in srgb, var(--color-amber-500) 12%, #0f172a); }
+  html.dark .text-amber-600 { color: var(--color-amber-300, #93c5fd); }
+  html.dark .text-amber-700 { color: var(--color-amber-300, #93c5fd); }
+  html.dark .text-amber-800 { color: var(--color-amber-300, #93c5fd); }
+  html.dark .text-amber-900 { color: var(--color-amber-300, #93c5fd); }
+  html.dark .bg-rose-50 { background-color: color-mix(in srgb, var(--color-rose-500) 12%, #0f172a); }
+  html.dark .bg-rose-100 { background-color: color-mix(in srgb, var(--color-rose-500) 12%, #0f172a); }
+  html.dark .text-rose-600 { color: var(--color-rose-300, #93c5fd); }
+  html.dark .text-rose-700 { color: var(--color-rose-300, #93c5fd); }
+  html.dark .text-rose-800 { color: var(--color-rose-300, #93c5fd); }
+  html.dark .text-rose-900 { color: var(--color-rose-300, #93c5fd); }
+  html.dark .bg-red-50 { background-color: color-mix(in srgb, var(--color-red-500) 12%, #0f172a); }
+  html.dark .bg-red-100 { background-color: color-mix(in srgb, var(--color-red-500) 12%, #0f172a); }
+  html.dark .text-red-600 { color: var(--color-red-300, #93c5fd); }
+  html.dark .text-red-700 { color: var(--color-red-300, #93c5fd); }
+  html.dark .text-red-800 { color: var(--color-red-300, #93c5fd); }
+  html.dark .text-red-900 { color: var(--color-red-300, #93c5fd); }
+  html.dark .bg-green-50 { background-color: color-mix(in srgb, var(--color-green-500) 12%, #0f172a); }
+  html.dark .bg-green-100 { background-color: color-mix(in srgb, var(--color-green-500) 12%, #0f172a); }
+  html.dark .text-green-600 { color: var(--color-green-300, #93c5fd); }
+  html.dark .text-green-700 { color: var(--color-green-300, #93c5fd); }
+  html.dark .text-green-800 { color: var(--color-green-300, #93c5fd); }
+  html.dark .text-green-900 { color: var(--color-green-300, #93c5fd); }
+  html.dark .bg-orange-50 { background-color: color-mix(in srgb, var(--color-orange-500) 12%, #0f172a); }
+  html.dark .bg-orange-100 { background-color: color-mix(in srgb, var(--color-orange-500) 12%, #0f172a); }
+  html.dark .text-orange-600 { color: var(--color-orange-300, #93c5fd); }
+  html.dark .text-orange-700 { color: var(--color-orange-300, #93c5fd); }
+  html.dark .text-orange-800 { color: var(--color-orange-300, #93c5fd); }
+  html.dark .text-orange-900 { color: var(--color-orange-300, #93c5fd); }
+  html.dark .bg-indigo-50 { background-color: color-mix(in srgb, var(--color-indigo-500) 12%, #0f172a); }
+  html.dark .bg-indigo-100 { background-color: color-mix(in srgb, var(--color-indigo-500) 12%, #0f172a); }
+  html.dark .text-indigo-600 { color: var(--color-indigo-300, #93c5fd); }
+  html.dark .text-indigo-700 { color: var(--color-indigo-300, #93c5fd); }
+  html.dark .text-indigo-800 { color: var(--color-indigo-300, #93c5fd); }
+  html.dark .text-indigo-900 { color: var(--color-indigo-300, #93c5fd); }
+  html.dark .bg-purple-50 { background-color: color-mix(in srgb, var(--color-purple-500) 12%, #0f172a); }
+  html.dark .bg-purple-100 { background-color: color-mix(in srgb, var(--color-purple-500) 12%, #0f172a); }
+  html.dark .text-purple-600 { color: var(--color-purple-300, #93c5fd); }
+  html.dark .text-purple-700 { color: var(--color-purple-300, #93c5fd); }
+  html.dark .text-purple-800 { color: var(--color-purple-300, #93c5fd); }
+  html.dark .text-purple-900 { color: var(--color-purple-300, #93c5fd); }
+  html.dark .bg-yellow-50 { background-color: color-mix(in srgb, var(--color-yellow-500) 12%, #0f172a); }
+  html.dark .bg-yellow-100 { background-color: color-mix(in srgb, var(--color-yellow-500) 12%, #0f172a); }
+  html.dark .text-yellow-600 { color: var(--color-yellow-300, #93c5fd); }
+  html.dark .text-yellow-700 { color: var(--color-yellow-300, #93c5fd); }
+  html.dark .text-yellow-800 { color: var(--color-yellow-300, #93c5fd); }
+  html.dark .text-yellow-900 { color: var(--color-yellow-300, #93c5fd); }
+  html.dark .bg-cyan-50 { background-color: color-mix(in srgb, var(--color-cyan-500) 12%, #0f172a); }
+  html.dark .bg-cyan-100 { background-color: color-mix(in srgb, var(--color-cyan-500) 12%, #0f172a); }
+  html.dark .text-cyan-600 { color: var(--color-cyan-300, #93c5fd); }
+  html.dark .text-cyan-700 { color: var(--color-cyan-300, #93c5fd); }
+  html.dark .text-cyan-800 { color: var(--color-cyan-300, #93c5fd); }
+  html.dark .text-cyan-900 { color: var(--color-cyan-300, #93c5fd); }
+  html.dark .bg-teal-50 { background-color: color-mix(in srgb, var(--color-teal-500) 12%, #0f172a); }
+  html.dark .bg-teal-100 { background-color: color-mix(in srgb, var(--color-teal-500) 12%, #0f172a); }
+  html.dark .text-teal-600 { color: var(--color-teal-300, #93c5fd); }
+  html.dark .text-teal-700 { color: var(--color-teal-300, #93c5fd); }
+  html.dark .text-teal-800 { color: var(--color-teal-300, #93c5fd); }
+  html.dark .text-teal-900 { color: var(--color-teal-300, #93c5fd); }
+  html.dark .bg-brand-50 { background-color: color-mix(in srgb, var(--color-brand-500) 12%, #0f172a); }
+  html.dark .bg-brand-100 { background-color: color-mix(in srgb, var(--color-brand-500) 12%, #0f172a); }
+  html.dark .text-brand-600 { color: var(--color-brand-300, #93c5fd); }
+  html.dark .text-brand-700 { color: var(--color-brand-300, #93c5fd); }
+  html.dark .text-brand-800 { color: var(--color-brand-300, #93c5fd); }
+  html.dark .text-brand-900 { color: var(--color-brand-300, #93c5fd); }
+}

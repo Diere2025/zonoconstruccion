@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { LogOut, Users, Menu, X, ChevronRight, Shield, KeyRound, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Boxes, Search } from "lucide-react";
 import { visibleErpModules, activeErpLink } from "@/lib/erpNavigation";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { KeyboardShortcuts } from "@/components/ui/KeyboardShortcuts";
 import { ErpNavigationContext } from "@/components/ui/ErpNavigationContext";
 import { supabase } from "@/lib/supabase";
@@ -857,7 +858,8 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <ThemeToggle />
             {!(userRoles.length === 1 && userRoles[0] === 'instalador') && <SupportNotifications />}
             {/* Live System Status Pill */}
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
