@@ -159,6 +159,25 @@ test('seller split orders grow before format restoration and save every original
   assert.ok(f.calls.findIndex(c=>c.body?.requests)<f.calls.findIndex(c=>c.maintenance));
 });
 
+test('personal withdrawals show quantities and no collection in Central and Entregas Actual', async () => {
+  const f = fixture();
+  vm.runInContext(`
+    getNextEmptyOperationalRows = async () => [24];
+    fetchSpreadsheetValueRanges = async (_, ranges) => ranges.map(() => []);
+    findOrderRowsInSheet = async () => [];
+  `, f.context);
+  await f.exports.upsertEmployeeWithdrawalInOperationalSheets('RMRH00160', {
+    clientName: 'Destinatario de prueba', paymentMethod: 'Sin cobro en la entrega', withoutCollection: true,
+    items: [{ name: 'Escalera', quantity: 2, unitPrice: 159000 }],
+  }, '🔸 Validado');
+  const cells = f.calls.flatMap(call => call.body?.data ?? []);
+  for (const [name, product, payment] of [['Central pedidos','AE:AG','X:Y'], ['Vendedores','AD:AF','W:X']]) {
+    const range = columns => `'${name}'!${columns.split(':').map(c => c + '24').join(':')}`;
+    assert.deepEqual(cells.find(cell => cell.range === range(product)).values[0], ['Escalera', 2, '']);
+    assert.deepEqual(cells.find(cell => cell.range === range(payment)).values[0], ['', '']);
+  }
+});
+
 test('biodigestor overrides an old OTRO payload in every seller and operational row',async()=>{
   const f=fixture();
   vm.runInContext("getNextAvailableSheetSlots=async()=>[{code:'JS1',rowNumber:2700},{code:'JS2',rowNumber:2701}]; getNextEmptyOperationalRows=async()=>[2700,2701]",f.context);

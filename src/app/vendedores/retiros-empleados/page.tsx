@@ -22,6 +22,11 @@ const primary = 'rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-whi
 const card = 'space-y-4 rounded-xl border border-slate-200 bg-white p-4';
 const money = (amount: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(amount);
 const cents = (amount: number) => Math.round(amount * 100);
+const personalOwner = '381df0d1-183f-4ccb-aaf2-8147c76159a9';
+const personalOwnerName = 'Diego Bóveda';
+const privateDetails = (amount: string, reference: string) => ({
+  personal_amount: amount === '' ? null : Number(amount), payment_reference: reference,
+});
 
 function requestErrorMessage(error: unknown) {
   const message = error && typeof error === 'object' && 'message' in error ? error.message : null;
@@ -42,6 +47,7 @@ interface Installment {
 interface Withdrawal {
   id: string; code: string; employee_id: string | null; employee: string; state: string; status: string; version: number; created_by: string;
   carrier_id?: string | null; external_name?: string | null; external_reference?: string | null;
+  personal?: boolean; personal_amount?: number | null; payment_reference?: string | null;
   amount: number; created_at: string; notes: string; review_note: string; category: string; sheet_pending: boolean;
   mode: 'pickup' | 'home'; address: string; locality: string; delivery_date: string; phone: string | null; maps_link?: string | null;
   deadline?: string | null;
@@ -65,14 +71,43 @@ const deliveredAmount = (order: Withdrawal) => {
   return (gross - employeeDiscountCents(gross, order.discount_rate ?? 0)) / 100;
 };
 
-function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save, busy, close }: {
-  order?: Withdrawal; employees: Employee[]; carriers?: Employee[] | null; logistics: boolean;
+function PersonalPaymentFields({ amount, reference, setAmount, setReference }: {
+  amount: string; reference: string; setAmount: (value: string) => void; setReference: (value: string) => void;
+}) {
+  return <fieldset className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-2">
+    <legend className="px-2 text-sm font-semibold">Acuerdo privado · solo visible para Diego</legend>
+    <label className="text-sm font-semibold">Importe acordado (opcional)
+      <input type="number" min="0" max="9999999999" step="0.01" className={field} value={amount}
+        onChange={event => setAmount(event.target.value)} placeholder="Sin importe definido" />
+    </label>
+    <label className="text-sm font-semibold">Referencia de pago (opcional)
+      <textarea maxLength={500} rows={2} className={field} value={reference} onChange={event => setReference(event.target.value)} />
+    </label>
+  </fieldset>;
+}
+
+function PersonalPaymentEditor({ order, save, busy }: { order: Withdrawal; save: Save; busy: boolean }) {
+  const [amount, setAmount] = useState(String(order.personal_amount ?? ''));
+  const [reference, setReference] = useState(order.payment_reference ?? '');
+  return <form className="space-y-2" onSubmit={event => {
+    event.preventDefault();
+    void save('personal_details', order.id, null, privateDetails(amount, reference));
+  }}>
+    <PersonalPaymentFields {...{amount, reference, setAmount, setReference}} />
+    <button className={button} disabled={busy || (amount === String(order.personal_amount ?? '') && reference === (order.payment_reference ?? ''))}>
+      Guardar acuerdo privado
+    </button>
+  </form>;
+}
+
+function OrderEditor({ order, personal, employees, carriers, logistics, ownEmployee, save, busy, close }: {
+  order?: Withdrawal; personal: boolean; employees: Employee[]; carriers?: Employee[] | null; logistics: boolean;
   ownEmployee: string | null; save: Save; busy: boolean; close: () => void;
 }) {
   const [employee, setEmployee] = useState(order?.employee_id || ownEmployee || '');
-  const [beneficiaryType, setBeneficiaryType] = useState<BeneficiaryType>(order?.carrier_id ? 'carrier' : order?.external_name ? 'external' : 'employee');
+  const [beneficiaryType, setBeneficiaryType] = useState<BeneficiaryType>(personal ? 'external' : order?.carrier_id ? 'carrier' : order?.external_name ? 'external' : 'employee');
   const [carrier, setCarrier] = useState(order?.carrier_id ?? '');
-  const [externalName, setExternalName] = useState(order?.external_name ?? '');
+  const [externalName, setExternalName] = useState(personal && order?.external_name === personalOwnerName ? '' : order?.external_name ?? '');
   const [reference, setReference] = useState(order?.external_reference ?? '');
   const [lines, setLines] = useState<Line[]>(order?.items || []);
   const [note, setNote] = useState(order?.operational_note ?? order?.notes.replace(/^Retiro de empleado(?: · )?/, '') ?? '');
@@ -89,6 +124,8 @@ function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save,
     ? { from: order.delivery_date, to: order.deadline ?? order.delivery_date }
     : regularDeliveryWindow(getArgentinaDateString()));
   const [discountRate, setDiscountRate] = useState(String(order?.discount_rate ?? employeeDiscountRate));
+  const [amount, setAmount] = useState(String(order?.personal_amount ?? ''));
+  const [paymentReference, setPaymentReference] = useState(order?.payment_reference ?? '');
   const [query, setQuery] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
   const [searchError, setSearchError] = useState('');
@@ -145,14 +182,15 @@ function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save,
     if (mode === 'home' && (!deliveryWindow.from || !deliveryWindow.to || invalidWindow)) return;
     if (await save(order ? 'edit' : 'create', id, order?.version ?? null, {
       employee_id: beneficiaryType === 'employee' ? employee : undefined,
-      items: lines, note, mode, address, locality, phone,
+      items: personal ? lines.map(({ product_id, quantity }) => ({ product_id, quantity })) : lines, note, mode, address, locality, phone,
       delivery_date: deliveryWindow.from, deadline: deliveryWindow.to,
       maps_link: mode === 'home' ? mapsLink.trim() || withdrawalMapUrl(address, locality) : undefined,
       discount_rate: Number(discountRate),
-      beneficiary_type: beneficiaryType,
+      beneficiary_type: personal ? 'personal' : beneficiaryType,
       carrier_id: beneficiaryType === 'carrier' ? carrier : undefined,
       external_name: beneficiaryType === 'external' ? externalName : undefined,
-      external_reference: beneficiaryType !== 'employee' ? reference : undefined,
+      external_reference: !personal && beneficiaryType !== 'employee' ? reference : undefined,
+      ...(personal ? privateDetails(amount, paymentReference) : {}),
     })) close();
   }
 
@@ -171,7 +209,7 @@ function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save,
     setPhone('');
     setMapsLink('');
   }
-  const beneficiaryReady = beneficiaryType === 'employee' ? !!employee :
+  const beneficiaryReady = personal ? (!externalName.trim() || externalName.trim().length >= 2) : beneficiaryType === 'employee' ? !!employee :
     beneficiaryType === 'carrier' ? !!carrier : externalName.trim().length >= 2 && reference.trim().length >= 3;
   const changedBeneficiary = order && (
     (beneficiaryType === 'employee' ? employee : null) !== order.employee_id ||
@@ -181,14 +219,20 @@ function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save,
 
   return <form className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" onSubmit={submit}>
     <header className="border-b border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
-      <h2 className="text-lg font-bold">{order ? 'Corregir retiro' : 'Nuevo pedido de empleado'}</h2>
+      <h2 className="text-lg font-bold">{personal ? order ? 'Corregir retiro personal' : 'Nuevo retiro personal' : order ? 'Corregir retiro' : 'Nuevo pedido de empleado'}</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Al enviar, el pedido queda <strong>Pendiente de RR. HH.</strong> hasta que se revise.
+        {personal ? 'Al guardar, queda habilitado para Logística, sin cobro en la entrega.' :
+          <>Al enviar, el pedido queda <strong>Pendiente de RR. HH.</strong> hasta que se revise.</>}
       </p>
     </header>
     <div className="space-y-5 p-5 sm:p-6">
     <div className="grid gap-4 sm:grid-cols-2">
     <div className="space-y-3">
+      {personal ? <><p className="text-sm">A nombre de <strong>{personalOwnerName}</strong></p>
+        <label className="block text-sm font-semibold">Quién retira o recibe (opcional)
+          <input maxLength={160} className={field} placeholder={personalOwnerName} value={externalName}
+            onChange={event => setExternalName(event.target.value)} />
+        </label></> : <>
       {logistics && carriers && <label className="block text-sm font-semibold">Tipo de beneficiario
         <select className={field} value={beneficiaryType} onChange={event => {
           const next = event.target.value as BeneficiaryType;
@@ -226,6 +270,7 @@ function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save,
           maxLength={250} className={field} placeholder="Ej. empresa o quién solicita el retiro"
           value={reference} onChange={event => setReference(event.target.value)} />
       </label>}
+      </>}
     </div>
     <label className="block self-start text-sm font-semibold">Modalidad de entrega
       <select className={field} value={mode} onChange={event => setMode(event.target.value === 'home' ? 'home' : 'pickup')}>
@@ -234,7 +279,7 @@ function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save,
       </select>
     </label>
     </div>
-    {changedBeneficiary && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+    {!personal && changedBeneficiary && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
       Cambiaste el beneficiario. Al guardar, RR. HH. tendrá que revisar el retiro nuevamente.
     </p>}
     {mode === 'home' && <fieldset className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
@@ -281,7 +326,7 @@ function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save,
         {map && validMap && <a href={map} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-700 underline">Ver en Google Maps</a>}
       </div>
     </fieldset>}
-    {!logistics && !employees.length && <p>Pedile a Administración que vincule tu cuenta con tu ficha de personal.</p>}
+    {!personal && !logistics && !employees.length && <p>Pedile a Administración que vincule tu cuenta con tu ficha de personal.</p>}
     <div className="space-y-3 border-t border-slate-200 pt-4">
     <label className="block max-w-md text-sm font-semibold">Buscar producto por nombre o SKU
       <input className={field} placeholder="Ej. escalera o SKU" value={query} onChange={event => { setProducts([]); setQuery(event.target.value); }} />
@@ -295,19 +340,20 @@ function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save,
         }}>{product.sku}</button>
       </li>)}
     </ul>}
-    {lines.map((line, index) => <div key={index} className="grid items-end gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
+    {lines.map((line, index) => <div key={index} className={`grid items-end gap-3 rounded-xl border border-slate-200 p-3 ${personal ? 'sm:grid-cols-[2fr_1fr_auto]' : 'sm:grid-cols-[2fr_1fr_1fr_auto]'}`}>
       <div className="pb-1 text-sm"><p className="font-semibold">{line.name}</p>{line.sku && line.sku !== line.name && <p className="text-slate-500">{line.sku}</p>}</div>
       <label>Cantidad<input required type="number" min="1" max="10000" step="1" className={field} value={line.quantity}
         onChange={event => setLines(lines.map((item, i) => i === index ? { ...item, quantity: Number(event.target.value) } : item))} /></label>
-      <label>Precio unitario<input required type="number" min="0" step="0.01" className={field} value={line.price}
-        onChange={event => setLines(lines.map((item, i) => i === index ? { ...item, price: Number(event.target.value) } : item))} /></label>
+      {!personal && <label>Precio unitario<input required type="number" min="0" step="0.01" className={field} value={line.price}
+        onChange={event => setLines(lines.map((item, i) => i === index ? { ...item, price: Number(event.target.value) } : item))} /></label>}
       <button type="button" className={button} onClick={() => setLines(lines.filter((_, i) => i !== index))}>Quitar</button>
     </div>)}
     </div>
     <label className="block text-sm font-semibold">Observaciones operativas<textarea maxLength={500} className={field} value={note} onChange={event => setNote(event.target.value)} /></label>
+    {personal && <PersonalPaymentFields amount={amount} reference={paymentReference} setAmount={setAmount} setReference={setPaymentReference} />}
     </div>
     <footer className="flex flex-wrap items-end justify-between gap-4 border-t border-slate-200 bg-slate-50 p-5 sm:px-6">
-    <dl className="w-full max-w-xs space-y-1 text-sm tabular-nums">
+    {!personal && <dl className="w-full max-w-xs space-y-1 text-sm tabular-nums">
       <div className="flex justify-between gap-4"><dt>Subtotal</dt><dd>{money(subtotal / 100)}</dd></div>
       <div className="flex items-center justify-between gap-4 text-emerald-800">
         <dt><label className="flex flex-wrap items-center gap-2">{beneficiaryType === 'employee' ? 'Descuento empleado' : 'Descuento'}
@@ -317,9 +363,11 @@ function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save,
         </label></dt><dd>−{money(discount / 100)}</dd>
       </div>
       <div className="flex justify-between gap-4 border-t border-slate-200 pt-2 text-base font-bold"><dt>Total del pedido</dt><dd>{money((subtotal - discount) / 100)}</dd></div>
-    </dl>
+    </dl>}
     <div className="flex flex-wrap gap-2">
-      <button className={primary} disabled={busy || !beneficiaryReady || !lines.length || mode === 'home' && (!validMap || invalidWindow)}>Enviar a RR. HH.</button>
+      <button className={primary} disabled={busy || !beneficiaryReady || !lines.length || mode === 'home' && (!validMap || invalidWindow)}>
+        {personal ? 'Guardar retiro personal' : 'Enviar a RR. HH.'}
+      </button>
       <button type="button" className={button} onClick={close}>Volver al listado</button>
     </div>
     </footer>
@@ -451,7 +499,8 @@ function ActionForm({ selection, order, save, busy, close }: {
   </form>;
 }
 
-function ReviewBadge({ state }: { state: string }) {
+function ReviewBadge({ state, personal }: { state: string; personal?: boolean }) {
+  if (personal && state === 'approved') return <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">Habilitado para entrega</span>;
   return <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${state === 'approved'
     ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>
     {employeeReviewLabels[state] ?? withdrawalStates[state]}
@@ -486,7 +535,8 @@ function OrderDetail({ order, inbox, save, busy, period, error, notice, onClose,
     (previousBeneficiary.employee_id !== (order.employee_id ?? undefined) ||
       previousBeneficiary.carrier_id !== (order.carrier_id ?? undefined) ||
       previousBeneficiary.external_name?.trim() !== (order.external_name ?? undefined));
-  const canEdit = capabilities.create && (capabilities.logistics || capabilities.user_id === order.created_by)
+  const canManagePersonal = order.personal && capabilities.admin && capabilities.user_id === personalOwner;
+  const canEdit = capabilities.create && (order.personal ? canManagePersonal : capabilities.logistics || capabilities.user_id === order.created_by)
     && ['pending', 'returned', 'approved'].includes(order.state) && !order.delivery_events.length;
   const approved = order.state === 'approved';
   const delivered = deliveredAmount(order);
@@ -504,10 +554,10 @@ function OrderDetail({ order, inbox, save, busy, period, error, notice, onClose,
     if (!busy) close();
   }} className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-4xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/50">
     <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
-      <div className="min-w-0 space-y-1"><h2 id="withdrawal-detail-title" className="text-lg font-bold">{order.employee} · {money(order.amount)}</h2>
+      <div className="min-w-0 space-y-1"><h2 id="withdrawal-detail-title" className="text-lg font-bold">{order.employee}{!order.personal && ` · ${money(order.amount)}`}</h2>
         <p className="break-all text-xs text-slate-500">{order.code} · {displayErpInstant(order.created_at)} · {order.category}</p>
-        <p className="text-xs text-slate-600">Procedencia · {EMPLOYEE_WITHDRAWAL_SOURCE}</p>
-        <ReviewBadge state={order.state} />
+        <p className="text-xs text-slate-600">Procedencia · {order.personal ? 'Retiro personal' : EMPLOYEE_WITHDRAWAL_SOURCE}</p>
+        <ReviewBadge state={order.state} personal={order.personal} />
       </div>
       <button type="button" aria-label="Cerrar detalle" disabled={busy} onClick={close}
         className="shrink-0 rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-50"><X size={20} /></button>
@@ -519,8 +569,9 @@ function OrderDetail({ order, inbox, save, busy, period, error, notice, onClose,
       Cambió el beneficiario. Revisá el cambio y, si corresponde, consultá a Gerencia antes de autorizar.
     </p>}
     <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
-      {external && <p className="font-semibold">{order.carrier_id ? 'Fletero' : 'Otra persona'} · Fuera de nómina</p>}
-      {order.external_reference && <p>Referencia: {order.external_reference}</p>}
+      {order.personal ? <p className="font-semibold">A nombre de {personalOwnerName} · Sin cobro en la entrega</p> :
+        external && <p className="font-semibold">{order.carrier_id ? 'Fletero' : 'Otra persona'} · Fuera de nómina</p>}
+      {!order.personal && order.external_reference && <p>Referencia: {order.external_reference}</p>}
       <p className="font-semibold">{order.mode === 'home' ? 'Envío a domicilio' : 'Retiro en depósito'}</p>
       {order.mode === 'home' && <>
         <p>{order.address}, {order.locality} · {displayDeliveryWindow(order.delivery_date, order.deadline)}{order.phone && ` · ${order.phone}`}</p>
@@ -529,12 +580,13 @@ function OrderDetail({ order, inbox, save, busy, period, error, notice, onClose,
       </>}
       {Number(order.discount_rate) > 0 && <p>{external ? 'Descuento' : 'Descuento empleado'} ({order.discount_rate}%) · {money(order.discount_amount)}</p>}
     </div>
-    <p className="text-sm">{order.notes}{order.review_note && ` · ${order.review_note}`}</p>
+    {order.personal ? order.operational_note && <p className="text-sm">{order.operational_note}</p> :
+      <p className="text-sm">{order.notes}{order.review_note && ` · ${order.review_note}`}</p>}
     <ul className="divide-y rounded-lg border">
       {order.items.map(item => {
         const units = deliveredUnits(order, item.id);
         return <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 p-2 text-sm">
-          <span>{item.name} · {units}/{item.quantity} entregado · {money(item.price)} por unidad</span>
+          <span>{item.name} · {units}/{item.quantity} entregado{!order.personal && ` · ${money(item.price)} por unidad`}</span>
           {approved && capabilities.logistics && <div className="flex flex-wrap gap-2">
             {!order.delivery_closed && units < item.quantity && <button className={button}
               onClick={() => action({ action: 'deliver', item: item.id, max: item.quantity - units })}>Entregar</button>}
@@ -545,7 +597,8 @@ function OrderDetail({ order, inbox, save, busy, period, error, notice, onClose,
     </ul>
     {lastDelivery && <p className="text-sm">Última entrega {displayErpInstant(lastDelivery.at)}</p>}
     {order.delivery_closed && <p className="text-sm font-semibold">Entrega cerrada</p>}
-    {review && order.agreement && <p className="text-sm">{order.agreement}</p>}
+    {!order.personal && review && order.agreement && <p className="text-sm">{order.agreement}</p>}
+    {canManagePersonal && <PersonalPaymentEditor order={order} save={save} busy={busy} />}
     {review && (order.installments?.length ?? 0) > 0 && <>
       <p className="text-sm">Entregado {money(delivered)} · Descuento neto aplicado {money(applied)} · Disponible para descontar {money(Math.max(0, delivered - applied))}</p>
       {credit > 0 && <button className={button} onClick={() => action({ action: 'credit', amount: credit })}>Registrar reintegro de hasta {money(credit)}</button>}
@@ -562,7 +615,7 @@ function OrderDetail({ order, inbox, save, busy, period, error, notice, onClose,
       </table></div>
     </>}
     <div className="flex flex-wrap gap-2">
-      {canEdit && (employees.length > 0 || capabilities.logistics && inbox.carriers) && <button className={button} onClick={() => {
+      {canEdit && (canManagePersonal || employees.length > 0 || capabilities.logistics && inbox.carriers) && <button className={button} onClick={() => {
         dialog.current?.close();
         onEdit();
       }}>Corregir pedido</button>}
@@ -635,7 +688,7 @@ function EmployeeWithdrawalsInbox({ queue }: { queue: '' | 'pending' | 'rejected
   const [period, setPeriod] = useState('');
   const [filter, setFilter] = useState<string>(queue);
   const [page, setPage] = useState(0);
-  const [editor, setEditor] = useState<Withdrawal | 'new' | null>(null);
+  const [editor, setEditor] = useState<Withdrawal | 'new' | 'personal' | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -662,7 +715,7 @@ function EmployeeWithdrawalsInbox({ queue }: { queue: '' | 'pending' | 'rejected
       if (action !== 'sync') window.dispatchEvent(new Event(WITHDRAWAL_REVIEWS_REFRESH));
       let synced = true;
       if (action === 'sync') synced = result.synced;
-      else if (action !== 'access') {
+      else if (action !== 'access' && action !== 'personal_details') {
         try { synced = (await post({ action: 'sync', id: result.id })).synced; }
         catch { synced = false; }
       }
@@ -693,14 +746,19 @@ function EmployeeWithdrawalsInbox({ queue }: { queue: '' | 'pending' | 'rejected
         <p className="text-sm text-slate-600">{reviewQueue ? 'Retiros pendientes de autorización.' :
           rejectionQueue ? 'Abrí el detalle para consultar el motivo de RR. HH.' : 'Validación de RR. HH., retiro en depósito y envío a domicilio.'}</p></div>
       {queue ? <Link href={EMPLOYEE_WITHDRAWALS_PATH} className={button}>Ver todos los retiros</Link> :
-        inbox?.capabilities.create && !editor && <button className={primary} onClick={() => setEditor('new')}>Cargar retiro</button>}
+        inbox?.capabilities.create && !editor && <div className="flex flex-wrap gap-2">
+          {inbox.capabilities.admin && inbox.capabilities.user_id === personalOwner &&
+            <button className={button} onClick={() => setEditor('personal')}>Cargar retiro personal</button>}
+          <button className={primary} onClick={() => setEditor('new')}>Cargar retiro</button>
+        </div>}
     </header>
     {!selectedOrder && error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-900">{error}</p>}
     {!selectedOrder && notice && <p role="status" className="rounded-lg bg-blue-50 p-3">{notice}</p>}
     {!inbox && !error && <p>Cargando retiros…</p>}
     {reviewDenied && <p role="alert" className={card}>No tenés permiso para validar retiros.</p>}
     {inbox && !reviewDenied && (editor ?
-      <OrderEditor key={editor === 'new' ? 'new' : editor.id} order={editor === 'new' ? undefined : editor}
+      <OrderEditor key={typeof editor === 'string' ? editor : editor.id} order={typeof editor === 'string' ? undefined : editor}
+        personal={editor === 'personal' || typeof editor !== 'string' && !!editor.personal}
         employees={inbox.employees} carriers={inbox.carriers} logistics={inbox.capabilities.logistics}
         ownEmployee={inbox.capabilities.employee_id} save={save} busy={busy} close={() => setEditor(null)} /> :
       <>
@@ -724,10 +782,10 @@ function EmployeeWithdrawalsInbox({ queue }: { queue: '' | 'pending' | 'rejected
           className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_13rem_7rem]">
           <div className="min-w-0">
             <p className="break-words text-sm font-semibold">{order.employee}</p>
-            <p className="break-all text-xs text-slate-500">{order.code} · {displayErpInstant(order.created_at)}</p>
+            <p className="break-all text-xs text-slate-500">{order.code} · {displayErpInstant(order.created_at)}{order.personal && ' · Retiro personal'}</p>
           </div>
-          <p className="text-right text-sm font-semibold tabular-nums">{money(order.amount)}</p>
-          <div className="sm:justify-self-center"><ReviewBadge state={order.state} /></div>
+          <p className="text-right text-sm font-semibold tabular-nums">{order.personal ? 'Sin cobro' : money(order.amount)}</p>
+          <div className="sm:justify-self-center"><ReviewBadge state={order.state} personal={order.personal} /></div>
           <button type="button" className={`${button} justify-self-end`} aria-haspopup="dialog"
             aria-label={`Ver detalle de ${order.code}`} onClick={() => openDetail(order)}>Ver detalle</button>
         </li>)}

@@ -25,7 +25,7 @@ export interface LegacyWithdrawal {
   maps_link?: string | null;
   mode?: 'pickup' | 'home';
   category: string;
-  beneficiary_type?: 'employee' | 'carrier' | 'external';
+  beneficiary_type?: 'employee' | 'carrier' | 'external' | 'personal';
   discount_rate?: number;
   total?: number;
   items: { name: string; sku?: string; quantity: number; price?: number }[];

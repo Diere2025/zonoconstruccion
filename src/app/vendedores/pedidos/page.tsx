@@ -4002,12 +4002,13 @@ export default function PedidosPage() {
     const pm = dbPaymentMethods.find(m => m.id === rawOrder.payment_method_id);
     const pmName = pm?.name || "Contado";
     const totalsObj = rawOrder.totals || {};
+    const personalWithdrawal = rawOrder.employee_withdrawal && totalsObj.withdrawal_beneficiary_type === 'personal';
 
     const zoneName = rawOrder.zones
       ? (Array.isArray(rawOrder.zones) ? rawOrder.zones[0]?.name : rawOrder.zones.name)
       : undefined;
 
-    const advName = advertisingSources.find(a => a.id === rawOrder.advertising_source_id)?.name
+    const advName = personalWithdrawal ? 'Retiro personal' : advertisingSources.find(a => a.id === rawOrder.advertising_source_id)?.name
       ?? (rawOrder.employee_withdrawal ? EMPLOYEE_WITHDRAWAL_SOURCE : undefined);
     const medName = orderMediums.find(m => m.id === rawOrder.order_medium_id)?.name;
 
@@ -4026,7 +4027,9 @@ export default function PedidosPage() {
       whaticket_link: rawOrder.whaticket_link || "",
       seller_name: sellerName,
       status: rawOrder.status || "Pendiente",
-      employee_review_status: rawOrder.employee_review_status,
+      employee_withdrawal: rawOrder.employee_withdrawal,
+      personal_withdrawal: personalWithdrawal,
+      employee_review_status: personalWithdrawal ? undefined : rawOrder.employee_review_status,
       channel: rawOrder.channel || "",
       commercial_brand: rawOrder.commercial_brand || (rawOrder.channel === 'mayorista' ? 'aquafort' : 'zono'),
       advertising_source_name: advName,
@@ -4036,7 +4039,7 @@ export default function PedidosPage() {
       max_delivery_date: rawOrder.max_delivery_date || "",
       delivery_notes: cleanDeliveryNotes(rawOrder.delivery_notes) || "",
       delivery_detail: cleanDeliveryNotes(rawOrder.delivery_detail) || "",
-      payment_method_name: rawOrder.employee_withdrawal
+      payment_method_name: personalWithdrawal ? 'Sin cobro en la entrega' : rawOrder.employee_withdrawal
         ? (['carrier', 'external'].includes(totalsObj.withdrawal_beneficiary_type) ? "Acuerdo fuera de nómina" : EMPLOYEE_WITHDRAWAL_PAYMENT)
         : pmName,
       payment_status: rawOrder.payment_status || "Impago",

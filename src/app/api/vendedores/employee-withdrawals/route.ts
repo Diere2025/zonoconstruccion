@@ -76,7 +76,8 @@ export async function POST(request: NextRequest) {
       data.maps_link = withdrawalMapUrl(data.address, data.locality);
     }
     data.category = detectOrderCategory(data.items.map((item: { product_id: string; quantity: number; price: number }) => ({
-      ...products?.find(product => product.id === item.product_id), quantity: item.quantity, unit_price: item.price,
+      ...products?.find(product => product.id === item.product_id), quantity: item.quantity,
+      unit_price: data.beneficiary_type === 'personal' ? undefined : item.price,
     })));
   }
 

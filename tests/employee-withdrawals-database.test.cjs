@@ -5,8 +5,9 @@ const { PGlite } = require(process.env.OUTLET_PGLITE_MODULE || '../tmp/customer-
 const { columns, triggers } = require('./fixtures/outlet-schema.json');
 
 const id = value => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`;
-const [admin, seller, logistics, reviewer, employee, otherEmployee, product, order, weeklyOrder] =
+const [, seller, logistics, reviewer, employee, otherEmployee, product, order, weeklyOrder] =
   Array.from({ length: 9 }, (_, index) => id(index + 1));
+const admin = '381df0d1-183f-4ccb-aaf2-8147c76159a9';
 
 test('employee withdrawals use payroll periods, require authorization, and reconcile delivered value', async () => {
   const db = new PGlite();
@@ -251,6 +252,16 @@ test('employee withdrawals use payroll periods, require authorization, and recon
     assert.equal(await rejectionNotices(rejectedOrder), 0);
     await as(logistics);
     assert.equal(await rejectionNotices(), 1);
+    await db.exec(fs.readFileSync('database/db_migration_20261109_employee_withdrawal_personal.sql', 'utf8'));
+    const personalOrder = id(15);
+    const personalPayload = {
+      beneficiary_type: 'personal', external_name: 'Persona autorizada',
+      personal_amount: 750.5, payment_reference: 'Referencia privada de prueba',
+      items: [{ ...items[0], quantity: 1 }],
+      mode: 'home', address: 'Calle 123', locality: 'Moreno', phone: '123456789',
+      delivery_date: '2026-11-10', deadline: '2026-11-12',
+    };
+    const findPersonal = async () => (await read()).orders.find(row => row.id === personalOrder);
     await db.exec('SET ROLE authenticated');
     assert.equal(await rejectionNotices(rejectedOrder), 0);
     await assert.rejects(db.query('select * from employee_withdrawal_rejection_reads'), /permission denied/);
@@ -258,5 +269,49 @@ test('employee withdrawals use payroll periods, require authorization, and recon
     await assert.rejects(db.query('select employee_withdrawal_finish_sheet($1,$2,$3,true)',
       [order, snapshot.lease, snapshot.version]), /permission denied/);
     assert.equal((await read()).orders[0].installments, null);
+    await assert.rejects(save('create', personalOrder, null, personalPayload), /Solo Diego/);
+    await assert.rejects(db.query('select * from employee_withdrawal_personal'), /permission denied/);
+    await assert.rejects(db.query('select employee_withdrawal_read_standard(null,null,0)'), /permission denied/);
+    await assert.rejects(db.query("select employee_withdrawal_save_standard('create',$1,null,'{}')", [personalOrder]), /permission denied/);
+    await as(admin);
+    await save('create', personalOrder, null, personalPayload);
+    await save('create', personalOrder, null, { ...personalPayload, personal_amount: 999 });
+    const mine = await findPersonal();
+    assert.equal(mine.personal, true);
+    assert.equal(mine.personal_amount, 750.5);
+    assert.equal(mine.payment_reference, personalPayload.payment_reference);
+    assert.equal(mine.state, 'approved');
+    assert.equal(mine.status, 'Pendiente');
+    assert.equal(mine.employee, 'Persona autorizada');
+    assert.equal(mine.amount, 0);
+    assert.equal(mine.items[0].price, 0);
+    assert.deepEqual(mine.installments, []);
+    await as(reviewer);
+    const reviewerView = await findPersonal();
+    assert.equal(reviewerView.personal, true);
+    assert.equal(JSON.stringify(reviewerView).includes(personalPayload.payment_reference), false);
+    await assert.rejects(save('personal_details', personalOrder, null, {}), /Solo Diego/);
+    await as(logistics);
+    const logisticsView = await findPersonal();
+    assert.equal(logisticsView.personal, true);
+    assert.equal('payment_reference' in logisticsView || 'personal_amount' in logisticsView, false);
+    await assert.rejects(save('edit', personalOrder, logisticsView.version, { ...personalPayload, beneficiary_type: 'external' }), /Solo Diego/);
+    const personalSheet = (await db.query('select employee_withdrawal_claim_sheet($1) as data', [personalOrder])).rows[0].data;
+    assert.equal(personalSheet.beneficiary_type, 'personal');
+    assert.equal(personalSheet.total, 0);
+    assert.equal('payment_reference' in personalSheet || 'personal_amount' in personalSheet, false);
+    await save('deliver', personalOrder, logisticsView.version, { item_id: logisticsView.items[0].id, quantity: 1 });
+    await as(admin);
+    assert.equal((await findPersonal()).status, 'Entregado');
+    await save('personal_details', personalOrder, null, { personal_amount: null, payment_reference: 'Acuerdo posterior' });
+    assert.equal((await findPersonal()).personal_amount, null);
+    assert.equal((await findPersonal()).payment_reference, 'Acuerdo posterior');
+
+    const selfPickup = id(16);
+    await save('create', selfPickup, null, { beneficiary_type: 'personal', items });
+    const ownPickup = (await read()).orders.find(row => row.id === selfPickup);
+    assert.equal(ownPickup.employee, 'Diego Bóveda');
+    assert.equal(ownPickup.status, 'Confirmado');
+    assert.equal(ownPickup.personal_amount, null);
   } finally { await db.close(); }
 });
