@@ -17,7 +17,7 @@ type PaymentApplicationRow = {
  allocations:Array<{purchase_id:string;amount:number|string}>;
 };
 
-async function paymentDetail(db:SupabaseClient,supplierId:string,paymentId:string) {
+async function paymentDetail(db:SupabaseClient,supplierId:string,paymentId:string,review:boolean) {
  const sourceKey='payment:'+paymentId;
  const [payment,scope,openingSignature,reservations]=await Promise.all([
   db.rpc('get_supplier_application_payments',{p_supplier:supplierId}).eq('id',paymentId).maybeSingle(),
@@ -44,15 +44,38 @@ async function paymentDetail(db:SupabaseClient,supplierId:string,paymentId:strin
  const names=new Map((documents.data||[]).map(doc=>[doc.id,[doc.document_type,doc.invoice_number].filter(Boolean).join(' · ')]));
  const partNames=new Map(parts.map(part=>[part.item_key,part.reference]));
  const account=movement.data?.financial_accounts;
+ let payableDocuments;
+ if(review&&scope.data?.included){
+  const purchases=await all<{id:string;invoice_number:string|null;document_type:string|null;purchase_date:string|null;
+    total_amount:number|string;paid_amount:number|string;credit_applied_amount?:number|string}>(
+    db.rpc('get_supplier_application_documents',{p_supplier:supplierId}).eq('currency',currency)
+      .neq('status','Anulado').order('id'));
+  const existing=new Map(allocations.map(a=>[a.purchase_id,Math.round(Number(a.amount)*100)]));
+  const candidates=purchases.filter(doc=>doc.document_type!=='Nota de Crédito').map(doc=>({
+    id:doc.id,reference:[doc.document_type||'Documento de compra',doc.invoice_number].filter(Boolean).join(' · '),
+    date:doc.purchase_date,
+    availableCents:Math.round(Number(doc.total_amount)*100)-Math.round(Number(doc.paid_amount)*100)
+      -Math.round(Number(doc.credit_applied_amount||0)*100)+(existing.get(doc.id)||0),
+  })).filter(doc=>doc.availableCents>0);
+  const eligible=new Set<string>();
+  for(let offset=0;offset<candidates.length;offset+=100){
+    const {data,error}=await db.from('supplier_document_account_scope').select('id')
+      .in('id',candidates.slice(offset,offset+100).map(doc=>doc.id)).eq('account_included',true);
+    if(error)throw error;
+    for(const row of data||[])eligible.add(row.id);
+  }
+  payableDocuments=candidates.filter(doc=>eligible.has(doc.id))
+    .sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.id.localeCompare(b.id));
+ }
  return {
   code:movement.data?movementCode(movement.data):'PAG-'+paymentId.toUpperCase(),
-  amount,currency,date:created_at,signature,included:scope.data?.included===true,
+  amount,currency,date:created_at,signature,included:scope.data?.included===true,movementId:movement.data?.id,
   concept:movement.data?.concept,
   notes:scope.data?.reference && scope.data.reference!=='Pago'?scope.data.reference:movement.data?.notes,
   account:(Array.isArray(account)?account[0]:account)?.name,
   documents:allocations.map(a=>({...a,reference:names.get(a.purchase_id)||'Documento de compra'})),
   opening:opening.map(a=>({...a,reference:partNames.get(a.target_key)||'Partida de apertura'})),
-  openingSignature:openingSignature.data,reserved:Number(reservations.data||0),
+  openingSignature:openingSignature.data,reserved:Number(reservations.data||0),payableDocuments,
  };
 }
 export async function GET(request:Request){try{
@@ -68,7 +91,7 @@ export async function GET(request:Request){try{
  const paymentId=params.get('paymentId');
  if(paymentId!==null){
   if(!isUuid(paymentId))throw new Error('Pago inválido.');
-  return NextResponse.json(await paymentDetail(db,supplier,paymentId),{headers:{'Cache-Control':'no-store'}});
+  return NextResponse.json(await paymentDetail(db,supplier,paymentId,params.get('review')==='1'),{headers:{'Cache-Control':'no-store'}});
  }
  const [config,entries,choices,payments,purchases,credits,openingApplications,reservations]=await Promise.all([
   db.from('supplier_account_starts').select('*').eq('supplier_id',supplier).maybeSingle(),
