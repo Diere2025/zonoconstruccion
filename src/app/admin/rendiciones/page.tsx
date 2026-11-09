@@ -11,7 +11,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
 import { formatPrice } from "@/lib/utils";
-import { isExcludedDeliveryStatus, isExcludedSettlementTicket, settlementElectronicTicketTotals, settlementOrderAmount, settlementOrdersTotal } from "@/lib/settlementOrders";
+import { isExcludedDeliveryStatus, isExcludedSettlementTicket, settlementElectronicTicketTotals, settlementNoCollectionTotal, settlementOrderAmount, settlementOrdersTotal } from "@/lib/settlementOrders";
 import {
   buildSettlementMessage, buildTreasuryMovementRows, CASH_DENOMINATIONS,
   getSettlementHealth, treasuryMovementRowsToTsv,
@@ -50,6 +50,7 @@ interface SettlementRecord {
   counted_cash: number;
   difference: number;
   whatsapp_message?: string | null;
+  no_collection?: { orders: Record<string, boolean>; total: number };
   notes?: string | null;
   confirmed_at?: string | null;
   archive_reason?: string | null;
@@ -107,6 +108,9 @@ export interface RouteOrderDetail {
   isPreviouslyPaid?: boolean;
   previouslyPaidAmount?: number;
   toCollectAmount?: number;
+  noCollection?: boolean;
+  collectionOverride?: boolean;
+  routeCollectionAmount?: number;
   linkedPayments: LinkedPaymentInfo[];
   priorPaymentReceipts?: Array<{ id: string; amount: number; receiptUrl: string; reference: string }>;
   totalLinkedAmount: number;
@@ -373,7 +377,7 @@ function RendicionesContent() {
     setCarrierName(currentCarrierName);
     setCarrierId(currentCarrierId);
     setRouteDetail(settlement.route_detail || "");
-    setDeliveriesTotal(Number(settlement.deliveries_total) || 0);
+    setDeliveriesTotal((Number(settlement.deliveries_total) || 0) + (settlement.no_collection?.total || 0));
     setElectronicTotal(Number(settlement.electronic_total) || 0);
     setChangeFund(Number(settlement.change_fund) || 0);
     setShortageRecovered(Number(settlement.shortage_recovered) || 0);
@@ -645,14 +649,15 @@ function RendicionesContent() {
         body: JSON.stringify({ action: "update-delivery-status", settlementId: detail.settlement.id, deliveryId: order.deliveryId, deliveryStatus: status }),
       });
       setModifiedDeliveryStatuses(current => ({ ...current, [order.deliveryId]: status }));
-      setDeliveriesTotal(Number(payload.deliveriesTotal) || 0);
+      setDeliveriesTotal((Number(payload.deliveriesTotal) || 0) + (payload.noCollection?.total || 0));
       setRouteOrders(current => current.map(item => item.deliveryId === order.deliveryId ? {
         ...item,
         deliveryStatus: status,
         toCollectAmount: isExcludedDeliveryStatus(status) ? 0 : Number(payload.orderAmount) || 0,
-        isPreviouslyPaid: isExcludedDeliveryStatus(status) ? false : (Number(payload.orderAmount) || 0) === 0,
+        routeCollectionAmount: Number(payload.orderAmount) || 0,
       } : item));
-      setDetail(current => current ? { ...current, settlement: { ...current.settlement, deliveries_total: Number(payload.deliveriesTotal) || 0 } } : current);
+      setDetail(current => current ? { ...current, settlement: { ...current.settlement,
+        deliveries_total: Number(payload.deliveriesTotal) || 0, no_collection: payload.noCollection } } : current);
       await loadList();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo actualizar el estado del pedido.");
@@ -663,6 +668,10 @@ function RendicionesContent() {
 
   const ticketTotals = useMemo(() => settlementElectronicTicketTotals(electronicTickets, routeOrders), [electronicTickets, routeOrders]);
   const effectiveElectronicTotal = detail?.settlement.status !== "draft" ? electronicTotal : electronicTickets.length > 0 ? ticketTotals.included : electronicTotal;
+  const noCollectionTotal = detail?.settlement.status === "draft"
+    ? settlementNoCollectionTotal(routeOrders, deliveriesTotal)
+    : detail?.settlement.no_collection?.total || 0;
+  const collectibleDeliveriesTotal = Math.round((deliveriesTotal - noCollectionTotal) * 100) / 100;
 
   const detailedCashTotal = useMemo(() => CASH_DENOMINATIONS.reduce((sum, item) => {
     return sum + item.denomination * (cashQuantities[cashKey(item.kind, item.denomination)] || 0);
@@ -677,9 +686,9 @@ function RendicionesContent() {
     const tollsTotal = expenses.filter(expense => expense.type === "toll").reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
     const extraordinaryTotal = expenses.filter(expense => expense.type === "extraordinary").reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
     const countedCash = hasDetailedCash ? detailedCashTotal : countedCashManual;
-    const expectedCash = deliveriesTotal + changeFund - tollsTotal - extraordinaryTotal - effectiveElectronicTotal;
+    const expectedCash = collectibleDeliveriesTotal + changeFund - tollsTotal - extraordinaryTotal - effectiveElectronicTotal;
     return { tollsTotal, extraordinaryTotal, countedCash, expectedCash, difference: countedCash + shortageRecovered - expectedCash };
-  }, [expenses, hasDetailedCash, detailedCashTotal, countedCashManual, deliveriesTotal, changeFund, effectiveElectronicTotal, shortageRecovered]);
+  }, [expenses, hasDetailedCash, detailedCashTotal, countedCashManual, collectibleDeliveriesTotal, changeFund, effectiveElectronicTotal, shortageRecovered]);
   const [shortageCovered,setShortageCovered]=useState(false);
   const shortageBlocked=totals.difference<=-500&&!shortageCovered;
   const health = getSettlementHealth(totals.difference);
@@ -896,7 +905,7 @@ function RendicionesContent() {
     const toAdd: ElectronicTicketRow[] = [];
 
     routeOrders.forEach(order => {
-      if (order.isPreviouslyPaid) return;
+      if (order.isPreviouslyPaid || order.noCollection) return;
       (order.linkedPayments || []).forEach(p => {
         if (!existingMpIds.has(p.id)) {
           existingMpIds.add(p.id);
@@ -931,7 +940,7 @@ function RendicionesContent() {
     const existingMpIds = new Set(electronicTickets.map(t => t.mpPaymentId).filter(Boolean));
     let count = 0;
     routeOrders.forEach(o => {
-      if (o.isPreviouslyPaid) return;
+      if (o.isPreviouslyPaid || o.noCollection) return;
       (o.linkedPayments || []).forEach(p => {
         if (!existingMpIds.has(p.id)) count++;
       });
@@ -945,13 +954,20 @@ function RendicionesContent() {
     setSaving(action);
     setError("");
     try {
-      await authenticatedFetch("/api/admin/rendiciones", {
+      const saved = await authenticatedFetch("/api/admin/rendiciones", {
         method: "POST",
         body: JSON.stringify({
           action,
           settlementId: detail.settlement.id,
           code, settlementDate, carrierName, carrierId, routeDetail,
-          deliveriesTotal, electronicTotal: effectiveElectronicTotal, changeFund, shortageRecovered,
+          deliveriesTotal: collectibleDeliveriesTotal, electronicTotal: effectiveElectronicTotal, changeFund, shortageRecovered,
+          previousNoCollection: detail.settlement.no_collection || { orders: {}, total: 0 },
+          noCollection: {
+            total: noCollectionTotal,
+            orders: Object.fromEntries(routeOrders.flatMap(order =>
+              order.noCollection || order.collectionOverride === false || detail.settlement.no_collection?.orders[order.deliveryId] === false
+                ? [[order.deliveryId, Boolean(order.noCollection)]] : [])),
+          },
           notes, whatsappMessage: message, countDate: countDate || null,
           countedCashOverride: hasDetailedCash ? null : countedCashManual,
           expenses: expenses.map(({ type, amount, reference, notes: expenseNotes }) => ({ type, amount, reference, notes: expenseNotes })),
@@ -975,6 +991,9 @@ function RendicionesContent() {
         hydrateDetail(payload);
         await loadList();
         setNotice(action === "confirm" ? "Rendición confirmada." : "Cambios guardados.");
+      } else if (saved.settlement?.no_collection) {
+        setDetail(current => current ? { ...current, settlement: { ...current.settlement,
+          no_collection: saved.settlement.no_collection } } : current);
       }
       return true;
     } catch (requestError) {
@@ -1216,16 +1235,17 @@ function RendicionesContent() {
                           const nonCashTotal = linkedTickets.reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
                           const excluded = isExcludedDeliveryStatus(order.deliveryStatus || "");
-                          const isPreviouslyPaid = !excluded && Boolean(
+                          const noCollection = !excluded && Boolean(order.noCollection);
+                          const isPreviouslyPaid = !excluded && !noCollection && Boolean(
                             order.isPreviouslyPaid ||
                             (order.paymentStatus || "").toLowerCase().includes("abonad") ||
                             (order.toCollectAmount === 0 && order.totalAmount > 0)
                           );
-                          const toCollectAmount = excluded || isPreviouslyPaid
+                          const toCollectAmount = excluded || noCollection || isPreviouslyPaid
                             ? 0
                             : (order.toCollectAmount !== undefined ? order.toCollectAmount : order.totalAmount);
                           const cashRemainder = Math.max(0, toCollectAmount - nonCashTotal);
-                          const isMixed = !isPreviouslyPaid && nonCashTotal > 0 && cashRemainder > 0;
+                          const isMixed = !isPreviouslyPaid && !noCollection && nonCashTotal > 0 && cashRemainder > 0;
                           const isFullyDigital = !isPreviouslyPaid && nonCashTotal >= toCollectAmount && toCollectAmount > 0;
                           const missingPriorTicket = isPreviouslyPaid && !hasLinked && priorReceipts.length === 0 && linkedTickets.length === 0;
                           const orderStatus = deliveryStatusChoice(order.deliveryStatus || "");
@@ -1264,7 +1284,8 @@ function RendicionesContent() {
                                 {isPreviouslyPaid ? <span className={`text-[10px] font-bold ${missingPriorTicket ? "text-amber-800" : "text-emerald-700"}`}>{missingPriorTicket ? "Previo · revisar ticket" : "Pago previo"}</span> : nonCashTotal > 0 ? <span className={`font-black ${darkRow ? "text-white" : "text-blue-700"}`} title={excluded ? "Pago del pedido fuera de esta rendición" : undefined}>{formatPrice(nonCashTotal)} <span className="text-[9px] font-medium">({linkedTickets.length})</span></span> : <span className={darkRow ? "text-white/80" : "text-slate-400"}>$0</span>}
                               </td>
                               <td className="px-2 py-1.5 text-right">
-                                {excluded ? <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-black ${excludedTone}`}>$0 · {orderStatus}</span> : isPreviouslyPaid ? <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">$0 · Previo</span> : isFullyDigital ? <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">$0 · Digital</span> : <span className={`font-black ${isMixed ? "text-amber-700" : "text-slate-800"}`}>{formatPrice(cashRemainder)}{isMixed && <span className="ml-1 text-[9px] font-bold">Mixto</span>}</span>}
+                                {noCollection ? <span className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-800">$0 · Cta. Cte. / Sin cobro</span> :
+                                  excluded ? <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-black ${excludedTone}`}>$0 · {orderStatus}</span> : isPreviouslyPaid ? <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">$0 · Previo</span> : isFullyDigital ? <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">$0 · Digital</span> : <span className={`font-black ${isMixed ? "text-amber-700" : "text-slate-800"}`}>{formatPrice(cashRemainder)}{isMixed && <span className="ml-1 text-[9px] font-bold">Mixto</span>}</span>}
                               </td>
                               <td className="px-2 py-1.5">
                                 <div className="flex items-center gap-1.5">
@@ -1276,7 +1297,7 @@ function RendicionesContent() {
                                       {p.payerName && <span className="max-w-28 truncate" title={`${p.payerName}${p.accountName ? ` · ${p.accountName}` : ""}`}>{p.payerName}</span>}
                                       {ticket && <span className="font-bold" title={excluded || isPreviouslyPaid ? "Pago fuera de rendición" : "En tickets"}>✓</span>}
                                       <button type="button" onClick={() => setViewingPayment({ ...p, orderCode: order.orderCode })} className="font-bold underline underline-offset-2" aria-label={`Ver cobro de ${order.orderCode} por ${formatPrice(p.amount)}`}>Ver</button>
-                                      {!ticket && !readOnly && !excluded && !isPreviouslyPaid && <button type="button" onClick={() => handleAddPaymentToTickets(p, order.orderCode, order.orderId)} className="font-bold text-blue-700" title="Pasar a tickets">+ Ticket</button>}
+                                      {!ticket && !readOnly && !excluded && !noCollection && !isPreviouslyPaid && <button type="button" onClick={() => handleAddPaymentToTickets(p, order.orderCode, order.orderId)} className="font-bold text-blue-700" title="Pasar a tickets">+ Ticket</button>}
                                       {ticket && !readOnly && <button type="button" onClick={() => deleteElectronicTicket(ticket.localId)} title="Quitar de tickets" aria-label={`Quitar ticket de ${order.orderCode}`} className="text-slate-500 hover:text-rose-700"><Trash2 className="h-3 w-3" /></button>}
                                     </div>;
                                   })}
@@ -1289,8 +1310,18 @@ function RendicionesContent() {
                                   ))}
                                   {isPreviouslyPaid && priorReceipts.map(receipt => <a key={receipt.id} href={safeReceiptUrl(receipt.receiptUrl)!} target="_blank" rel="noopener noreferrer" title={receipt.reference} className="inline-flex shrink-0 items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">{receipt.amount > 0 && formatPrice(receipt.amount)} Ver ticket ↗</a>)}
                                   {missingPriorTicket && <span className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-900"><AlertTriangle className="h-3 w-3" />Pago previo sin ticket · revisar</span>}
-                                  {!isPreviouslyPaid && !hasLinked && directTickets.length === 0 && <span className="rounded border border-dashed border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600">{excluded ? "Sin cobro · fuera de rendición" : "Pendiente de cobro"}</span>}
-                                  {!readOnly && !excluded && !isPreviouslyPaid && (cashRemainder > 0 || (!hasLinked && directTickets.length === 0)) && <button type="button" onClick={() => handleOpenAssignModal(order, cashRemainder)} className="inline-flex shrink-0 items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700"><Plus className="h-3 w-3" />Asignar ticket</button>}
+                                  {!isPreviouslyPaid && !hasLinked && directTickets.length === 0 && <span className="rounded border border-dashed border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600">{excluded || noCollection ? "Sin cobro · fuera de rendición" : "Pendiente de cobro"}</span>}
+                                  {!readOnly && !excluded && !noCollection && !isPreviouslyPaid && (cashRemainder > 0 || (!hasLinked && directTickets.length === 0)) && <button type="button" onClick={() => handleOpenAssignModal(order, cashRemainder)} className="inline-flex shrink-0 items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700"><Plus className="h-3 w-3" />Asignar ticket</button>}
+                                  {!readOnly && !excluded && <label className="inline-flex shrink-0 items-center gap-1 text-[10px] font-semibold text-blue-800">
+                                    <input type="checkbox" checked={noCollection} disabled={Boolean(updatingOrderStatus) || Boolean(saving)}
+                                      aria-label={`Sin cobro en destino · ${order.orderCode}`}
+                                      onChange={event => {
+                                        const checked = event.target.checked;
+                                        setRouteOrders(current => current.map(item => item.deliveryId === order.deliveryId
+                                          ? { ...item, noCollection: checked, collectionOverride: checked } : item));
+                                      }} />
+                                    Sin cobro en destino
+                                  </label>}
                                 </div>
                               </td>
                             </tr>
@@ -1309,6 +1340,7 @@ function RendicionesContent() {
                 <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 border-b border-slate-100 pb-2 mb-2.5">Resumen de liquidación</h2>
                 <div className="grid grid-cols-1 gap-3 border-b border-slate-100 pb-3 text-xs sm:grid-cols-2 lg:grid-cols-3 [&>div]:min-w-0 [&>div]:gap-3 [&>div]:rounded-lg [&>div]:border [&>div]:border-slate-100 [&>div]:px-3 [&>div]:py-2 [&>div>span:last-child]:shrink-0 [&>div>span:last-child]:whitespace-nowrap">
                   <SummaryLine label="Total entregas" value={deliveriesTotal} />
+                  {noCollectionTotal > 0 && <SummaryLine label="Cuenta corriente / Sin cobro en destino" value={noCollectionTotal} negative />}
                   <SummaryLine label="Cambio entregado" value={changeFund} positive />
                   <SummaryLine label="Peajes" value={totals.tollsTotal} negative />
                   <SummaryLine label="Gastos extraordinarios" value={totals.extraordinaryTotal} negative />
@@ -2915,7 +2947,7 @@ function ElectronicTicketEditor({
             (matchedOrder?.paymentStatus || "").toLowerCase().includes("abonad") ||
             (matchedOrder?.toCollectAmount === 0 && orderTotalAmount > 0)
           );
-          const targetToCollect = isPreviouslyPaid
+          const targetToCollect = isPreviouslyPaid || excludedFromSettlement
             ? 0
             : (matchedOrder?.toCollectAmount !== undefined ? matchedOrder.toCollectAmount : orderTotalAmount);
           const otherTicketsAmount = allTicketsForThisOrder
@@ -2925,7 +2957,7 @@ function ElectronicTicketEditor({
 
           return (
             <div key={ticket.localId} className={`rounded-xl border p-2.5 space-y-2 shadow-2xs ${excludedFromSettlement ? "border-violet-300 bg-violet-50/80" : "border-slate-200 bg-slate-50/70"}`}>
-              {excludedFromSettlement && <p className="text-[10px] font-bold text-violet-800">{matchedOrder?.isPreviouslyPaid ? "Pago previo" : "Pedido no entregado"}: este pago queda vinculado al pedido, fuera de la rendición del fletero.</p>}
+              {excludedFromSettlement && <p className="text-[10px] font-bold text-violet-800">Este pago queda vinculado al pedido y fuera de la rendición del fletero.</p>}
               {/* Fila 1: Selección de Pedido del recorrido + Tipo de cobro + Monto + Eliminar */}
               <div className="grid grid-cols-[1fr_120px_105px_auto] items-center gap-1.5">
                 <div>
@@ -2954,7 +2986,7 @@ function ElectronicTicketEditor({
                       );
                       return (
                         <option key={ord.deliveryId || ord.orderCode} value={ord.orderCode}>
-                          #{ord.stopOrder || 1} · {ord.orderCode} · {ord.customerName} ({formatPrice(ord.totalAmount)}) {isPrev ? "[Abonado previo]" : ""}
+                          #{ord.stopOrder || 1} · {ord.orderCode} · {ord.customerName} ({formatPrice(ord.totalAmount)}) {ord.noCollection ? "[Sin cobro en destino]" : isPrev ? "[Abonado previo]" : ""}
                         </option>
                       );
                     })}
@@ -3035,7 +3067,9 @@ function ElectronicTicketEditor({
                     <span className="font-bold text-slate-800">
                       Pedido {cleanCode}:
                     </span>
-                    {isPreviouslyPaid ? (
+                    {excludedFromSettlement ? (
+                      <span className="font-bold text-violet-800">$0 a rendir por el fletero</span>
+                    ) : isPreviouslyPaid ? (
                       <span className="font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.2">
                         ✓ Abonado previamente ({formatPrice(orderTotalAmount)}) · Sin cobro en recorrido
                       </span>
