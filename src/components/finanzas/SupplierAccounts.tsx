@@ -278,7 +278,8 @@ export default function SupplierAccounts() {
                   : row.reference}</span>
                   {supplierEntryNote(row)&&<span className="block">{supplierEntryNote(row)}</span>}
                   {row.reconciliation_note && <span className="block italic">{row.reconciliation_note}</span>}
-                  {row.purchase_reception_id && <Link className="underline text-brand-600" href={`/admin/compras?tab=receptions&reception=${row.purchase_reception_id}`}>Ver recepción</Link>}
+                  {row.purchase_reception_id && <Link className="underline text-brand-600" target="_blank" rel="noopener noreferrer"
+                    href={`/admin/compras?tab=receptions&reception=${row.purchase_reception_id}`}>Ver recepción ↗</Link>}
                 </td><td className="p-3 whitespace-nowrap">{row.amount > 0 ? money(row.amount, currency) : '—'}</td>
                 <td className="p-3 whitespace-nowrap">{row.amount < 0 ? money(-row.amount, currency) : '—'}</td>
                 <td className="p-3 whitespace-nowrap">{row.balance === null ? 'Fuera del saldo' : money(row.balance, currency)}</td>
