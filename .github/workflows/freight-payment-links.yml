@@ -11,6 +11,8 @@ on:
       - 'tests/dispatch-reopening.test.cjs'
       - 'tests/unpaid-dispatch-rectification.test.cjs'
       - 'tests/freight-confirmed-payment-links.test.cjs'
+      - 'tests/freight-provisional-settlement.test.cjs'
+      - 'tests/logistics-unconfirmed-cost-backlog.test.cjs'
       - '.github/workflows/freight-payment-links.yml'
 
 permissions:
@@ -44,6 +46,8 @@ jobs:
           node tests/freight-confirmed-payment-links.test.cjs
           node tests/logistics-planning-payments.test.cjs
           node tests/logistics-integrated-circuit.test.cjs
+          node tests/freight-provisional-settlement.test.cjs
+          node tests/logistics-unconfirmed-cost-backlog.test.cjs
       - name: Production build and type check
         run: npm run build
 

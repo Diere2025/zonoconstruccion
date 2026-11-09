@@ -1,7 +1,8 @@
 const fs=require('fs'),vm=require('vm'),ts=require('typescript'),assert=require('assert/strict');
 function load(file,imports={}){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,Map,Set,Number,Date,Intl,require:n=>imports[n]||{}});return exports;}
 const text=load('src/lib/financialConcepts.ts'),guided=load('src/lib/financialClassification/guided.ts',{'@/lib/financialConcepts':text}),common=load('src/lib/financialOperations/commonMovement.ts',{'@/lib/financialConcepts':text,'@/lib/financialClassification/guided':guided});
-const m=load('src/lib/financialOperations/supplierApplication.ts',{'./commonMovement':common,'@/lib/financialClassification/guided':guided});
+const types=load('src/lib/financialOperations/types.ts');
+const m=load('src/lib/financialOperations/supplierApplication.ts',{'./types':types,'./commonMovement':common,'@/lib/financialClassification/guided':guided});
 const input={operation_type:'general',direction:'egreso',effective_date:'2026-10-26',account_id:'account',payment_method_id:'method',amount:'909000.00',concept:'TAM',category:'Proveedores',financial_concept_id:'tam',notes:'Referencia bancaria existente',detail:{automatic:true,reference:'bank-ref'}};
 const concept={id:'tam',concept:'TAM',category:'Proveedores',movement_type:'Egreso',sub_category:'',efe_category:'Pago a proveedores',is_active:true};
 const result=m.supplierApplicationInput(input,[concept],[{id:'supplier-tam',name:'TAM'}]);
