@@ -24,7 +24,7 @@ import { supabase } from '@/lib/supabase';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
 import { treasuryToday } from '@/lib/treasuryTransactionTime';
 import { type AccountStart, type LedgerEntry } from '@/lib/supplierAccount';
-import {supplierEntryNote,visibleSuppliers,type SupplierAccountSummary,type SupplierStatement,type SupplierVisibility} from '@/lib/supplierAccounts/report';
+import {defaultSupplierDashboardView,supplierEntryNote,type SupplierAccountSummary,type SupplierStatement,type SupplierVisibility} from '@/lib/supplierAccounts/report';
 
 const supplierTabs=[['statement','Extracto'],['payments','Pagos, anticipos y notas de crédito'],
   ['payables','Partidas y vencimientos'],['tools','Herramientas y ajustes']] as const;
@@ -51,7 +51,7 @@ export default function SupplierAccounts() {
   const [tab,setTab]=useState<SupplierTab>('statement');
   const [{from,to},setRange]=useState({from:'',to:''});
   const [summaryCutoff,setSummaryCutoff]=useState<string|null>(null);
-  const [showHidden,setShowHidden]=useState(false);
+  const [dashboardView,setDashboardView]=useState(defaultSupplierDashboardView);
   const [inactivityMonths,setInactivityMonths]=useState(6);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -81,10 +81,10 @@ export default function SupplierAccounts() {
 
   const summaryRequest=useRef(0);
   const activeCutoff=useRef(to);activeCutoff.current=to;
-  const loadSummary = useCallback(async () => {
+  const loadSummary = useCallback(async (showLoading=true) => {
     if(activeCutoff.current!==to)return;
     const sequence=++summaryRequest.current;
-    setLoading(true);
+    if(showLoading)setLoading(true);
     try {
       const data=await api('/api/admin/supplier-accounts?view=dashboard'+(to?'&to='+encodeURIComponent(to):''));
       if(sequence===summaryRequest.current&&activeCutoff.current===to){
@@ -136,18 +136,21 @@ export default function SupplierAccounts() {
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   const selected = suppliers.find(s => s.id === supplierId);
-  const searchSuppliers=visibleSuppliers(suppliers,showHidden).filter(s=>s.id!==supplierId);
+  const searchSuppliers=suppliers.filter(s=>s.id!==supplierId&&(s.visible===false)===(dashboardView.tab==='hidden'));
   if(selected)searchSuppliers.unshift(selected);
   const supplierExtensionsEnabled=extensionsEnabled&&(!pilotSuppliers.length||pilotSuppliers.includes(supplierId));
   const changingLedger=ledgerLoading||entryQuery!==search||requestKey!==settledRequest;
   const hasOpeningInPeriod=detail?.start&&(!from||detail.start.start_date>=from)&&(!to||detail.start.start_date<=to);
   const exportParams=new URLSearchParams(supplierId?{supplierId,view:mode,currency,q:search,all:'1',...periodParams}
-    :{view:'dashboard',showHidden:showHidden?'1':'0',...periodParams});
+    :{view:'dashboard',...periodParams});
+  if(!supplierId){
+    for(const [key,value] of Object.entries(dashboardView))if(value)exportParams.set('dashboard.'+key,value);
+  }
   async function saveVisibility(body:{action:'setVisibilityMonths';months:number}|{action:'setSupplierVisibility';supplierId:string;visibility:SupplierVisibility}){
     setBusy(true);setError('');
     try {
       await api('/api/admin/supplier-accounts',{method:'POST',body:JSON.stringify(body)});
-      await loadSummary();
+      await loadSummary(false);
     } catch(e){setError((e as Error).message);}
     finally {setBusy(false);}
   }
@@ -168,17 +171,14 @@ export default function SupplierAccounts() {
           onChange={selectSupplier} placeholder="Buscá por nombre" clearOnSearch={false} disabled={busy} portal/>
       </div>
       <div className="min-w-64"><ReportDateRangePicker from={from} to={to} onChange={changeRange}/></div>
-      <label className="flex items-center gap-2 px-2 py-2 text-sm">
-        <input type="checkbox" checked={showHidden} onChange={event=>setShowHidden(event.target.checked)}/> Mostrar ocultos
-      </label>
       {!!(from||to)&&<button type="button" className="px-2 py-2 text-sm text-brand-700 underline" onClick={()=>changeRange('','')}>Limpiar fechas</button>}
-      {(!supplierId||tab==='statement')&&<SupplierAccountExport params={exportParams.toString()} filters={{supplier:selected?.name,from,to,currency,view:mode,query:search,showHidden}}
+      {(!supplierId||tab==='statement')&&<SupplierAccountExport params={exportParams.toString()} filters={{supplier:selected?.name,from,to,currency,view:mode,query:search,dashboard:dashboardView}}
         disabled={supplierId?changingLedger||!detail||!!ledgerError:loading||summaryCutoff!==to}/>}
     </div>
     {supplierId&&<button type="button" onClick={()=>selectSupplier('')} className="text-sm text-brand-700 underline">Volver al estado general</button>}
     {!supplierId
       ? (loading||summaryCutoff!==to)&&!error?<p role="status" className="p-6 text-sm text-slate-500">Cargando estado general…</p>
-        : summaryCutoff===to&&<SupplierAccountsDashboard suppliers={suppliers} to={to} showHidden={showHidden} months={inactivityMonths}
+        : summaryCutoff===to&&<SupplierAccountsDashboard suppliers={suppliers} to={to} view={dashboardView} onViewChange={setDashboardView} months={inactivityMonths}
           busy={busy} onSelect={selectSupplier}
           onMonthsChange={months=>void saveVisibility({action:'setVisibilityMonths',months})}
           onVisibilityChange={(id,visibility)=>void saveVisibility({action:'setSupplierVisibility',supplierId:id,visibility})}/>
