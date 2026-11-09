@@ -1,6 +1,6 @@
 import {estimateDispatchFee, effectiveMinutes, validateDispatchExtras, type DispatchPlan} from './planning';
 export type FeeAddition = {label: string; amount: number; reference?: string; extraId?:string; kind?:string; orderCode?:string; runNumber?:number|null};
-export type Liquidation = {dispatchId: string; version: number; status: 'ready' | 'paid'; basis: 'agreed' | 'calculated'; base: number; additions: FeeAddition[]; total: number; deductions?: {label:string;amount:number;kind:string;reference:string}[]; notes: string; approvedAt: string; payment?: {id: string; date: string; account: string; method: string; amount: number}};
+export type Liquidation = {dispatchId: string; version: number; status: 'ready' | 'paid'; provisional?:boolean; basis: 'agreed' | 'calculated'; base: number; additions: FeeAddition[]; total: number; deductions?: {label:string;amount:number;kind:string;reference:string}[]; notes: string; approvedAt: string; payment?: {id: string; date: string; account: string; method: string; amount: number}};
 const round = (n: number) => Math.round(n * 100) / 100;
 export function actualFee(plan: DispatchPlan, actualKm: number | null, terms: any, actual?: any) {
  // One fee per paid LOG, using total ACTUAL km, not the sum of forecast km.
@@ -9,7 +9,7 @@ export function actualFee(plan: DispatchPlan, actualKm: number | null, terms: an
  return result;
 }
 export function approveLiquidation(row: any, input: any, previous?: Liquidation): Liquidation {
- if (row.status !== 'completed') throw new Error('Cerrá la ejecución antes de aprobar el pago.');
+ if (!['in_progress','completed'].includes(row.status)) throw new Error('La salida debe estar en recorrido o cerrada.');
  if (previous) throw new Error('Esta salida ya tiene una liquidación aprobada.');
  if(Number(row.paymentState?.paidAmount)>0)throw new Error('Ya hay pagos de este LOG. Revisá los movimientos antes de generar una nueva tarea.');
  const calculated = actualFee(row.planned, row.actual?.km ?? null, row.tariff_snapshot,row.actual);
@@ -21,7 +21,7 @@ export function approveLiquidation(row: any, input: any, previous?: Liquidation)
  if (additions.length > 20 || additions.some((a: FeeAddition) => !a.label || !Number.isFinite(a.amount) || a.amount <= 0)) throw new Error('Cada adicional necesita un motivo y un importe positivo.');
  const total = round(base! + additions.reduce((n: number, a: FeeAddition) => n + a.amount, 0));
  if (total > 100000000) throw new Error('El importe excede el máximo permitido.');
- return {dispatchId: row.dispatch_id, version: 1, status: 'ready', basis: agreed ? 'agreed' : 'calculated', base: round(base!), additions, total, notes: String(input.notes || '').trim(), approvedAt: new Date().toISOString()};
+ return {dispatchId: row.dispatch_id, version: 1, status: 'ready', provisional:row.status==='in_progress', basis: agreed ? 'agreed' : 'calculated', base: round(base!), additions, total, notes: String(input.notes || '').trim(), approvedAt: new Date().toISOString()};
 }
 export function closureMessage(row: any, fee: Liquidation) {
  const plan = row.planned, header = Array.isArray(row.logistics_dispatches) ? row.logistics_dispatches[0] : row.logistics_dispatches;
@@ -29,7 +29,7 @@ export function closureMessage(row: any, fee: Liquidation) {
  const money = (n: number) => new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(n);
  const terms = row.tariff_snapshot;
  return [
-  `LIQUIDACIÓN DE FLETE · ${header?.code || row.code}`,
+  `LIQUIDACIÓN ${row.status==='in_progress'?'PROVISORIA ':''}DE FLETE · ${header?.code || row.code}`,
   `${d}/${m}/${y} · ${header?.carrier_name || row.carrierName}`,
   `Chofer: ${plan.driverName||header?.carrier_name||row.carrierName} · Vehículo: ${plan.vehicle} · Acompañante: ${plan.companion || 'Sin acompañante'}`,
   ...plan.loads.map((r: any) => {const actual = row.actual.loads?.find((a: any) => a.runNumber === r.runNumber); return `R${r.runNumber} · ${r.zone || 'Zona a confirmar'}${r.plannedKm !== null && r.plannedKm !== undefined ? ` · ${r.plannedKm} km previstos` : ''}${actual?.departure && actual?.arrival ? ` · ${actual.departure}–${actual.arrival}${actual.arrivalNextDay ? ' (regreso al día siguiente)' : ''}` : ''}`;}),

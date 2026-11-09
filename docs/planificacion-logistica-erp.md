@@ -12,11 +12,23 @@ Al guardar una salida nueva, el servidor consulta los LOG reservados en Seguimie
 
 ## Cierre
 
+### Liquidación durante el recorrido (actualización del 23/10/2026)
+
+Laura prepara la liquidación provisoria durante el reparto porque el fletero cobra en el día. Al pasar a **En recorrido**, el LOG aparece en **Liquidaciones de fletes**, con su tarea para Administración, sin exigir horario de llegada ni kilómetros definitivos. Tesorería confirma el importe provisorio y las compensaciones con la información disponible y su evidencia. No completar horarios ficticios para habilitar el pago.
+
+Laura puede dejar el dinero a Matías para que pague cuando llegue el fletero. Preparar ese dinero no acredita el cobro: registrar el pago de flete cuando se entrega efectivamente al fletero, con fecha, cuenta y LOG. No registrar dos pagos por la preparación y la entrega.
+
+Al finalizar se cargan llegada real, kilómetros y adicionales. Matías verifica esos datos y realiza el cierre definitivo al día siguiente. La liquidación provisoria vuelve a revisión final aunque ya se haya pagado: Tesorería confirma el costo definitivo y las compensaciones conservando el PAG original. Un aumento deja únicamente el saldo adicional pendiente; una disminución muestra el excedente para revisar su devolución o compensación documentada. No sobrescribir el pago original ni generar automáticamente movimientos de ajuste.
+
+Los importes provisorios no acreditan un costo definitivo para rentabilidad. La revisión final es independiente del cierre operativo y del registro del pago. La migración `database/db_migration_20261109_freight_provisional_settlement.sql` habilita estos estados en la base; requiere aplicación junto con la versión de la aplicación.
+
+Una salida histórica que ya tiene un pago pero carece de costo confirmado figura como **Pago registrado · costo por confirmar** en Liquidaciones de fletes. Se conserva el movimiento existente y se revisa el costo y las compensaciones con su respaldo. Los acuerdos históricos ya confirmados mantienen su liquidación.
+
 Registrar salida y regreso reales por R, indicando si el regreso cruza medianoche. Los kilómetros realizados se cargan una sola vez para todo el LOG; P y Z históricos son el mismo dato. La llegada histórica N se trata como dato real, no como regreso previsto. Las horas efectivas se calculan por carga y se suman. Los kilómetros extras se calculan contra los incluidos en la tarifa guardada.
 
 No se utiliza T («horas esperadas»), ni se replica O/Y (base de kilómetros). La duración de ruteo M se conserva por carga. La jornada incluida puede definirse en minutos en la tarifa para calcular horas extras. Si falta, se pide confirmarla; no se inventa una base. La tarifa horaria y los plus requieren confirmar el importe acordado.
 
-Los estados son Planificada, En recorrido, Cerrada y No salió. La fecha y el fletero no se cambian después de generar el LOG. El cierre requiere horarios de todas las cargas y kilómetros totales. Los registros cerrados no se editan; No salió requiere motivo y se bloquea si ya existen pedidos ejecutados, rendiciones o movimientos. Cada cambio tiene versión y auditoría; una edición desactualizada se rechaza.
+Los estados son Planificada, En recorrido, Cerrada y No salió. La fecha y el fletero no se cambian después de generar el LOG. El cierre requiere los horarios reales completos (globales o por carga) y kilómetros totales. Los registros cerrados no se editan salvo el circuito específico de extras; No salió requiere motivo y se bloquea si ya existen pedidos ejecutados, rendiciones o movimientos. Cada cambio tiene versión y auditoría; una edición desactualizada se rechaza.
 
 ## Tarifas y pagos
 
