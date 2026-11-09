@@ -3,8 +3,9 @@ import type {OperationType} from './types';
 export const specialTypes=['custody_fund','currency_exchange','financing','partner_equity','asset_trade','cash_count'] as const;
 export type SpecialType=typeof specialTypes[number];
 export const isSpecialType=(type:OperationType|string):type is SpecialType=>(specialTypes as readonly string[]).includes(type);
-export type SpecialInput={operation_type:SpecialType;action:string;effective_date:string;account_id:string;payment_method_id:string;amount:string;concept:string;notes?:string;destination_account_id?:string;destination_amount?:string;fee?:string;fee_account_id?:string;counterparty?:string;reference?:string;asset_name?:string;purpose?:string;resource_id?:string;cutoff?:string;counted?:string;confirm?:boolean;personal_paid?:boolean;document_not_registered?:boolean;voucher_ids?:string[]};
-export type Account={id:string;name:string;currency:string;is_active:boolean};
+export type SpecialInput={operation_type:SpecialType;action:string;effective_date:string;account_id:string;payment_method_id:string;amount:string;concept:string;notes?:string;destination_account_id?:string;destination_amount?:string;fee?:string;fee_account_id?:string;counterparty?:string;reference?:string;asset_name?:string;purpose?:string;resource_id?:string;cutoff?:string;counted?:string;confirm?:boolean;personal_paid?:boolean;document_not_registered?:boolean;voucher_ids?:string[];reimbursement_mode?:'cash'|'compensation'};
+export type Account={id:string;name:string;currency:string;is_active:boolean;type?:string;is_custody?:boolean};
+export type PartnerWithdrawal={id:string;effective_date:string;counterparty:string;reference:string;currency:string;amount:string;remaining:string};
 export type Fund={id:string;custodian:string;purpose:string;account_id:string;currency:string;balance:string;pending:string;version:number;status:string};
 export type Loan={id:string;counterparty:string;reference:string;currency:string;side:'borrower'|'lender';capital:string;version:number};
 export type Count={id:string;account_id:string;cutoff:string;expected:string;counted:string;fingerprint:string;status:string;version:number};
@@ -16,13 +17,28 @@ function nonnegative(v:unknown){if(/^(?:0)(?:\.0{1,2})?$/.test(String(v)))return
 export function buildSpecialPlan(p:SpecialInput,r:Resources,cut?:{balance:string;fingerprint:string;has_history:boolean}):SpecialPlan{
  if(!isSpecialType(p.operation_type))throw new OperationError('Tipo específico inválido.');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(p.effective_date)||new Date(p.effective_date).toISOString().slice(0,10)!==p.effective_date)throw new OperationError('Fecha inválida.');
- if(!isUuid(p.payment_method_id)||!isUuid(p.account_id))throw new OperationError('Elegí cuenta y medio de pago.');
+ const compensation=p.operation_type==='partner_equity'&&p.action==='reimbursement'&&p.reimbursement_mode==='compensation';
+ if(!isUuid(p.payment_method_id)||(!compensation&&!isUuid(p.account_id)))throw new OperationError('Elegí cuenta y medio de pago.');
  if(typeof p.concept!=='string'||p.concept.trim().length<2||p.concept.length>240)throw new OperationError('Indicá el detalle.');
  for(const name of ['notes','counterparty','reference','purpose','asset_name'] as const)if(p[name]!==undefined&&(typeof p[name]!=='string'||p[name]!.length>(name==='notes'?4000:240)))throw new OperationError('Texto fuera de rango.');
  if(p.resource_id&&!isUuid(p.resource_id))throw new OperationError('Referencia inválida.');
  if(p.voucher_ids&&(!Array.isArray(p.voucher_ids)||p.voucher_ids.length>20||p.voucher_ids.some(id=>!isUuid(id))))throw new OperationError('Comprobantes inválidos.');
  const account=(id:string|undefined)=>{const a=r.accounts.find(a=>a.id===id&&a.is_active);if(!a)throw new OperationError('Cuenta no disponible.');return a;};
- const a=account(p.account_id),plan:SpecialPlan={lines:[]};
+ const plan:SpecialPlan={lines:[]};
+ if(p.operation_type==='partner_equity'&&p.action==='reimbursement'){
+  if(!isUuid(p.resource_id))throw new OperationError('Elegí la extracción original.');
+  const amount=moneyValue(p.amount);
+  if(compensation){
+   if(!p.reference?.trim()||!p.voucher_ids?.length)throw new OperationError('Ingresá la referencia del gasto y adjuntá su comprobante.');
+  }else{
+   if(p.reimbursement_mode!=='cash')throw new OperationError('Elegí cómo se devuelve el importe.');
+   const destination=account(p.account_id);
+   if(destination.is_custody)throw new OperationError('Elegí una cuenta de Tesorería.');
+   plan.lines.push({account_id:destination.id,direction:'ingreso',amount:decimal(amount),category:'Socios',line:'main'});
+  }
+  return plan;
+ }
+ const a=account(p.account_id);
  const line=(id:string,direction:'ingreso'|'egreso',cents:number,category:string,name:string)=>{if(cents>0)plan.lines.push({account_id:id,direction,amount:decimal(cents),category,line:name});};
  const identified=()=>{if(!p.counterparty?.trim()||!p.reference?.trim())throw new OperationError('Identificá contraparte y referencia.');};
  if(p.operation_type==='currency_exchange'){
