@@ -13,7 +13,7 @@ import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { fetchSpreadsheetValueRanges, fetchSpreadsheetValues } from "@/lib/googleSheets";
-import { isExcludedDeliveryStatus, settlementOrdersTotal, settlementDeliveryStatus, isSettlementDeliveryCorrection, settlementPreviewDeliveryStatus } from "@/lib/settlementOrders";
+import { isExcludedDeliveryStatus, isExcludedSettlementTicket, isNoCollectionTerm, settlementNoCollectionTotal, settlementOrdersTotal, settlementDeliveryStatus, isSettlementDeliveryCorrection, settlementPreviewDeliveryStatus } from "@/lib/settlementOrders";
 import { reconcileImportedTickets } from "@/lib/treasuryTicketReconciliation";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -38,6 +38,7 @@ type AuthorizationResult = { actor: AuthorizedUser; reason: null } | {
 };
 type ExpensePayload = { type?: string; amount?: number; reference?: string; notes?: string };
 type CashCountPayload = { kind?: string; denomination?: number; quantity?: number };
+type SettlementCollection = { orders: Record<string, boolean>; total: number };
 type ElectronicTicketPayload = {
   amount?: number;
   reference?: string;
@@ -61,6 +62,8 @@ type SavePayload = {
   carrierId?: string;
   routeDetail?: string;
   deliveriesTotal?: number;
+  noCollection?: SettlementCollection;
+  previousNoCollection?: SettlementCollection;
   electronicTotal?: number;
   changeFund?: number;
   shortageRecovered?: number;
@@ -272,7 +275,7 @@ export async function GET(request: Request) {
         try {
           const { data: deliveries } = await supabaseAdmin
             .from("deliveries")
-            .select("id, delivery_order, order_id, predominant_zone, status, failure_reason, notes")
+            .select("id, delivery_order, order_id, predominant_zone, status, failure_reason, notes, settlement_sheet_collection")
             .eq("route_sheet_id", targetRouteSheetId)
             .order("delivery_order", { ascending: true });
 
@@ -281,12 +284,33 @@ export async function GET(request: Request) {
           if (orderIds.length > 0) {
             const { data: matchedOrders } = await supabaseAdmin
               .from("orders")
-              .select("id, legacy_code, customer_name, address, locality, total_amount, payment_status, status, channel, totals")
+              .select("id, legacy_code, customer_name, address, locality, total_amount, payment_status, status, channel, totals, payment_methods(name)")
               .in("id", orderIds);
             (matchedOrders || []).forEach(o => ordersMap.set(o.id, o));
           }
 
           const orderCodes = Array.from(ordersMap.values()).map(o => o.legacy_code).filter(Boolean);
+          const legacySheetCollections = new Map<string, { amount: number; noCollection: boolean }>();
+          if (settlement.status === "draft" && settlement.source === "route" &&
+              deliveries?.some(delivery => delivery.order_id && !delivery.settlement_sheet_collection)) {
+            try {
+              const rows = await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, "'🔴 Entregados'!A2:AC");
+              const codes = new Set(orderCodes.map(code => String(code).trim().toUpperCase()));
+              const repeated = new Set<string>();
+              for (const row of rows) {
+                const code = String(row[0] || "").trim().toUpperCase();
+                if (!codes.has(code) || parseSheetDate(row[1]) !== settlement.settlement_date) continue;
+                if (legacySheetCollections.has(code)) repeated.add(code);
+                legacySheetCollections.set(code, {
+                  amount: Math.max(0, asNumber(row[28])),
+                  noCollection: isNoCollectionTerm(row[20]) || isNoCollectionTerm(row[22]),
+                });
+              }
+              repeated.forEach(code => legacySheetCollections.delete(code));
+            } catch (sheetError) {
+              console.warn("[Rendiciones] No se verificó el importe de entregas anteriores en la planilla:", sheetError);
+            }
+          }
 
           const receiptsByOrder = new Map<string, Array<{ id: string; amount: number; receiptUrl: string; reference: string }>>();
           if (orderIds.length > 0) {
@@ -348,14 +372,21 @@ export async function GET(request: Request) {
               (cleanCode && p.order_code && String(p.order_code).trim().toUpperCase().includes(cleanCode))
             );
 
-            const isPreviouslyPaid = (order?.payment_status || "").toLowerCase().includes("abonad") ||
+            const paymentStatus = String(order?.payment_status || "").toLowerCase();
+            const isPreviouslyPaid = (paymentStatus.includes("abonad") && !paymentStatus.includes("no abonad")) ||
               (order?.totals?.pending_balance === 0 && Number(order?.total_amount || 0) > 0);
             const depositAmount = Number(order?.totals?.deposit_amount || 0);
             const pendingBalance = order?.totals?.pending_balance !== undefined
               ? Number(order.totals.pending_balance)
               : (isPreviouslyPaid ? 0 : Number(order?.total_amount || 0));
             const deliveryStatus = settlementDeliveryStatus(d.status, d.failure_reason);
-            const toCollectAmount = isExcludedDeliveryStatus(deliveryStatus) ? 0 : isPreviouslyPaid ? 0 : Math.max(0, pendingBalance);
+            const sheetCollection = d.settlement_sheet_collection ?? legacySheetCollections.get(cleanCode);
+            const routeCollectionAmount = sheetCollection?.amount ?? (isPreviouslyPaid ? 0 : Math.max(0, pendingBalance));
+            const method = Array.isArray(order?.payment_methods) ? order.payment_methods[0] : order?.payment_methods;
+            const noCollection = settlement.no_collection?.orders?.[d.id] ??
+              (settlement.status === "draft" && (Boolean(sheetCollection?.noCollection) ||
+                isNoCollectionTerm(method?.name) || isNoCollectionTerm(order?.payment_status)));
+            const toCollectAmount = isExcludedDeliveryStatus(deliveryStatus) ? 0 : routeCollectionAmount;
 
             return {
               deliveryId: d.id,
@@ -368,6 +399,8 @@ export async function GET(request: Request) {
               totalAmount: Number(order?.total_amount) || 0,
               paymentStatus: order?.payment_status || d.status || "",
               deliveryStatus,
+              noCollection,
+              routeCollectionAmount,
               isPreviouslyPaid,
               previouslyPaidAmount: depositAmount > 0
                 ? depositAmount
@@ -390,11 +423,14 @@ export async function GET(request: Request) {
           });
 
           if (mpPayments.length > 0 && settlement.status === "draft") {
+            const noCollectionOrders = routeOrders.filter(order => order.noCollection);
             const previouslyPaidOrderIds = new Set(routeOrders.filter(order => order.isPreviouslyPaid).map(order => order.orderId).filter(Boolean));
             const previouslyPaidCodes = routeOrders.filter(order => order.isPreviouslyPaid).map(order => String(order.orderCode).trim().toUpperCase()).filter(Boolean);
             const eligiblePayments = mpPayments.filter(mp =>
               !((mp.order_id && previouslyPaidOrderIds.has(mp.order_id)) ||
-                (mp.order_code && previouslyPaidCodes.some(code => String(mp.order_code).trim().toUpperCase().includes(code))))
+                (mp.order_code && previouslyPaidCodes.some(code => String(mp.order_code).trim().toUpperCase().includes(code)))) &&
+              !isExcludedSettlementTicket({ amount: 0, orderId: mp.order_id, orderCode: mp.order_code, mpPaymentId: mp.id },
+                noCollectionOrders)
             );
             const reconciled = reconcileImportedTickets(electronicTickets, eligiblePayments, settlement.source);
             electronicTickets = reconciled.tickets;
@@ -493,6 +529,7 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
       paymentState?: string;
       deliveryStatus?: string;
       isPreviouslyPaid?: boolean;
+      noCollection?: boolean;
       customerName: string;
       address: string;
       paymentType: string;
@@ -523,6 +560,7 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
     const totalToCollect = asNumber(row[28]);
     const paidAmount = asNumber(row[23]);
     const paymentState = String(row[22] || "").trim();
+    const paymentType = String(row[20] || "").trim();
     const sheetStatus = String(row[15] || "").trim();
     const deliveryStatus = sheetStatus || (source === "entregados" ? "" : "Entregando");
     const isPreviouslyPaid = paymentState.toLowerCase().includes("abonad") && !paymentState.toLowerCase().includes("no abonad");
@@ -575,9 +613,10 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
       paymentState: paymentState || (isPreviouslyPaid ? "Abonado" : "Pendiente"),
       deliveryStatus,
       isPreviouslyPaid,
+      noCollection: isNoCollectionTerm(paymentType) || isNoCollectionTerm(paymentState),
       customerName: String(row[4] || "").trim(),
       address: String(row[17] || "").trim(),
-      paymentType: String(row[20] || "").trim(),
+      paymentType,
     };
     const existingOrderIndex = grp.orders.findIndex(order => order.orderCode.toUpperCase() === orderCode.toUpperCase());
     if (existingOrderIndex >= 0) grp.orders[existingOrderIndex] = nextOrder;
@@ -717,8 +756,12 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
     fresh.dispatchCode=assignedDispatchCode(fresh.dispatchCode,fresh.existingDispatchCode,item.dispatchCode,fresh.dispatchCandidates||[],knownResult.data,fresh.deliveryDate);
     if (fresh.existingStatus === "confirmed") {
       if (source !== "entregados" || (fresh.existingRouteSheetId && !fresh.requiresDispatchLink)) throw new Error(`${fresh.existingSettlementCode} ya está confirmada y vinculada, o requiere leer la hoja Entregados.`);
-      item.orders = fresh.orders;
     }
+    const deliveryStatuses = new Map<string, string>(Array.isArray(item.orders) && fresh.existingStatus !== "confirmed"
+      ? item.orders.map((order: { orderCode: string; deliveryStatus: string }) => [order.orderCode, order.deliveryStatus]) : []);
+    item.orders = fresh.orders.map(order => ({
+      ...order, deliveryStatus: deliveryStatuses.get(order.orderCode) || order.deliveryStatus,
+    }));
     item.existingSettlementId = fresh.existingSettlementId;
     item.existingStatus = fresh.existingStatus;
     item.dispatchCode = fresh.dispatchCode;
@@ -745,8 +788,8 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
 
   for (const item of items) {
     const source = "entregados";
-    const selectedOrders = Array.isArray(item.orders) ? item.orders : [];
-    const deliveriesTotal = settlementOrdersTotal(selectedOrders);
+    const selectedOrders: Awaited<ReturnType<typeof getEntregandoPreview>>[number]["orders"] = item.orders;
+    const grossDeliveriesTotal = settlementOrdersTotal(selectedOrders);
     let matchedCarrier = item.carrierId ? carriersList.find(c => c.id === item.carrierId) || null : null;
     if (!matchedCarrier) {
       matchedCarrier = findCarrier(item.carrierName, carriersList);
@@ -754,11 +797,11 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
     if (!matchedCarrier) throw new Error('El fletero no tiene una identidad única en el catálogo. Revisá sus alias antes de generar otra rendición.');
 
     const runNumber = item.runNumber || 1;
-    const routeSheet = await ensureSettlementRoute(supabaseAdmin,{carrierId:matchedCarrier.id,deliveryDate:item.deliveryDate,runNumber,existingRouteSheetId:item.existingRouteSheetId,total:deliveriesTotal,hasAssistant:Boolean(item.companion)});
+    const routeSheet = await ensureSettlementRoute(supabaseAdmin,{carrierId:matchedCarrier.id,deliveryDate:item.deliveryDate,runNumber,existingRouteSheetId:item.existingRouteSheetId,total:grossDeliveriesTotal,hasAssistant:Boolean(item.companion)});
 
     const { data: foundSettlement, error: existingSettlementError } = await supabaseAdmin
       .from("treasury_settlements")
-      .select("id, status, route_sheet_id, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
+      .select("id, status, route_sheet_id, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered, no_collection")
       .eq("route_sheet_id", routeSheet.id)
       .neq("status", "archived")
       .maybeSingle();
@@ -766,7 +809,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
     let existingSettlement = foundSettlement;
     if (!existingSettlement && item.existingSettlementId) {
       const existingById = await supabaseAdmin.from("treasury_settlements")
-        .select("id, status, route_sheet_id, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
+        .select("id, status, route_sheet_id, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered, no_collection")
         .eq("id", item.existingSettlementId).eq("settlement_date", item.deliveryDate).neq("status", "archived").maybeSingle();
       if (existingById.error) throw existingById.error;
       existingSettlement = existingById.data;
@@ -775,28 +818,25 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
       throw new Error(`El recorrido de ${item.carrierName} ya está asociado a otra rendición. Revisá las duplicadas antes de continuar.`);
     }
     if (existingSettlement?.status === "confirmed" && existingSettlement.route_sheet_id) { if(item.dispatchCode) { await linkGeneratedDispatch(item.dispatchCode,item.deliveryDate,item.carrierName,existingSettlement.id,routeSheet.id); linkedCount++; } continue; }
-    if (routeSheet) {
-      const routeUpdate = await supabaseAdmin.from("route_sheets").update({
-        total_theoretical_cash: deliveriesTotal,
-        has_assistant: Boolean(item.companion),
-      }).eq("id", routeSheet.id);
-      if (routeUpdate.error) throw routeUpdate.error;
-    }
-
-    const orderCodes = selectedOrders.map((o: any) => o.orderCode);
-    let orderMap = new Map<string, string>();
+    const orderCodes = selectedOrders.map(order => order.orderCode);
+    const orderMap = new Map<string, { id: string; noCollection: boolean }>();
     if (orderCodes.length > 0) {
-      const { data: matchedOrders } = await supabaseAdmin
+      const { data: matchedOrders, error: matchedOrdersError } = await supabaseAdmin
         .from("orders")
-        .select("id, legacy_code")
+        .select("id, legacy_code, payment_methods(name)")
         .in("legacy_code", orderCodes);
+      if (matchedOrdersError) throw matchedOrdersError;
       (matchedOrders || []).forEach(o => {
-        if (o.legacy_code) orderMap.set(o.legacy_code.toUpperCase(), o.id);
+        const method = Array.isArray(o.payment_methods) ? o.payment_methods[0] : o.payment_methods;
+        if (o.legacy_code) orderMap.set(o.legacy_code.toUpperCase(), { id: o.id, noCollection: isNoCollectionTerm(method?.name) });
       });
     }
 
+    const collectionOrders: Record<string, boolean> = {};
+    const collectionAmounts: Parameters<typeof settlementNoCollectionTotal>[0] = [];
     for (const order of selectedOrders) {
-      const orderId = orderMap.get(order.orderCode.toUpperCase()) || null;
+      const matchedOrder = orderMap.get(order.orderCode.toUpperCase());
+      const orderId = matchedOrder?.id || null;
       const normalizedStatus = String(order.deliveryStatus || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
       const deliveryStatus = normalizedStatus.includes("postergad") ? "postergado"
         : normalizedStatus.includes("anulad") ? "anulado"
@@ -807,6 +847,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
         : "entregado";
       const excluded = isExcludedDeliveryStatus(deliveryStatus);
       const storedStatus = excluded ? "fallido" : deliveryStatus;
+      const sheetCollection = { amount: Math.max(0, order.toCollectAmount ?? 0), noCollection: Boolean(order.noCollection) };
       let deliveryId: string | null = null;
 
       if (orderId) {
@@ -838,6 +879,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
           delivery_order: order.stopOrder,
           status: storedStatus,
           failure_reason: excluded ? deliveryStatus : null,
+          settlement_sheet_collection: sheetCollection,
           logistics_contact: item.logisticsContact || "Pablo",
           predominant_zone: item.zone || null,
           companion: item.companion || null,
@@ -854,13 +896,27 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
           delivery_order: order.stopOrder,
           status: storedStatus,
           failure_reason: excluded ? deliveryStatus : null,
+          settlement_sheet_collection: sheetCollection,
           logistics_contact: item.logisticsContact || "Pablo",
           predominant_zone: item.zone || null,
           companion: item.companion || null,
           driver_hours: item.driverHours || null,
-        });
+        }).select("id").single();
         if (deliveryInsert.error) throw deliveryInsert.error;
+        deliveryId = deliveryInsert.data.id;
       }
+      const savedTerm = deliveryId ? existingSettlement?.no_collection?.orders?.[deliveryId] : undefined;
+      const noCollection = savedTerm ?? (sheetCollection.noCollection || Boolean(matchedOrder?.noCollection));
+      if (deliveryId && (noCollection || savedTerm === false)) collectionOrders[deliveryId] = noCollection;
+      if (deliveryId) collectionAmounts.push({ noCollection, routeCollectionAmount: sheetCollection.amount, deliveryStatus });
+    }
+    const noCollection = { orders: collectionOrders, total: settlementNoCollectionTotal(collectionAmounts, grossDeliveriesTotal) };
+    const deliveriesTotal = grossDeliveriesTotal - noCollection.total;
+    if (existingSettlement?.status !== "confirmed") {
+      const routeUpdate = await supabaseAdmin.from("route_sheets").update({
+        total_theoretical_cash: deliveriesTotal, has_assistant: Boolean(item.companion),
+      }).eq("id", routeSheet.id);
+      if (routeUpdate.error) throw routeUpdate.error;
     }
 
     const changeFund = Math.max(0, asNumber(item.changeFund));
@@ -893,6 +949,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
           carrier_name: matchedCarrier.name,
           route_detail: item.routeDetail || item.zone,
           deliveries_total: deliveriesTotal,
+          no_collection: noCollection,
           change_fund: finalChangeFund,
           expected_cash: expectedCash,
           difference: difference,
@@ -911,6 +968,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
         settlement_date: item.deliveryDate,
         route_detail: item.routeDetail || item.zone,
         deliveries_total: deliveriesTotal,
+        no_collection: noCollection,
         change_fund: changeFund,
         expected_cash: expectedCash,
         difference: -expectedCash,
@@ -1141,12 +1199,12 @@ export async function POST(request: Request) {
       const allowed = ["en_recorrido", "entregado", "postergado", "anulado", "cancelado", "no entregado"];
       if (!allowed.includes(body.deliveryStatus)) return NextResponse.json({ error: "Estado de pedido inválido." }, { status: 400 });
       const { data: settlement, error: settlementError } = await supabaseAdmin.from("treasury_settlements")
-        .select("id, status, settlement_date, route_sheet_id, deliveries_total, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
+        .select("id, status, settlement_date, route_sheet_id, deliveries_total, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered, no_collection")
         .eq("id", body.settlementId).single();
       if (settlementError) throw settlementError;
       if (settlement.status !== "draft") return NextResponse.json({ error: "La rendición confirmada no se puede modificar." }, { status: 409 });
       const { data: delivery, error: deliveryError } = await supabaseAdmin.from("deliveries")
-        .select("id, route_sheet_id, order_id, status, failure_reason").eq("id", body.deliveryId).single();
+        .select("id, route_sheet_id, order_id, status, failure_reason, settlement_sheet_collection").eq("id", body.deliveryId).single();
       if (deliveryError) throw deliveryError;
       if (!settlement.route_sheet_id || delivery.route_sheet_id !== settlement.route_sheet_id) return NextResponse.json({ error: "El pedido no pertenece a esta rendición." }, { status: 400 });
       if (!delivery.order_id) return NextResponse.json({ error: "El pedido no tiene un importe verificable." }, { status: 400 });
@@ -1155,14 +1213,14 @@ export async function POST(request: Request) {
       if (orderError) throw orderError;
       const paid = String(order.payment_status || "").toLowerCase().includes("abonad") ||
         (order.totals?.pending_balance === 0 && Number(order.total_amount || 0) > 0);
-      let amount = paid ? 0 : Math.max(0, Number(order.totals?.pending_balance ?? order.total_amount ?? 0) || 0);
-      if (order.legacy_code) {
+      let amount = delivery.settlement_sheet_collection?.amount ?? (paid ? 0 : Math.max(0, Number(order.totals?.pending_balance ?? order.total_amount ?? 0) || 0));
+      if (!delivery.settlement_sheet_collection && order.legacy_code) {
         try {
           for (const range of ["'🔴 Entregados'!A2:AC"]) {
             const sheetRows = await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, range);
             const sheetRow = sheetRows.find(row => String(row[0] || "").trim().toUpperCase() === String(order.legacy_code).trim().toUpperCase()
               && parseSheetDate(row[1]) === settlement.settlement_date);
-            if (sheetRow && asNumber(sheetRow[28]) > 0) { amount = asNumber(sheetRow[28]); break; }
+            if (sheetRow) { amount = Math.max(0, asNumber(sheetRow[28])); break; }
           }
         } catch (sheetError) {
           console.warn("[Rendiciones] No se pudo verificar el importe en la planilla:", sheetError);
@@ -1171,7 +1229,11 @@ export async function POST(request: Request) {
       const oldExcluded = isExcludedDeliveryStatus(settlementDeliveryStatus(delivery.status, delivery.failure_reason));
       const newExcluded = isExcludedDeliveryStatus(body.deliveryStatus);
       const adjustment = oldExcluded === newExcluded ? 0 : newExcluded ? -amount : amount;
-      const deliveriesTotal = Math.max(0, Number(settlement.deliveries_total || 0) + adjustment);
+      const previousCollection: SettlementCollection = settlement.no_collection;
+      const gross = Math.max(0, Number(settlement.deliveries_total || 0) + previousCollection.total + adjustment);
+      const collectionAdjustment = previousCollection.orders[delivery.id] ? adjustment : 0;
+      const noCollection = { ...previousCollection, total: Math.min(gross, Math.max(0, previousCollection.total + collectionAdjustment)) };
+      const deliveriesTotal = gross - noCollection.total;
       const expectedCash = deliveriesTotal + Number(settlement.change_fund || 0) - Number(settlement.tolls_total || 0)
         - Number(settlement.extraordinary_total || 0) - Number(settlement.electronic_total || 0);
       const difference = Number(settlement.counted_cash || 0) + Number(settlement.shortage_recovered || 0) - expectedCash;
@@ -1183,10 +1245,10 @@ export async function POST(request: Request) {
       const routeUpdate = await supabaseAdmin.from("route_sheets").update({ total_theoretical_cash: deliveriesTotal }).eq("id", settlement.route_sheet_id);
       if (routeUpdate.error) throw routeUpdate.error;
       const updateSettlement = await supabaseAdmin.from("treasury_settlements").update({
-        deliveries_total: deliveriesTotal, expected_cash: expectedCash, difference, updated_at: new Date().toISOString(),
+        deliveries_total: deliveriesTotal, no_collection: noCollection, expected_cash: expectedCash, difference, updated_at: new Date().toISOString(),
       }).eq("id", settlement.id);
       if (updateSettlement.error) throw updateSettlement.error;
-      return NextResponse.json({ success: true, deliveriesTotal, orderAmount: amount });
+      return NextResponse.json({ success: true, deliveriesTotal, noCollection, orderAmount: amount });
     }
     if (body.action === "generate-movements") {
       const { settlementId, code, carrierName, financialAccountId, movementDate, movements } = body;
@@ -1308,8 +1370,12 @@ export async function POST(request: Request) {
     if (carrierError || !carrier) return NextResponse.json({ error: "El transportista seleccionado no está disponible." }, { status: 400 });
 
     const reassignments = settlementPaymentReassignments(electronicTickets);
-    const { data, error } = await supabaseAdmin.rpc(reassignments.length ? "save_treasury_settlement_with_payment_links" : "save_treasury_settlement_with_orders", {
-      ...(reassignments.length ? { p_reassignments: reassignments } : {}),
+    const hasCollectionTerms = body.action !== "create" && Boolean(body.noCollection && body.previousNoCollection);
+    const saveFunction = hasCollectionTerms ? "save_treasury_settlement_with_collection_terms"
+      : reassignments.length ? "save_treasury_settlement_with_payment_links" : "save_treasury_settlement_with_orders";
+    const { data, error } = await supabaseAdmin.rpc(saveFunction, {
+      ...(hasCollectionTerms ? { p_collection: body.noCollection, p_previous: body.previousNoCollection } : {}),
+      ...(hasCollectionTerms || reassignments.length ? { p_reassignments: reassignments } : {}),
       p_delivery_statuses: body.deliveryStatuses || [],
       p_save: {
         p_actor_id: actor.id,

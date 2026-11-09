@@ -25,3 +25,23 @@ test('a corrected delivery restores its payable amount', () => {
   assert.equal(lib.settlementOrderAmount(order), 0);
   assert.equal(lib.settlementOrderAmount({ ...order, deliveryStatus: 'Entregado' }), 70000);
 });
+
+test('account terms remove only the collectible amount of successful deliveries', () => {
+  for (const term of ['Cuenta Corriente', 'Cta. Cte.', 'Cuenta Corriente (30 días)', 'Sin cobro en destino (Cta. Cte.)']) {
+    assert.equal(lib.isNoCollectionTerm(term), true);
+  }
+  for (const term of ['Contado', 'Efectivo / Transferencia', 'No es cuenta corriente']) {
+    assert.equal(lib.isNoCollectionTerm(term), false);
+  }
+  const orders = [
+    { orderCode: 'CTA', noCollection: true, routeCollectionAmount: 50000, deliveryStatus: 'Entregado' },
+    { orderCode: 'CAJA', routeCollectionAmount: 60000, deliveryStatus: 'Entregado' },
+    { orderCode: 'POS', noCollection: true, routeCollectionAmount: 40000, deliveryStatus: 'Postergado' },
+  ];
+  assert.equal(lib.settlementNoCollectionTotal(orders, 110000), 50000);
+  const tickets = [{ orderCode: 'CTA', amount: 10000 }, { orderCode: 'CAJA', amount: 15000 }];
+  const electronic = lib.settlementElectronicTicketTotals(tickets, orders);
+  assert.equal(electronic.included, 15000);
+  assert.equal(electronic.excluded, 10000);
+  assert.equal(110000 - lib.settlementNoCollectionTotal(orders, 110000) - electronic.included, 45000);
+});

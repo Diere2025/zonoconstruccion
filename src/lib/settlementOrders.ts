@@ -3,6 +3,22 @@ export function isExcludedDeliveryStatus(status: string): boolean {
   return /\b(postergad[oa]?|anulad[oa]?|cancelad[oa]?|no entregad[oa]?|fallid[oa]?|pendiente[_ ]ruteo)\b/.test(normalized);
 }
 
+export function isNoCollectionTerm(value?: string | null): boolean {
+  const term = (value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[._-]+/g, " ").replace(/\s+/g, " ").replace(/ \)/g, ")").trim();
+  return /^(?:(?:cuenta corriente|cta cte)(?:\s*\(?(?:a\s+)?\d+\s+dias\)?)?|sin cobro(?: en (?:la entrega|destino))?(?:\s*\((?:cuenta corriente|cta cte)\))?)$/.test(term);
+}
+
+export function settlementNoCollectionTotal(
+  orders: Array<{ noCollection?: boolean; routeCollectionAmount?: number; deliveryStatus?: string }>,
+  gross: number,
+): number {
+  const total = orders.reduce((sum, order) =>
+    order.noCollection && !isExcludedDeliveryStatus(order.deliveryStatus || "")
+      ? sum + Math.max(0, Number(order.routeCollectionAmount) || 0) : sum, 0);
+  return Math.min(Math.max(0, gross), Math.round(total * 100) / 100);
+}
+
 // A generic routing synchronization must not erase the result of this attempt.
 export function settlementDeliveryStatus(status?: string | null, failureReason?: string | null): string {
   const normalized = String(status || "").trim().toLowerCase();
@@ -44,6 +60,7 @@ export interface SettlementOrderReference {
   orderId?: string | null;
   orderCode?: string | null;
   deliveryStatus?: string | null;
+  noCollection?: boolean;
   linkedPayments?: Array<{ id: string }>;
 }
 
@@ -52,7 +69,7 @@ const normalizeCode = (code?: string | null) => String(code || "").trim().toUppe
 export function isExcludedSettlementTicket(ticket: SettlementTicketReference, orders: SettlementOrderReference[]): boolean {
   const code = normalizeCode(ticket.orderCode);
   return orders.some(order => {
-    if (!isExcludedDeliveryStatus(order.deliveryStatus || "")) return false;
+    if (!order.noCollection && !isExcludedDeliveryStatus(order.deliveryStatus || "")) return false;
     return Boolean(
       (ticket.orderId && order.orderId && ticket.orderId === order.orderId) ||
       (code && normalizeCode(order.orderCode) === code) ||
