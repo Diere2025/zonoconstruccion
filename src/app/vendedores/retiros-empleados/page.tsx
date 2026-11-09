@@ -1,11 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { X } from 'lucide-react';
 import ErpDateInput from '@/components/ui/ErpDateInput';
+import SearchableSelect from '@/components/ui/SearchableSelect';
+import { EMPLOYEE_WITHDRAWAL_SOURCE } from '@/lib/advertisingSources';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
 import { displayDateField, displayErpInstant } from '@/lib/dates/dateFields';
-import { displayPayrollPeriod, employeeDiscountCents, employeeDiscountRate, employeeReviewLabels, payrollPeriodEnd, shiftPayrollDate, withdrawalStates, type WithdrawalCadence } from '@/lib/employeeWithdrawals';
+import { displayDeliveryWindow, regularDeliveryWindow } from '@/lib/dates/regularDelivery';
+import { displayPayrollPeriod, employeeDiscountCents, employeeDiscountRate, employeeReviewLabels, EMPLOYEE_WITHDRAWALS_PATH, isWithdrawalMapUrl, payrollPeriodEnd, shiftPayrollDate, WITHDRAWAL_REVIEWS_REFRESH, withdrawalMapUrl, withdrawalStates, type WithdrawalCadence } from '@/lib/employeeWithdrawals';
 import { supabase } from '@/lib/supabase';
+import { getArgentinaDateString } from '@/lib/utils';
 
 const request = createAuthenticatedRequester(supabase);
 const endpoint = '/api/vendedores/employee-withdrawals';
@@ -24,6 +31,8 @@ function requestErrorMessage(error: unknown) {
 
 interface Employee { id: string; name: string }
 interface Account extends Employee { employee_id: string | null; can_review: boolean }
+type BeneficiaryType = 'employee' | 'carrier' | 'external';
+interface SavedAddress { id: string; address: string; locality: string; phone: string | null; maps_link: string | null }
 interface Line { product_id: string; name: string; sku?: string; quantity: number; price: number }
 interface Product { id: string; name: string; sku: string | null; price: number }
 interface Installment {
@@ -31,18 +40,22 @@ interface Installment {
   number: number; applied_at?: string; applied_on?: string; payroll_reference?: string;
 }
 interface Withdrawal {
-  id: string; code: string; employee_id: string; employee: string; state: string; status: string; version: number; created_by: string;
+  id: string; code: string; employee_id: string | null; employee: string; state: string; status: string; version: number; created_by: string;
+  carrier_id?: string | null; external_name?: string | null; external_reference?: string | null;
   amount: number; created_at: string; notes: string; review_note: string; category: string; sheet_pending: boolean;
-  mode: 'pickup' | 'home'; address: string; locality: string; delivery_date: string; phone: string | null;
+  mode: 'pickup' | 'home'; address: string; locality: string; delivery_date: string; phone: string | null; maps_link?: string | null;
+  deadline?: string | null;
   discount_rate: number | null; discount_amount: number; operational_note: string | null;
   agreement: string | null; credited_amount: number | null; installments: Installment[] | null; delivery_closed: boolean;
   items: (Line & { id: string })[];
   delivery_events: { item_id: string; delta: number; at: string }[];
-  audit: { action: string; by: string; actor_name: string; at: string; data: { note?: string } }[] | null;
+  audit: { action: string; by: string; actor_name: string; at: string; data: {
+    note?: string; employee_id?: string; carrier_id?: string; external_name?: string; beneficiary_type?: BeneficiaryType;
+  } }[] | null;
 }
 interface Inbox {
   capabilities: { create: boolean; logistics: boolean; review: boolean; admin: boolean; employee_id: string | null; user_id: string };
-  employees: Employee[]; accounts: Account[]; orders: Withdrawal[];
+  employees: Employee[]; carriers?: Employee[] | null; accounts: Account[]; orders: Withdrawal[];
 }
 type Save = (action: string, id: string, version: number | null, data?: object) => Promise<boolean>;
 const deliveredUnits = (order: Withdrawal, id: string) => order.delivery_events
@@ -52,22 +65,61 @@ const deliveredAmount = (order: Withdrawal) => {
   return (gross - employeeDiscountCents(gross, order.discount_rate ?? 0)) / 100;
 };
 
-function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
-  order?: Withdrawal; employees: Employee[]; ownEmployee: string | null; save: Save; busy: boolean; close: () => void;
+function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save, busy, close }: {
+  order?: Withdrawal; employees: Employee[]; carriers?: Employee[] | null; logistics: boolean;
+  ownEmployee: string | null; save: Save; busy: boolean; close: () => void;
 }) {
   const [employee, setEmployee] = useState(order?.employee_id || ownEmployee || '');
+  const [beneficiaryType, setBeneficiaryType] = useState<BeneficiaryType>(order?.carrier_id ? 'carrier' : order?.external_name ? 'external' : 'employee');
+  const [carrier, setCarrier] = useState(order?.carrier_id ?? '');
+  const [externalName, setExternalName] = useState(order?.external_name ?? '');
+  const [reference, setReference] = useState(order?.external_reference ?? '');
   const [lines, setLines] = useState<Line[]>(order?.items || []);
   const [note, setNote] = useState(order?.operational_note ?? order?.notes.replace(/^Retiro de empleado(?: · )?/, '') ?? '');
   const [mode, setMode] = useState(order?.mode ?? 'pickup');
   const [address, setAddress] = useState(order?.mode === 'home' ? order.address : '');
   const [locality, setLocality] = useState(order?.mode === 'home' ? order.locality : '');
+  const [mapsLink, setMapsLink] = useState(order?.maps_link ?? '');
+  const [savedAddresses, setSavedAddresses] = useState<{employee: string; addresses: SavedAddress[]; failed: boolean} | null>(null);
+  const [savedAddressId, setSavedAddressId] = useState('');
   const [phone, setPhone] = useState(order?.phone ?? '');
-  const [deliveryDate, setDeliveryDate] = useState(order?.mode === 'home' ? order.delivery_date : '');
+  const destinationEdited = useRef(order?.mode === 'home');
+  const addressLookup = useRef(0);
+  const [deliveryWindow, setDeliveryWindow] = useState(() => order?.mode === 'home'
+    ? { from: order.delivery_date, to: order.deadline ?? order.delivery_date }
+    : regularDeliveryWindow(getArgentinaDateString()));
   const [discountRate, setDiscountRate] = useState(String(order?.discount_rate ?? employeeDiscountRate));
   const [query, setQuery] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
   const [searchError, setSearchError] = useState('');
   const [id] = useState(() => order?.id || crypto.randomUUID());
+
+  const applySavedAddress = useCallback((saved: SavedAddress) => {
+    setSavedAddressId(saved.id);
+    setAddress(saved.address);
+    setLocality(saved.locality);
+    setPhone(saved.phone ?? '');
+    setMapsLink(saved.maps_link ?? '');
+  }, []);
+
+  useEffect(() => {
+    if (mode !== 'home' || beneficiaryType !== 'employee' || !employee) return;
+    const lookup = ++addressLookup.current;
+    let active = true;
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc('employee_withdrawal_saved_addresses', { p_employee: employee });
+        if (error) throw error;
+        if (!active || addressLookup.current !== lookup) return;
+        const addresses: SavedAddress[] = Array.isArray(data) ? data : [];
+        setSavedAddresses({ employee, addresses, failed: false });
+        if (addresses.length === 1 && !destinationEdited.current) applySavedAddress(addresses[0]);
+      } catch {
+        if (active && addressLookup.current === lookup) setSavedAddresses({ employee, addresses: [], failed: true });
+      }
+    })();
+    return () => { active = false; };
+  }, [applySavedAddress, beneficiaryType, employee, mode]);
 
   useEffect(() => {
     const term = query.trim().replace(/[%_(),."\\]/g, ' ').trim();
@@ -86,30 +138,95 @@ function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
     return () => { current = false; clearTimeout(timer); };
   }, [query]);
 
+  const invalidWindow = Boolean(deliveryWindow.from && deliveryWindow.to && deliveryWindow.to < deliveryWindow.from);
+
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (mode === 'home' && (!deliveryWindow.from || !deliveryWindow.to || invalidWindow)) return;
     if (await save(order ? 'edit' : 'create', id, order?.version ?? null, {
-      employee_id: employee, items: lines, note, mode, address, locality, phone, delivery_date: deliveryDate,
+      employee_id: beneficiaryType === 'employee' ? employee : undefined,
+      items: lines, note, mode, address, locality, phone,
+      delivery_date: deliveryWindow.from, deadline: deliveryWindow.to,
+      maps_link: mode === 'home' ? mapsLink.trim() || withdrawalMapUrl(address, locality) : undefined,
       discount_rate: Number(discountRate),
+      beneficiary_type: beneficiaryType,
+      carrier_id: beneficiaryType === 'carrier' ? carrier : undefined,
+      external_name: beneficiaryType === 'external' ? externalName : undefined,
+      external_reference: beneficiaryType !== 'employee' ? reference : undefined,
     })) close();
   }
 
   const subtotal = lines.reduce((total, line) => total + line.quantity * cents(line.price), 0);
   const discount = employeeDiscountCents(subtotal, Number(discountRate));
+  const addressResult = beneficiaryType === 'employee' && savedAddresses?.employee === employee ? savedAddresses : null;
+  const priorAddresses = addressResult?.addresses ?? [];
+  const map = mapsLink.trim() || withdrawalMapUrl(address, locality);
+  const validMap = !mapsLink.trim() || isWithdrawalMapUrl(mapsLink.trim());
+  function clearDestination() {
+    addressLookup.current++;
+    destinationEdited.current = false;
+    setSavedAddressId('');
+    setAddress('');
+    setLocality('');
+    setPhone('');
+    setMapsLink('');
+  }
+  const beneficiaryReady = beneficiaryType === 'employee' ? !!employee :
+    beneficiaryType === 'carrier' ? !!carrier : externalName.trim().length >= 2 && reference.trim().length >= 3;
+  const changedBeneficiary = order && (
+    (beneficiaryType === 'employee' ? employee : null) !== order.employee_id ||
+    (beneficiaryType === 'carrier' ? carrier : null) !== (order.carrier_id ?? null) ||
+    (beneficiaryType === 'external' ? externalName.trim() : null) !== (order.external_name ?? null)
+  );
 
   return <form className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" onSubmit={submit}>
     <header className="border-b border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
       <h2 className="text-lg font-bold">{order ? 'Corregir retiro' : 'Nuevo pedido de empleado'}</h2>
-      <p className="text-sm text-slate-600">El pedido queda pendiente de validación antes de habilitar la entrega.</p>
+      <p className="mt-1 text-sm text-slate-600">
+        Al enviar, el pedido queda <strong>Pendiente de RR. HH.</strong> hasta que se revise.
+      </p>
     </header>
     <div className="space-y-5 p-5 sm:p-6">
     <div className="grid gap-4 sm:grid-cols-2">
-    <label className="block text-sm font-semibold">Empleado
-      <select required className={field} value={employee} onChange={event => setEmployee(event.target.value)}>
-        <option value="">Elegí un empleado</option>
-        {employees.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
-      </select>
-    </label>
+    <div className="space-y-3">
+      {logistics && carriers && <label className="block text-sm font-semibold">Tipo de beneficiario
+        <select className={field} value={beneficiaryType} onChange={event => {
+          const next = event.target.value as BeneficiaryType;
+          if ((next === 'employee') !== (beneficiaryType === 'employee')) {
+            setDiscountRate(next === 'employee' ? String(employeeDiscountRate) : '0');
+          }
+          if (next !== beneficiaryType) clearDestination();
+          setBeneficiaryType(next);
+        }}>
+          <option value="employee">Empleado</option>
+          <option value="carrier">Fletero</option>
+          <option value="external">Otra persona</option>
+        </select>
+      </label>}
+      {beneficiaryType === 'employee' && (logistics ?
+        <SearchableSelect label="Empleado" value={employee} onChange={value => {
+          if (value !== employee) clearDestination();
+          setEmployee(value);
+        }} required
+          placeholder="Buscar empleado por nombre" options={employees.map(person => ({value: person.id, label: person.name}))} /> :
+        <label className="block text-sm font-semibold">Empleado
+          <input className={field} readOnly value={employees.find(person => person.id === employee)?.name ?? ''} />
+        </label>)}
+      {beneficiaryType === 'carrier' && <SearchableSelect label="Fletero" value={carrier} onChange={value => {
+        if (value !== carrier) clearDestination();
+        setCarrier(value);
+      }} required
+        placeholder="Buscar fletero por nombre" options={(carriers ?? []).map(person => ({value: person.id, label: person.name}))} />}
+      {beneficiaryType === 'external' && <label className="block text-sm font-semibold">Nombre y apellido
+        <input required minLength={2} maxLength={160} className={field} value={externalName} onChange={event => setExternalName(event.target.value)} />
+      </label>}
+      {beneficiaryType !== 'employee' && <label className="block text-sm font-semibold">
+        {beneficiaryType === 'carrier' ? 'Referencia (opcional)' : 'Referencia'}
+        <input required={beneficiaryType === 'external'} minLength={beneficiaryType === 'external' ? 3 : undefined}
+          maxLength={250} className={field} placeholder="Ej. empresa o quién solicita el retiro"
+          value={reference} onChange={event => setReference(event.target.value)} />
+      </label>}
+    </div>
     <label className="block text-sm font-semibold">Modalidad de entrega
       <select className={field} value={mode} onChange={event => setMode(event.target.value === 'home' ? 'home' : 'pickup')}>
         <option value="pickup">Retiro en depósito</option>
@@ -117,14 +234,54 @@ function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
       </select>
     </label>
     </div>
+    {changedBeneficiary && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+      Cambiaste el beneficiario. Al guardar, RR. HH. tendrá que revisar el retiro nuevamente.
+    </p>}
     {mode === 'home' && <fieldset className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
       <legend className="px-2 text-sm font-semibold">Datos del envío</legend>
-      <label className="text-sm font-semibold">Domicilio<input required maxLength={250} className={field} value={address} onChange={event => setAddress(event.target.value)} /></label>
-      <label className="text-sm font-semibold">Localidad<input required maxLength={150} className={field} value={locality} onChange={event => setLocality(event.target.value)} /></label>
-      <label className="text-sm font-semibold">Teléfono de contacto<input required type="tel" maxLength={50} className={field} value={phone} onChange={event => setPhone(event.target.value)} /></label>
-      <label className="text-sm font-semibold">Fecha de entrega<ErpDateInput required className={field} value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} /></label>
+      {addressResult?.failed && <p role="status" className="text-sm text-amber-800 sm:col-span-2">
+        No se pudieron cargar los domicilios anteriores. Podés ingresar la dirección manualmente.
+      </p>}
+      {priorAddresses.length > 0 && <label className="text-sm font-semibold sm:col-span-2">Usar una dirección anterior
+        <select className={field} value={savedAddressId} onChange={event => {
+          const saved = priorAddresses.find(candidate => candidate.id === event.target.value);
+          if (saved) applySavedAddress(saved);
+          else clearDestination();
+          destinationEdited.current = true;
+        }}>
+          <option value="">Ingresar una dirección</option>
+          {priorAddresses.map(saved => <option key={saved.id} value={saved.id}>{saved.address}, {saved.locality}</option>)}
+        </select>
+      </label>}
+      <label className="text-sm font-semibold">Domicilio<input required maxLength={250} className={field} value={address}
+        onChange={event => { destinationEdited.current = true; setAddress(event.target.value); setSavedAddressId(''); setMapsLink(''); }} /></label>
+      <label className="text-sm font-semibold">Localidad<input required maxLength={150} className={field} value={locality}
+        onChange={event => { destinationEdited.current = true; setLocality(event.target.value); setSavedAddressId(''); setMapsLink(''); }} /></label>
+      <label className="text-sm font-semibold">Teléfono de contacto<input required type="tel" maxLength={50} className={field} value={phone}
+        onChange={event => { destinationEdited.current = true; setPhone(event.target.value); }} /></label>
+      <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3 sm:col-span-2 sm:grid-cols-2">
+        <legend className="px-1 text-sm font-semibold">Plazo de entrega · Flete regular</legend>
+        <label className="text-sm font-semibold">Desde
+          <ErpDateInput aria-label="Entrega desde" required className={field} value={deliveryWindow.from}
+            onChange={event => setDeliveryWindow({ ...deliveryWindow, from: event.target.value })} />
+        </label>
+        <label className="text-sm font-semibold">Hasta
+          <ErpDateInput aria-label="Entrega hasta" aria-invalid={invalidWindow} required className={field} value={deliveryWindow.to}
+            onChange={event => setDeliveryWindow({ ...deliveryWindow, to: event.target.value })} />
+        </label>
+        {invalidWindow && <p role="alert" className="text-sm text-red-700 sm:col-span-2">La fecha Hasta debe ser igual o posterior a Desde.</p>}
+      </fieldset>
+      <div className="sm:col-span-2">
+        <label className="block text-sm font-semibold">Enlace de Google Maps (opcional)
+          <input type="url" maxLength={2048} className={field} value={mapsLink} aria-invalid={!validMap}
+            placeholder="Pegá el enlace si querés indicar un punto exacto"
+            onChange={event => { destinationEdited.current = true; setMapsLink(event.target.value); }} />
+        </label>
+        {!validMap && <p className="text-sm text-red-700">Ingresá un enlace válido de Google Maps.</p>}
+        {map && validMap && <a href={map} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-700 underline">Ver en Google Maps</a>}
+      </div>
     </fieldset>}
-    {!employees.length && <p>Pedile a Administración que vincule tu cuenta con tu ficha de personal.</p>}
+    {!logistics && !employees.length && <p>Pedile a Administración que vincule tu cuenta con tu ficha de personal.</p>}
     <div className="space-y-3 border-t border-slate-200 pt-4">
     <label className="block max-w-md text-sm font-semibold">Buscar producto por nombre o SKU
       <input className={field} placeholder="Ej. escalera o SKU" value={query} onChange={event => { setProducts([]); setQuery(event.target.value); }} />
@@ -153,8 +310,8 @@ function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
     <dl className="w-full max-w-xs space-y-1 text-sm tabular-nums">
       <div className="flex justify-between gap-4"><dt>Subtotal</dt><dd>{money(subtotal / 100)}</dd></div>
       <div className="flex items-center justify-between gap-4 text-emerald-800">
-        <dt><label className="flex flex-wrap items-center gap-2">Descuento empleado
-          <input aria-label="Descuento empleado en porcentaje" className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-right"
+        <dt><label className="flex flex-wrap items-center gap-2">{beneficiaryType === 'employee' ? 'Descuento empleado' : 'Descuento'}
+          <input aria-label={beneficiaryType === 'employee' ? 'Descuento empleado en porcentaje' : 'Descuento en porcentaje'} className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-right"
             type="number" min="0" max="100" step="0.01" required value={discountRate}
             onChange={event => setDiscountRate(event.target.value)} /> %
         </label></dt><dd>−{money(discount / 100)}</dd>
@@ -162,8 +319,8 @@ function OrderEditor({ order, employees, ownEmployee, save, busy, close }: {
       <div className="flex justify-between gap-4 border-t border-slate-200 pt-2 text-base font-bold"><dt>Total del pedido</dt><dd>{money((subtotal - discount) / 100)}</dd></div>
     </dl>
     <div className="flex flex-wrap gap-2">
-      <button className={primary} disabled={busy || !employee || !lines.length}>Enviar a RR. HH.</button>
-      <button type="button" className={button} onClick={close}>Cerrar</button>
+      <button className={primary} disabled={busy || !beneficiaryReady || !lines.length || mode === 'home' && (!validMap || invalidWindow)}>Enviar a RR. HH.</button>
+      <button type="button" className={button} onClick={close}>Volver al listado</button>
     </div>
     </footer>
   </form>;
@@ -284,7 +441,8 @@ function ActionForm({ selection, order, save, busy, close }: {
         {selection.action === 'apply' && <label className="block max-w-xs">Fecha efectiva del descuento
           <ErpDateInput required className={field} value={appliedOn} onChange={event => setAppliedOn(event.target.value)} />
         </label>}
-        <label className="block">{['apply', 'credit'].includes(selection.action) ? 'Referencia de liquidación o pago' : 'Motivo operativo'}
+        <label className="block">{selection.action === 'approve' ? 'Acuerdo de pago fuera de nómina' :
+          ['apply', 'credit'].includes(selection.action) ? 'Referencia de liquidación o pago' : 'Motivo operativo'}
           <input required className={field} maxLength={500} value={note} onChange={event => setNote(event.target.value)} />
         </label>
       </>}
@@ -293,13 +451,41 @@ function ActionForm({ selection, order, save, busy, close }: {
   </form>;
 }
 
-function OrderCard({ order, inbox, save, busy, period, onEdit }: {
-  order: Withdrawal; inbox: Inbox; save: Save; busy: boolean; period: string; onEdit: () => void;
+function ReviewBadge({ state }: { state: string }) {
+  return <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${state === 'approved'
+    ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>
+    {employeeReviewLabels[state] ?? withdrawalStates[state]}
+  </span>;
+}
+
+function OrderDetail({ order, inbox, save, busy, period, error, notice, onClose, onEdit }: {
+  order: Withdrawal; inbox: Inbox; save: Save; busy: boolean; period: string;
+  error: string; notice: string; onClose: () => void; onEdit: () => void;
 }) {
   const [quick, setQuick] = useState<QuickAction | null>(null);
   const [schedule, setSchedule] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const actionPanel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const modal = dialog.current;
+    modal?.showModal();
+    return () => { modal?.close(); };
+  }, []);
+  useEffect(() => {
+    if (!quick && !schedule) return;
+    actionPanel.current?.focus({ preventScroll: true });
+    actionPanel.current?.scrollIntoView({ block: 'nearest' });
+  }, [quick, schedule]);
   const { capabilities, employees } = inbox;
   const review = capabilities.review;
+  const external = !order.employee_id;
+  const lastApproval = order.audit?.findLastIndex(entry => entry.action === 'approve') ?? -1;
+  const previousBeneficiary = order.audit?.slice(0, lastApproval >= 0 ? lastApproval + 1 : 1)
+    .findLast(entry => ['create', 'edit'].includes(entry.action))?.data;
+  const beneficiaryChanged = previousBeneficiary &&
+    (previousBeneficiary.employee_id !== (order.employee_id ?? undefined) ||
+      previousBeneficiary.carrier_id !== (order.carrier_id ?? undefined) ||
+      previousBeneficiary.external_name?.trim() !== (order.external_name ?? undefined));
   const canEdit = capabilities.create && (capabilities.logistics || capabilities.user_id === order.created_by)
     && ['pending', 'returned', 'approved'].includes(order.state) && !order.delivery_events.length;
   const approved = order.state === 'approved';
@@ -311,19 +497,37 @@ function OrderCard({ order, inbox, save, busy, period, onEdit }: {
   const hasDelivery = order.items.some(item => deliveredUnits(order, item.id) > 0);
   const lastDelivery = order.delivery_events.findLast(entry => entry.delta > 0);
   function action(next: QuickAction) { setSchedule(false); setQuick(next); }
+  function close() { dialog.current?.close(); onClose(); }
 
-  return <article className={card}>
-    <header className="flex flex-wrap justify-between gap-2">
-      <div><h2 className="text-lg font-bold">{order.employee} · {money(order.amount)}</h2>
-        <p className="break-all text-xs text-slate-500">{order.code} · {displayErpInstant(order.created_at)} · {order.category}</p></div>
-      <span className={`self-start rounded-full px-3 py-1 text-sm font-semibold ${order.state === 'approved' ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>
-        {employeeReviewLabels[order.state] ?? withdrawalStates[order.state]}
-      </span>
+  return <dialog ref={dialog} aria-labelledby="withdrawal-detail-title" onCancel={event => {
+    event.preventDefault();
+    if (!busy) close();
+  }} className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-4xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/50">
+    <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+      <div className="min-w-0 space-y-1"><h2 id="withdrawal-detail-title" className="text-lg font-bold">{order.employee} · {money(order.amount)}</h2>
+        <p className="break-all text-xs text-slate-500">{order.code} · {displayErpInstant(order.created_at)} · {order.category}</p>
+        <p className="text-xs text-slate-600">Procedencia · {EMPLOYEE_WITHDRAWAL_SOURCE}</p>
+        <ReviewBadge state={order.state} />
+      </div>
+      <button type="button" aria-label="Cerrar detalle" disabled={busy} onClick={close}
+        className="shrink-0 rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-50"><X size={20} /></button>
     </header>
+    <div className="space-y-4 p-4 sm:px-6">
+    {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-900">{error}</p>}
+    {notice && <p role="status" className="rounded-lg bg-blue-50 p-3">{notice}</p>}
+    {review && order.state === 'pending' && beneficiaryChanged && <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      Cambió el beneficiario. Revisá el cambio y, si corresponde, consultá a Gerencia antes de autorizar.
+    </p>}
     <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+      {external && <p className="font-semibold">{order.carrier_id ? 'Fletero' : 'Otra persona'} · Fuera de nómina</p>}
+      {order.external_reference && <p>Referencia: {order.external_reference}</p>}
       <p className="font-semibold">{order.mode === 'home' ? 'Envío a domicilio' : 'Retiro en depósito'}</p>
-      {order.mode === 'home' && <p>{order.address}, {order.locality} · {displayDateField(order.delivery_date)}{order.phone && ` · ${order.phone}`}</p>}
-      {Number(order.discount_rate) > 0 && <p>Descuento empleado ({order.discount_rate}%) · {money(order.discount_amount)}</p>}
+      {order.mode === 'home' && <>
+        <p>{order.address}, {order.locality} · {displayDeliveryWindow(order.delivery_date, order.deadline)}{order.phone && ` · ${order.phone}`}</p>
+        <a href={order.maps_link && isWithdrawalMapUrl(order.maps_link) ? order.maps_link : withdrawalMapUrl(order.address, order.locality)}
+          target="_blank" rel="noreferrer" className="font-semibold text-blue-700 underline">Ver en Google Maps</a>
+      </>}
+      {Number(order.discount_rate) > 0 && <p>{external ? 'Descuento' : 'Descuento empleado'} ({order.discount_rate}%) · {money(order.discount_amount)}</p>}
     </div>
     <p className="text-sm">{order.notes}{order.review_note && ` · ${order.review_note}`}</p>
     <ul className="divide-y rounded-lg border">
@@ -358,21 +562,29 @@ function OrderCard({ order, inbox, save, busy, period, onEdit }: {
       </table></div>
     </>}
     <div className="flex flex-wrap gap-2">
-      {canEdit && employees.length > 0 && <button className={button} onClick={onEdit}>Corregir pedido</button>}
+      {canEdit && (employees.length > 0 || capabilities.logistics && inbox.carriers) && <button className={button} onClick={() => {
+        dialog.current?.close();
+        onEdit();
+      }}>Corregir pedido</button>}
       {review && order.state === 'pending' && <>
-        <button className={primary} onClick={() => { setQuick(null); setSchedule(true); }}>Autorizar</button>
+        <button className={primary} onClick={() => {
+          if (external) action({action: 'approve'});
+          else { setQuick(null); setSchedule(true); }
+        }}>Autorizar</button>
         <button className={button} onClick={() => action({ action: 'return' })}>Devolver para corregir</button>
         <button className={button} onClick={() => action({ action: 'reject' })}>Rechazar</button>
       </>}
-      {review && approved && <button className={button} onClick={() => { setQuick(null); setSchedule(true); }}>Reprogramar cuotas</button>}
+      {review && approved && !external && <button className={button} onClick={() => { setQuick(null); setSchedule(true); }}>Reprogramar cuotas</button>}
       {capabilities.logistics && approved && !order.delivery_closed && order.status !== 'Entregado' && hasDelivery &&
         <button className={button} onClick={() => action({ action: 'close_delivery' })}>Cerrar entrega parcial</button>}
       {(review || capabilities.logistics) && ['pending', 'returned', 'approved'].includes(order.state) && !hasDelivery && applied === 0 &&
         <button className={button} onClick={() => action({ action: 'cancel' })}>Cancelar retiro</button>}
       {order.sheet_pending && <button className={button} disabled={busy} onClick={() => void save('sync', order.id, null)}>Sincronizar planillas</button>}
     </div>
-    {schedule && <Schedule order={order} save={save} busy={busy} close={() => setSchedule(false)} />}
-    {quick && <ActionForm key={JSON.stringify(quick)} selection={quick} order={order} save={save} busy={busy} close={() => setQuick(null)} />}
+    {(schedule || quick) && <div ref={actionPanel} tabIndex={-1} className="scroll-mt-36">
+      {schedule && <Schedule order={order} save={save} busy={busy} close={() => setSchedule(false)} />}
+      {quick && <ActionForm key={JSON.stringify(quick)} selection={quick} order={order} save={save} busy={busy} close={() => setQuick(null)} />}
+    </div>}
     {review && order.audit && <details className="text-sm">
       <summary className="cursor-pointer font-semibold">Historial</summary>
       <ul className="mt-2 space-y-1">{[...order.audit].reverse().map((entry, index) => <li key={index}>
@@ -380,7 +592,8 @@ function OrderCard({ order, inbox, save, busy, period, onEdit }: {
         {entry.data.note && ` · ${entry.data.note}`}
       </li>)}</ul>
     </details>}
-  </article>;
+    </div>
+  </dialog>;
 }
 
 function AccessForm({ accounts, employees, save, busy }: { accounts: Account[]; employees: Employee[]; save: Save; busy: boolean }) {
@@ -407,21 +620,29 @@ function AccessForm({ accounts, employees, save, busy }: { accounts: Account[]; 
 }
 
 export default function EmployeeWithdrawalsPage() {
+  const reviewQueue = useSearchParams().get('validaciones') === '1';
+  return <EmployeeWithdrawalsInbox key={String(reviewQueue)} reviewQueue={reviewQueue} />;
+}
+
+function EmployeeWithdrawalsInbox({ reviewQueue }: { reviewQueue: boolean }) {
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [period, setPeriod] = useState('');
-  const [filter, setFilter] = useState('');
+  const [filter, setFilter] = useState(reviewQueue ? 'pending' : '');
   const [page, setPage] = useState(0);
   const [editor, setEditor] = useState<Withdrawal | 'new' | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.rpc('employee_withdrawal_read', {
       p_period: period ? period + '-01' : null, p_state: filter || null, p_page: page,
     });
     if (error) throw error;
-    setInbox(data);
+    const next: Inbox = data;
+    setInbox(next);
+    setSelectedId(current => current && next?.orders.some(order => order.id === current) ? current : null);
   }, [period, filter, page]);
 
   useEffect(() => {
@@ -435,6 +656,7 @@ export default function EmployeeWithdrawalsPage() {
       const post = (payload: object) => request(endpoint, { method: 'POST', body: JSON.stringify(payload) });
       const result = await post({ action, id, version, data });
       saved = true;
+      if (action !== 'sync') window.dispatchEvent(new Event(WITHDRAWAL_REVIEWS_REFRESH));
       let synced = true;
       if (action === 'sync') synced = result.synced;
       else if (action !== 'access') {
@@ -451,37 +673,67 @@ export default function EmployeeWithdrawalsPage() {
   };
 
   const orders = inbox?.orders ?? [];
+  const selectedOrder = orders.find(order => order.id === selectedId);
+  const reviewDenied = reviewQueue && inbox && !inbox.capabilities.review;
   return <main className="mx-auto max-w-6xl space-y-4 p-4 text-slate-900">
     <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:px-6">
       <div><p className="text-xs font-semibold uppercase tracking-wide text-blue-800">Pedidos internos</p>
-        <h1 className="text-2xl font-bold">Retiros de empleados</h1>
-        <p className="text-sm text-slate-600">Validación de RR. HH., retiro en depósito y envío a domicilio.</p></div>
-      {inbox?.capabilities.create && <button className={primary} onClick={() => setEditor('new')}>Cargar retiro</button>}
+        <h1 className="text-2xl font-bold">{reviewQueue ? 'Validaciones RRHH' : 'Retiros de empleados'}</h1>
+        <p className="text-sm text-slate-600">{reviewQueue ? 'Retiros pendientes de autorización.' : 'Validación de RR. HH., retiro en depósito y envío a domicilio.'}</p></div>
+      {reviewQueue ? <Link href={EMPLOYEE_WITHDRAWALS_PATH} className={button}>Ver todos los retiros</Link> :
+        inbox?.capabilities.create && !editor && <button className={primary} onClick={() => setEditor('new')}>Cargar retiro</button>}
     </header>
-    {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-900">{error}</p>}
-    {notice && <p role="status" className="rounded-lg bg-blue-50 p-3">{notice}</p>}
+    {!selectedOrder && error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-900">{error}</p>}
+    {!selectedOrder && notice && <p role="status" className="rounded-lg bg-blue-50 p-3">{notice}</p>}
     {!inbox && !error && <p>Cargando retiros…</p>}
-    {inbox && <>
-      {inbox.capabilities.admin && <AccessForm accounts={inbox.accounts} employees={inbox.employees} save={save} busy={busy} />}
-      {editor && <OrderEditor key={editor === 'new' ? 'new' : editor.id} order={editor === 'new' ? undefined : editor}
-        employees={inbox.employees} ownEmployee={inbox.capabilities.employee_id} save={save} busy={busy} close={() => setEditor(null)} />}
-      <div className="flex flex-wrap items-end gap-3">
-        <label>Estado<select className={field} value={filter} onChange={event => { setFilter(event.target.value); setPage(0); }}>
-          <option value="">Todos</option>{Object.entries(withdrawalStates).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+    {reviewDenied && <p role="alert" className={card}>No tenés permiso para validar retiros.</p>}
+    {inbox && !reviewDenied && (editor ?
+      <OrderEditor key={editor === 'new' ? 'new' : editor.id} order={editor === 'new' ? undefined : editor}
+        employees={inbox.employees} carriers={inbox.carriers} logistics={inbox.capabilities.logistics}
+        ownEmployee={inbox.capabilities.employee_id} save={save} busy={busy} close={() => setEditor(null)} /> :
+      <>
+      {!reviewQueue && inbox.capabilities.admin && <AccessForm accounts={inbox.accounts} employees={inbox.employees} save={save} busy={busy} />}
+      <section aria-labelledby="withdrawals-list-heading" className="space-y-4">
+      <div className={card}>
+        <h2 id="withdrawals-list-heading" className="text-lg font-bold">{reviewQueue ? 'Pendientes de RR. HH.' : 'Listado de retiros'}</h2>
+        {!reviewQueue && <div className="flex flex-wrap items-end gap-3">
+        <label>Filtrar listado por estado<select className={field} value={filter} onChange={event => { setFilter(event.target.value); setPage(0); }}>
+          <option value="">Todos los estados</option>{Object.entries(withdrawalStates).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
         {inbox.capabilities.review && <label>Reporte por mes salarial<ErpDateInput className={field} type="month" value={period}
           onChange={event => { setPeriod(event.target.value); setPage(0); }} />
           <small className="block text-slate-600">Las semanas se agrupan por su fecha de cierre.</small>
         </label>}
         {period && <button className={button} onClick={() => { setPeriod(''); setPage(0); }}>Quitar filtro de período</button>}
+        </div>}
       </div>
-      {!orders.length && <p className={card}>No hay retiros para esta selección.</p>}
-      {orders.map(order => <OrderCard key={order.id} order={order} inbox={inbox} save={save} busy={busy} period={period}
-        onEdit={() => { setEditor(order); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />)}
+      {orders.length ? <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+        {orders.map(order => <li key={order.id}
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_13rem_7rem]">
+          <div className="min-w-0">
+            <p className="break-words text-sm font-semibold">{order.employee}</p>
+            <p className="break-all text-xs text-slate-500">{order.code} · {displayErpInstant(order.created_at)}</p>
+          </div>
+          <p className="text-right text-sm font-semibold tabular-nums">{money(order.amount)}</p>
+          <div className="sm:justify-self-center"><ReviewBadge state={order.state} /></div>
+          <button type="button" className={`${button} justify-self-end`} aria-haspopup="dialog"
+            aria-label={`Ver detalle de ${order.code}`} onClick={() => {
+              setError(''); setNotice(''); setSelectedId(order.id);
+            }}>Ver detalle</button>
+        </li>)}
+      </ul> : <p className={card}>{reviewQueue ? 'No hay retiros pendientes de validación.' : 'No hay retiros para esta selección.'}</p>}
+      {selectedOrder && <OrderDetail key={selectedOrder.id} order={selectedOrder} inbox={inbox}
+        save={save} busy={busy} period={period} error={error} notice={notice} onClose={() => setSelectedId(null)}
+        onEdit={() => {
+          setSelectedId(null);
+          setEditor(selectedOrder);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }} />}
       {(page > 0 || orders.length === 50) && <div className="flex gap-2">
         <button className={button} disabled={page === 0} onClick={() => setPage(page - 1)}>Anterior</button>
         <button className={button} disabled={orders.length < 50} onClick={() => setPage(page + 1)}>Siguiente</button>
       </div>}
-    </>}
+      </section>
+    </>)}
   </main>;
 }

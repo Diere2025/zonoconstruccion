@@ -6,6 +6,19 @@ export const withdrawalStates: Record<string, string> = {
 };
 
 export const employeeDiscountRate = 5;
+export const EMPLOYEE_WITHDRAWAL_PAYMENT = 'Descuento Sueldo';
+export const EMPLOYEE_WITHDRAWALS_PATH = '/vendedores/retiros-empleados';
+export const WITHDRAWAL_REVIEWS_REFRESH = 'employee-withdrawal-reviews-refresh';
+
+export function withdrawalMapUrl(address: string, locality: string) {
+  if (!address.trim() || !locality.trim()) return '';
+  const params = new URLSearchParams({api: '1', query: `${address.trim()}, ${locality.trim()}`});
+  return `https://www.google.com/maps/search/?${params}`;
+}
+
+export function isWithdrawalMapUrl(url: string) {
+  return /^https:\/\/(www\.google\.(com|com\.ar)\/maps([/?#]|$)|maps\.google\.(com|com\.ar)([/?#]|$)|maps\.app\.goo\.gl\/|goo\.gl\/maps\/)/.test(url);
+}
 
 export function employeeDiscountCents(subtotal: number, rate = employeeDiscountRate) {
   return Math.round(subtotal * Math.round(rate * 100) / 10000);

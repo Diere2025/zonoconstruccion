@@ -1031,7 +1031,8 @@ async function updateOrderInOperationalSheet(
   legacyCode: string,
   order: SheetOrderPayload,
   logisticsObservation?: string,
-  statusOverride?: string | null
+  statusOverride?: string | null,
+  deliveryStatusOverride?: string
 ): Promise<OperationalSheetSyncResult> {
   try {
     const targets = await findOrderRowsInSheet(spreadsheetId, sheetName, codeColumn, legacyCode);
@@ -1043,7 +1044,11 @@ async function updateOrderInOperationalSheet(
     const itemChunks = splitOrderItemsForRows(order, targets.length);
     const batchData = targets.flatMap((target, index) => {
       const orderForRow = { ...order, category: normalizeCategoryForSheet(order.category, order.items), items: itemChunks[index] };
-      return buildOrderUpdateBatchData(sheetName, target.rowNumber, orderForRow, logisticsObservation, columnOffset, statusOverride);
+      const data = buildOrderUpdateBatchData(sheetName, target.rowNumber, orderForRow, logisticsObservation, columnOffset, statusOverride);
+      if (deliveryStatusOverride && columnOffset === -1) {
+        data.push({ range: makeRange(sheetName, 'Q', 'Q', target.rowNumber, columnOffset), values: [[deliveryStatusOverride]] });
+      }
+      return data;
     });
     await Promise.all(targets.map(target =>
       restoreMissingCalculatedFormulas(spreadsheetId, sheetName, target.rowNumber, columnOffset, token)
@@ -1565,7 +1570,8 @@ async function appendOrderToOperationalSheet(
   sheetName: string,
   columnOffset: number,
   codes: string[],
-  order: SheetOrderPayload
+  order: SheetOrderPayload,
+  statusOverride?: string
 ): Promise<NewOperationalSheetSyncResult> {
   try {
     const rowNumbers = await getNextEmptyOperationalRows(
@@ -1577,6 +1583,9 @@ async function appendOrderToOperationalSheet(
     const itemChunks = splitOrderItemsForRows(order, codes.length);
     const token = await getGoogleAccessToken();
     await ensureOrderSheetRowCapacity(spreadsheetId, sheetName, rowNumbers, columnOffset, token);
+    if (statusOverride) {
+      await Promise.all(rowNumbers.map(row => restoreMissingCalculatedFormulas(spreadsheetId, sheetName, row, columnOffset, token)));
+    }
     const batchData = rowNumbers.flatMap((rowNumber, index) => {
       const rowOrder = makeContinuationOrder(order, itemChunks[index], codes, index);
       return [
@@ -1591,7 +1600,7 @@ async function appendOrderToOperationalSheet(
           rowOrder,
           undefined,
           columnOffset,
-          rowOrder.status === 'En Espera' ? 'En Espera' : '🔸 Validado'
+          statusOverride ?? (rowOrder.status === 'En Espera' ? 'En Espera' : '🔸 Validado')
         )
       ];
     });
@@ -1603,7 +1612,7 @@ async function appendOrderToOperationalSheet(
       rowNumbers.forEach(rowNumber => {
         batchData.push({
           range: makeRange(sheetName, 'Q', 'Q', rowNumber, columnOffset),
-          values: [[order.status === 'En Espera' ? 'En Espera' : '🔸 Validado']]
+          values: [[statusOverride ?? (order.status === 'En Espera' ? 'En Espera' : '🔸 Validado')]]
         });
       });
     }
@@ -1668,6 +1677,68 @@ export async function appendNewOrderToOperationalSheets(
   );
 
   return { central, deliveriesCurrent };
+}
+
+export async function upsertEmployeeWithdrawalInOperationalSheets(code: string, order: SheetOrderPayload, deliveryStatus: string) {
+  const central = CENTRAL_ORDERS_SHEET;
+  const deliveries = DELIVERIES_CURRENT_SHEET;
+  const deliveryCodes = await fetchSpreadsheetValueRanges(deliveries.spreadsheetId,
+    deliveries.sheetNames.map(name => `'${name}'!A2:A`));
+  const locations = deliveryCodes.flatMap((rows, index) => rows.flatMap(([value], row) =>
+    value?.trim().toUpperCase() === code ? [{ name: deliveries.sheetNames[index], row: row + 2 }] : []));
+  if (locations.length > 1) throw new Error(`El pedido ${code} está duplicado en Entregas Actual.`);
+  const [location] = locations;
+  let deliveryStatusOverride: string | undefined;
+  if (location?.name === 'Vendedores') {
+    const [[currentStatus] = []] = await fetchSpreadsheetValues(deliveries.spreadsheetId, `'Vendedores'!P${location.row}`);
+    if (deliveryStatus !== '🔸 Validado' || !currentStatus || currentStatus === 'En Espera') {
+      deliveryStatusOverride = deliveryStatus;
+    }
+  }
+  const deliveryResult = location
+    ? await updateOrderInOperationalSheet(deliveries.spreadsheetId, location.name, deliveries.codeColumn,
+      deliveries.columnOffset, code, order, undefined, undefined, deliveryStatusOverride)
+    : await appendOrderToOperationalSheet(deliveries.spreadsheetId, 'Vendedores', deliveries.columnOffset, [code], order, deliveryStatus);
+  if (!deliveryResult.success) throw new Error(deliveryResult.message ?? 'No se pudo sincronizar el retiro en Entregas Actual.');
+
+  const centralStatus = deliveryStatus === '❌ Anulado' ? deliveryStatus : '🔹 Pasado';
+  const centralRows = await findOrderRowsInSheet(central.spreadsheetId, central.sheetName, central.codeColumn, code);
+  const centralResult = centralRows.length
+    ? await updateOrderInOperationalSheet(central.spreadsheetId, central.sheetName, central.codeColumn,
+      central.columnOffset, code, order, undefined, centralStatus)
+    : await appendOrderToOperationalSheet(central.spreadsheetId, central.sheetName, central.columnOffset, [code], order, centralStatus);
+  if (!centralResult.success) throw new Error(centralResult.message ?? 'No se pudo sincronizar el retiro en Central.');
+
+  // DATABASE is imported from the commercial catalog. Only this order's
+  // payment cell needs the payroll option, or the standard list for a third party.
+  const row = centralRows[0]?.rowNumber ?? ('rowNumbers' in centralResult ? centralResult.rowNumbers?.[0] : undefined);
+  if (!row) throw new Error('No se pudo verificar la fila del retiro en Central.');
+  const token = await getGoogleAccessToken();
+  const sheetId = await getSheetIdByTitle(central.spreadsheetId, central.sheetName, token, false);
+  const column = columnToNumber('V') - 1;
+  const condition = order.paymentMethod
+    ? { type: 'ONE_OF_LIST', values: [{ userEnteredValue: order.paymentMethod }] }
+    : { type: 'ONE_OF_RANGE', values: [{ userEnteredValue: '=DATABASE!$C:$C' }] };
+  await sheetBatchUpdate(token, central.spreadsheetId, [{ setDataValidation: {
+    range: { sheetId, startRowIndex: row - 1, endRowIndex: row, startColumnIndex: column, endColumnIndex: column + 1 },
+    rule: { condition, showCustomUi: true },
+  } }]);
+}
+
+export async function removeEmployeeWithdrawalFromOperationalSheets(code: string) {
+  const central = CENTRAL_ORDERS_SHEET;
+  const deliveries = DELIVERIES_CURRENT_SHEET;
+  const deliveryCodes = await fetchSpreadsheetValueRanges(deliveries.spreadsheetId,
+    deliveries.sheetNames.map(name => `'${name}'!A2:A`));
+  const matchingTabs = deliveries.sheetNames.filter((_, index) =>
+    deliveryCodes[index].some(([value]) => value?.trim().toUpperCase() === code));
+  const results = await Promise.all([
+    clearOrderFromSheet(central.spreadsheetId, central.sheetName, central.codeColumn, central.columnOffset, code, { preserveCode: false }),
+    ...matchingTabs.map(name => clearOrderFromSheet(deliveries.spreadsheetId, name,
+      deliveries.codeColumn, deliveries.columnOffset, code, { preserveCode: false })),
+  ]);
+  const failure = results.find(result => !result.success);
+  if (failure) throw new Error(failure.message ?? 'No se pudo retirar la copia operativa.');
 }
 
 export const SELLER_SHEET_CONFIG: Record<string, { spreadsheetId: string; sheetName: string; enabled: boolean }> = {
@@ -2268,7 +2339,7 @@ const sheetIdCache: Record<string, number> = {
   'Pendientes': 1414092286
 };
 
-async function getSheetIdByTitle(spreadsheetId: string, sheetTitle: string, token: string): Promise<number> {
+async function getSheetIdByTitle(spreadsheetId: string, sheetTitle: string, token: string, allowFallback = true): Promise<number> {
   const cacheKey = `${spreadsheetId}_${sheetTitle}`;
   if (sheetIdCache[cacheKey] !== undefined) {
     return sheetIdCache[cacheKey];
@@ -2290,6 +2361,7 @@ async function getSheetIdByTitle(spreadsheetId: string, sheetTitle: string, toke
     console.warn(`Could not lookup sheetId for ${sheetTitle} in ${spreadsheetId}:`, err);
   }
 
+  if (!allowFallback) throw new Error(`No se pudo verificar la pestaña ${sheetTitle}.`);
   return sheetIdCache[sheetTitle] || 1414092286;
 }
 

@@ -1,4 +1,5 @@
 export type AdvertisingSourceChannel = 'minorista' | 'mayorista' | 'ambos';
+export const EMPLOYEE_WITHDRAWAL_SOURCE = 'Retiro de empleado';
 
 export interface AdvertisingSource {
   id: string;
