@@ -229,8 +229,31 @@ test('employee withdrawals use payroll periods, require authorization, and recon
     await assert.rejects(save('approve', carrierOrder, 2, { note: 'Acuerdo externo', installments: monthly, period_checked: true }), /no admiten cuotas/);
     await save('approve', carrierOrder, 2, { note: 'Acuerdo externo' });
     await assert.rejects(save('apply', carrierOrder, 3, applied), /no se descuenta por nómina/);
+
+    await db.exec(fs.readFileSync('database/db_migration_20261109_employee_withdrawal_rejections.sql', 'utf8'));
+    const unrelatedSeller = id(13);
+    const rejectedOrder = id(14);
+    await db.query("insert into sellers(id,email,full_name,role,roles,is_active) values($1,'unrelated@example.invalid','Otra cuenta','seller','{}',true)", [unrelatedSeller]);
+    const rejectionNotices = async (seen = null) => (await db.query(
+      'select employee_withdrawal_rejection_notices($1) as count', [seen],
+    )).rows[0].count;
+    await as(seller);
+    await save('create', rejectedOrder, null, { employee_id: employee, items });
+    assert.equal(await rejectionNotices(), 0);
+    await as(reviewer);
+    await save('reject', rejectedOrder, 2, { note: 'Motivo de prueba' });
+    assert.equal(await rejectionNotices(), null);
+    await as(unrelatedSeller);
+    assert.equal(await rejectionNotices(rejectedOrder), 0);
+    await as(seller);
+    assert.equal(await rejectionNotices(), 1);
+    assert.equal(await rejectionNotices(rejectedOrder), 0);
+    assert.equal(await rejectionNotices(rejectedOrder), 0);
     await as(logistics);
+    assert.equal(await rejectionNotices(), 1);
     await db.exec('SET ROLE authenticated');
+    assert.equal(await rejectionNotices(rejectedOrder), 0);
+    await assert.rejects(db.query('select * from employee_withdrawal_rejection_reads'), /permission denied/);
     await assert.rejects(db.query('select * from employee_withdrawal_installments'), /permission denied/);
     await assert.rejects(db.query('select employee_withdrawal_finish_sheet($1,$2,$3,true)',
       [order, snapshot.lease, snapshot.version]), /permission denied/);

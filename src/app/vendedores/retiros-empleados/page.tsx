@@ -227,7 +227,7 @@ function OrderEditor({ order, employees, carriers, logistics, ownEmployee, save,
           value={reference} onChange={event => setReference(event.target.value)} />
       </label>}
     </div>
-    <label className="block text-sm font-semibold">Modalidad de entrega
+    <label className="block self-start text-sm font-semibold">Modalidad de entrega
       <select className={field} value={mode} onChange={event => setMode(event.target.value === 'home' ? 'home' : 'pickup')}>
         <option value="pickup">Retiro en depósito</option>
         <option value="home">Envío a domicilio</option>
@@ -620,17 +620,20 @@ function AccessForm({ accounts, employees, save, busy }: { accounts: Account[]; 
 }
 
 export default function EmployeeWithdrawalsPage() {
-  const reviewQueue = useSearchParams().get('validaciones') === '1';
-  return <EmployeeWithdrawalsInbox key={String(reviewQueue)} reviewQueue={reviewQueue} />;
+  const params = useSearchParams();
+  const queue = params.get('validaciones') === '1' ? 'pending' : params.get('rechazados') === '1' ? 'rejected' : '';
+  return <EmployeeWithdrawalsInbox key={queue} queue={queue} />;
 }
 
-function EmployeeWithdrawalsInbox({ reviewQueue }: { reviewQueue: boolean }) {
+function EmployeeWithdrawalsInbox({ queue }: { queue: '' | 'pending' | 'rejected' }) {
+  const reviewQueue = queue === 'pending';
+  const rejectionQueue = queue === 'rejected';
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [period, setPeriod] = useState('');
-  const [filter, setFilter] = useState(reviewQueue ? 'pending' : '');
+  const [filter, setFilter] = useState<string>(queue);
   const [page, setPage] = useState(0);
   const [editor, setEditor] = useState<Withdrawal | 'new' | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -675,12 +678,21 @@ function EmployeeWithdrawalsInbox({ reviewQueue }: { reviewQueue: boolean }) {
   const orders = inbox?.orders ?? [];
   const selectedOrder = orders.find(order => order.id === selectedId);
   const reviewDenied = reviewQueue && inbox && !inbox.capabilities.review;
+  function openDetail(order: Withdrawal) {
+    setError(''); setNotice(''); setSelectedId(order.id);
+    if (order.state === 'rejected') {
+      void supabase.rpc('employee_withdrawal_rejection_notices', { p_seen: order.id }).then(({ data, error }) => {
+        if (!error && typeof data === 'number') window.dispatchEvent(new Event(WITHDRAWAL_REVIEWS_REFRESH));
+      }).catch(() => {});
+    }
+  }
   return <main className="mx-auto max-w-6xl space-y-4 p-4 text-slate-900">
     <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:px-6">
       <div><p className="text-xs font-semibold uppercase tracking-wide text-blue-800">Pedidos internos</p>
-        <h1 className="text-2xl font-bold">{reviewQueue ? 'Validaciones RRHH' : 'Retiros de empleados'}</h1>
-        <p className="text-sm text-slate-600">{reviewQueue ? 'Retiros pendientes de autorización.' : 'Validación de RR. HH., retiro en depósito y envío a domicilio.'}</p></div>
-      {reviewQueue ? <Link href={EMPLOYEE_WITHDRAWALS_PATH} className={button}>Ver todos los retiros</Link> :
+        <h1 className="text-2xl font-bold">{reviewQueue ? 'Validaciones RRHH' : rejectionQueue ? 'Retiros rechazados' : 'Retiros de empleados'}</h1>
+        <p className="text-sm text-slate-600">{reviewQueue ? 'Retiros pendientes de autorización.' :
+          rejectionQueue ? 'Abrí el detalle para consultar el motivo de RR. HH.' : 'Validación de RR. HH., retiro en depósito y envío a domicilio.'}</p></div>
+      {queue ? <Link href={EMPLOYEE_WITHDRAWALS_PATH} className={button}>Ver todos los retiros</Link> :
         inbox?.capabilities.create && !editor && <button className={primary} onClick={() => setEditor('new')}>Cargar retiro</button>}
     </header>
     {!selectedOrder && error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-900">{error}</p>}
@@ -692,11 +704,11 @@ function EmployeeWithdrawalsInbox({ reviewQueue }: { reviewQueue: boolean }) {
         employees={inbox.employees} carriers={inbox.carriers} logistics={inbox.capabilities.logistics}
         ownEmployee={inbox.capabilities.employee_id} save={save} busy={busy} close={() => setEditor(null)} /> :
       <>
-      {!reviewQueue && inbox.capabilities.admin && <AccessForm accounts={inbox.accounts} employees={inbox.employees} save={save} busy={busy} />}
+      {!queue && inbox.capabilities.admin && <AccessForm accounts={inbox.accounts} employees={inbox.employees} save={save} busy={busy} />}
       <section aria-labelledby="withdrawals-list-heading" className="space-y-4">
       <div className={card}>
         <h2 id="withdrawals-list-heading" className="text-lg font-bold">{reviewQueue ? 'Pendientes de RR. HH.' : 'Listado de retiros'}</h2>
-        {!reviewQueue && <div className="flex flex-wrap items-end gap-3">
+        {!queue && <div className="flex flex-wrap items-end gap-3">
         <label>Filtrar listado por estado<select className={field} value={filter} onChange={event => { setFilter(event.target.value); setPage(0); }}>
           <option value="">Todos los estados</option>{Object.entries(withdrawalStates).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
@@ -717,11 +729,10 @@ function EmployeeWithdrawalsInbox({ reviewQueue }: { reviewQueue: boolean }) {
           <p className="text-right text-sm font-semibold tabular-nums">{money(order.amount)}</p>
           <div className="sm:justify-self-center"><ReviewBadge state={order.state} /></div>
           <button type="button" className={`${button} justify-self-end`} aria-haspopup="dialog"
-            aria-label={`Ver detalle de ${order.code}`} onClick={() => {
-              setError(''); setNotice(''); setSelectedId(order.id);
-            }}>Ver detalle</button>
+            aria-label={`Ver detalle de ${order.code}`} onClick={() => openDetail(order)}>Ver detalle</button>
         </li>)}
-      </ul> : <p className={card}>{reviewQueue ? 'No hay retiros pendientes de validación.' : 'No hay retiros para esta selección.'}</p>}
+      </ul> : <p className={card}>{reviewQueue ? 'No hay retiros pendientes de validación.' :
+        rejectionQueue ? 'No hay retiros rechazados.' : 'No hay retiros para esta selección.'}</p>}
       {selectedOrder && <OrderDetail key={selectedOrder.id} order={selectedOrder} inbox={inbox}
         save={save} busy={busy} period={period} error={error} notice={notice} onClose={() => setSelectedId(null)}
         onEdit={() => {
