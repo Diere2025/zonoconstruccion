@@ -12,6 +12,11 @@ async function all<T>(query:{range:(from:number,to:number)=>PromiseLike<{data:T[
 }
 function failure(error:unknown){const e=error as {code?:string;message?:string};const missing=['42P01','PGRST202','PGRST205'].includes(e.code||'');return NextResponse.json({error:missing?'Falta habilitar las aplicaciones de pagos (migración 245).':e.message||'No se pudo aplicar el pago.'},{status:error instanceof OperationError?error.status:missing?503:e.code==='42501'?403:['40001','23505'].includes(e.code||'')?409:400});}
 
+type PaymentApplicationRow = {
+ amount:number|string; currency:string; created_at:string; cash_transaction_id:string|null; signature:string;
+ allocations:Array<{purchase_id:string;amount:number|string}>;
+};
+
 async function paymentDetail(db:SupabaseClient,supplierId:string,paymentId:string) {
  const sourceKey='payment:'+paymentId;
  const [payment,scope,openingSignature,reservations]=await Promise.all([
@@ -21,9 +26,10 @@ async function paymentDetail(db:SupabaseClient,supplierId:string,paymentId:strin
   db.rpc('supplier_reserved_amount',{p_key:sourceKey}),
  ]);
  for(const result of [payment,scope,openingSignature,reservations])if(result.error)throw result.error;
- if(!payment.data)throw new OperationError('Este pago ya no está disponible.',404);
- const {amount,currency,created_at,cash_transaction_id,signature,allocations}=payment.data;
- const documentIds=(allocations as Array<{purchase_id:string;amount:number|string}>).map(a=>a.purchase_id);
+ const current=payment.data as PaymentApplicationRow|null;
+ if(!current)throw new OperationError('Este pago ya no está disponible.',404);
+ const {amount,currency,created_at,cash_transaction_id,signature,allocations}=current;
+ const documentIds=allocations.map(a=>a.purchase_id);
  const [movement,documents,opening]=await Promise.all([
   cash_transaction_id?db.from('cash_transactions').select('id,type,movement_code,concept,notes,financial_accounts(name)')
    .eq('id',cash_transaction_id).maybeSingle():Promise.resolve({data:null,error:null}),
@@ -44,7 +50,7 @@ async function paymentDetail(db:SupabaseClient,supplierId:string,paymentId:strin
   concept:movement.data?.concept,
   notes:scope.data?.reference && scope.data.reference!=='Pago'?scope.data.reference:movement.data?.notes,
   account:(Array.isArray(account)?account[0]:account)?.name,
-  documents:(allocations as Array<{purchase_id:string;amount:number|string}>).map(a=>({...a,reference:names.get(a.purchase_id)||'Documento de compra'})),
+  documents:allocations.map(a=>({...a,reference:names.get(a.purchase_id)||'Documento de compra'})),
   opening:opening.map(a=>({...a,reference:partNames.get(a.target_key)||'Partida de apertura'})),
   openingSignature:openingSignature.data,reserved:Number(reservations.data||0),
  };

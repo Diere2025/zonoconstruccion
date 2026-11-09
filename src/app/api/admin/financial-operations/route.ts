@@ -66,10 +66,11 @@ export async function GET(request: Request) {
       const snapshot = result.data;
       snapshot.applications=(await movementApplications(db,[snapshot.transaction])).get(id)||[];
       if(snapshot.payload.operation_type==='supplier_payment'){
-        snapshot.supplierPaymentApplications=await supplierPaymentApplicationSummary(db,id,snapshot.applications);
+        const summary=await supplierPaymentApplicationSummary(db,id,snapshot.applications);
+        snapshot.supplierPaymentApplications=summary;
         // Legacy payments may reference their document directly rather than via an allocation row.
-        if(!snapshot.payload.allocations?.length && snapshot.supplierPaymentApplications?.documents.length){
-          snapshot.payload.allocations=snapshot.supplierPaymentApplications.documents.map(doc=>({
+        if(!snapshot.payload.allocations?.length && summary?.documents.length){
+          snapshot.payload.allocations=summary.documents.map(doc=>({
             purchase_id:doc.id,amount:String(doc.amount),
           }));
         }
