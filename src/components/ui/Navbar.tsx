@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { ShoppingCart, Menu, X, Phone } from "lucide-react";
 import { useCartStore } from "@/store/useCartStore";
+import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "./Button";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +15,7 @@ export function Navbar() {
 
   return (
     <header className="fixed w-full top-0 z-50 glass">
-      <div className="container mx-auto px-6 h-20 flex justify-between items-center relative">
+      <div className="container mx-auto px-3 sm:px-6 h-20 flex justify-between items-center relative">
         {/* Logo */}
         <Link 
           href="/" 
@@ -31,14 +32,15 @@ export function Navbar() {
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center space-x-10 font-bold text-slate-600">
+        <nav className="hidden xl:flex absolute left-1/2 -translate-x-1/2 items-center space-x-10 font-bold text-slate-600">
           <Link href="/#productos" className="hover:text-brand-600 transition-colors">Catálogo</Link>
           <Link href="/#nosotros" className="hover:text-brand-600 transition-colors">Nosotros</Link>
           <Link href="/#contacto" className="hover:text-brand-600 transition-colors">Ubicación</Link>
         </nav>
 
         {/* Actions */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <ThemeToggle />
           <Button variant="ghost" size="icon" className="relative" onClick={() => setCartOpen(true)}>
             <ShoppingCart className="w-6 h-6 text-slate-700" />
             {totalItems > 0 && (
@@ -48,7 +50,7 @@ export function Navbar() {
             )}
           </Button>
           
-          <a href="https://wa.me/5491157694181?text=Hola!%20Te%20contacto%20desde%20la%20p%C3%A1gina%20web%20de%20ZonoHome%20y%20me%20gustar%C3%ADa%20recibir%20asesoramiento." target="_blank" className="hidden lg:block">
+          <a href="https://wa.me/5491157694181?text=Hola!%20Te%20contacto%20desde%20la%20p%C3%A1gina%20web%20de%20ZonoHome%20y%20me%20gustar%C3%ADa%20recibir%20asesoramiento." target="_blank" className="hidden 2xl:block">
             <Button variant="success" className="w-full gap-2 rounded-full">
               <Phone className="w-4 h-4 text-white" />
               <span className="text-white">WhatsApp</span>
@@ -57,7 +59,7 @@ export function Navbar() {
 
           {/* Mobile Toggle */}
           <button 
-            className="md:hidden text-slate-700 hover:text-brand-600 focus:outline-none"
+            className="xl:hidden text-slate-700 hover:text-brand-600 focus:outline-none"
             onClick={() => setIsOpen(!isOpen)}
           >
             {isOpen ? <X className="w-8 h-8" /> : <Menu className="w-8 h-8" />}
@@ -67,7 +69,7 @@ export function Navbar() {
 
       {/* Mobile Menu */}
       {isOpen && (
-        <div className="md:hidden bg-white border-t border-slate-100 absolute w-full shadow-2xl animate-in slide-in-from-top duration-300">
+        <div className="xl:hidden bg-white border-t border-slate-100 absolute w-full shadow-2xl animate-in slide-in-from-top duration-300">
           <div className="flex flex-col px-6 py-8 space-y-6 font-bold text-lg">
             <Link href="/#productos" onClick={() => setIsOpen(false)} className="text-slate-700 hover:text-brand-600">Catálogo</Link>
             <Link href="/#nosotros" onClick={() => setIsOpen(false)} className="text-slate-700 hover:text-brand-600">Nosotros</Link>

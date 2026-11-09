@@ -7,6 +7,7 @@ import { LogOut, Users, Menu, X, ChevronRight, Shield, KeyRound, Eye, EyeOff, Ch
 import { visibleErpModules, activeErpLink, configuredScreenDecision } from "@/lib/erpNavigation";
 import { presentErpModules, logisticsGroup } from "@/lib/erpNavigationPresentation";
 import { useRoleScreenAccess } from '@/lib/useRoleScreenAccess';
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { KeyboardShortcuts } from "@/components/ui/KeyboardShortcuts";
 import { ErpNavigationContext } from "@/components/ui/ErpNavigationContext";
 import { supabase, clearLocalSupabaseSession } from "@/lib/supabase";
@@ -869,7 +870,8 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <ThemeToggle />
             {!(userRoles.length === 1 && userRoles[0] === 'instalador') && <SupportNotifications />}
             {/* Live System Status Pill */}
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
