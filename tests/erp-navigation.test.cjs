@@ -8,6 +8,8 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/erpNavigation.ts'
   compilerOptions: { module: ts.ModuleKind.CommonJS }
 }).outputText, { exports: exportsValue, require, URLSearchParams });
 const { erpModules, visibleErpModules, activeErpLink } = exportsValue;
+const withdrawalsPath = fs.readFileSync('src/lib/employeeWithdrawals.ts', 'utf8')
+  .match(/export const EMPLOYEE_WITHDRAWALS_PATH = '([^']+)';/)[1];
 const identity = (roles, restrictedSeller = false, canUseWholesale = false) => ({ roles, restrictedSeller, canUseWholesale });
 const urls = modules => modules.flatMap(module => module.links.map(link => link.href));
 
@@ -57,7 +59,8 @@ test('Compras can open sheet synchronization from the menu and route guard', () 
   const guard = layout.match(/const canAccessSpecializedRoute = useCallback\(\(path: string, search: string\) => \{([\s\S]*?)\}, \[hasRole, isAdminRole\]\);/)[1];
   const compiled = ts.transpileModule(`function canAccess(path: string, search: string) {${guard}}`, {}).outputText;
   const canOpen = roles => vm.runInNewContext(`${compiled}\ncanAccess('${route}', '')`, {
-    isAdminRole: roles.includes('admin'), hasRole: role => roles.includes(role), Set, Array, URLSearchParams
+    isAdminRole: roles.includes('admin'), hasRole: role => roles.includes(role), Set, Array, URLSearchParams,
+    EMPLOYEE_WITHDRAWALS_PATH: withdrawalsPath
   });
   for (const roles of [['compras'], ['admin'], ['administracion', 'compras']]) assert.equal(canOpen(roles), true);
   for (const role of ['administracion', 'logistica', 'fletero']) assert.equal(canOpen([role]), false, role);
@@ -118,7 +121,8 @@ test('Administración can open and configure unclassified movements without acce
   const guard = layout.match(/const canAccessSpecializedRoute = useCallback\(\(path: string, search: string\) => \{([\s\S]*?)\}, \[hasRole, isAdminRole\]\);/)[1];
   const compiled = ts.transpileModule(`function canAccess(path: string, search: string) {${guard}}`, {}).outputText;
   const canOpen = (roles, destination) => vm.runInNewContext(`${compiled}\ncanAccess('${destination}', '')`, {
-    isAdminRole: roles.includes('admin'), hasRole: role => roles.includes(role), Set, Array, URLSearchParams
+    isAdminRole: roles.includes('admin'), hasRole: role => roles.includes(role), Set, Array, URLSearchParams,
+    EMPLOYEE_WITHDRAWALS_PATH: withdrawalsPath
   });
   for (const route of routes) {
     assert.ok(urls(visibleErpModules(identity(['administracion']))).includes(route));
