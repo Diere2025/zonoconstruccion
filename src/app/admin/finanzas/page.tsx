@@ -537,9 +537,9 @@ function FinanceWorkspace() {
   const [tfDate, setTfDate] = useState(treasuryToday);
 
   // Filtros del Flujo de Caja
-  const [startDate, setStartDate] = useState(() => financeDateRange('7dias').start);
-  const [endDate, setEndDate] = useState(treasuryToday);
-  const [presetRange, setPresetRange] = useState("7dias");
+  const defaultPeriod = financeDateRange('7dias');
+  const [startDate, setStartDate] = useState(defaultPeriod.start);
+  const [endDate, setEndDate] = useState(defaultPeriod.end);
   const [filterAccountId, setFilterAccountId] = useState("all");
   const [filterType, setFilterType] = useState<'all' | 'ingreso' | 'egreso'>('all');
   const [filterCategory, setFilterCategory] = useState("all");
@@ -852,12 +852,7 @@ function FinanceWorkspace() {
   // MANEJO DE ACCIONES Y ENVIOS
   // =========================================================================
 
-  const handlePresetChange = (preset: string) => {
-    setPresetRange(preset);
-    if (preset === "personalizado") return;
-
-    const { start, end } = financeDateRange(preset);
-
+  const changePeriod = (start: string, end: string) => {
     setStartDate(start);
     setEndDate(end);
     setCurrentPage(1);
@@ -1224,15 +1219,14 @@ function FinanceWorkspace() {
           {(operationsAvailable!==false||localInspection)&&<OperationEditor inline compact kind="general" readOnly={localInspection} requestOverride={localInspection?localOperationRead:undefined} onClose={()=>{}} onSaved={operationSaved} onMoreOperations={()=>setChoosingOperation(true)}/>}
           <FinanceToolbar
             search={searchTerm} onSearch={value => { setSearchTerm(value); setCurrentPage(1); }}
-            period={presetRange} onPeriod={value => { if (value === "personalizado") setPresetRange(value); else handlePresetChange(value); setCurrentPage(1); }}
             startDate={startDate} endDate={endDate}
-            onStartDate={value => { setStartDate(value); setCurrentPage(1); }} onEndDate={value => { setEndDate(value); setCurrentPage(1); }}
+            onDateRange={changePeriod} isDefaultPeriod={startDate === defaultPeriod.start && endDate === defaultPeriod.end}
             account={filterAccountId} onAccount={value => { setFilterAccountId(value); setCurrentPage(1); }} accounts={financialAccounts}
             type={filterType} onType={value => { setFilterType(value); setCurrentPage(1); }}
             category={filterCategory} onCategory={value => { setFilterCategory(value); setCurrentPage(1); }} categories={categoriesList}
             unit={filterCostCenterId} onUnit={value => { setFilterCostCenterId(value); setCurrentPage(1); }} units={costCenters}
             showCancelled={showCancelled} onShowCancelled={value => { setShowCancelled(value); setCurrentPage(1); }}
-            onClear={() => { setShowCancelled(false); setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); handlePresetChange("7dias"); setCurrentPage(1); }}
+            onClear={() => { setShowCancelled(false); setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); changePeriod(defaultPeriod.start, defaultPeriod.end); }}
             onRefresh={() => { void loadTransactions(); }} onNew={openQuickMovement} onTransfer={() => openQuickTransfer()}
             onConcepts={() => setIsConceptManagerOpen(true)} onExport={handleExportCSV} onSync={handleSyncFromSheets}
             syncing={false} disabled={(operationsAvailable===false && !localInspection) || Boolean(initDataError && financialAccounts.length === 0)}

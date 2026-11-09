@@ -1,6 +1,6 @@
 "use client";
 import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
-import StatementDateInput from "@/components/finanzas/statements/StatementDateInput";
+import ReportDateRangePicker from "@/components/ui/ReportDateRangePicker";
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowRightLeft, ChevronDown, Download, PlusCircle, RefreshCw, Search, SlidersHorizontal, Users } from "lucide-react";
@@ -12,12 +12,10 @@ export type OptionalFinanceColumn = "subcategory" | "efe" | "notes";
 interface Props {
   search: string;
   onSearch: (value: string) => void;
-  period: string;
-  onPeriod: (value: string) => void;
   startDate: string;
   endDate: string;
-  onStartDate: (value: string) => void;
-  onEndDate: (value: string) => void;
+  onDateRange: (from: string, to: string) => void;
+  isDefaultPeriod: boolean;
   account: string;
   onAccount: (value: string) => void;
   accounts: { id: string; name: string }[];
@@ -142,22 +140,16 @@ export default function FinanceToolbar(p: Props) {
           </div>
         </div>
       </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2.5">
+      <div className="mt-2.5 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-2.5">
+        <ReportDateRangePicker from={p.startDate} to={p.endDate} onChange={p.onDateRange} includeCurrentYear />
         <div className="relative min-w-44 flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
           <input aria-label="Buscar movimiento" placeholder="Buscar concepto, subcategoría, notas…" value={p.search} onChange={e => p.onSearch(e.target.value)} className={`${control} w-full pl-8`} />
         </div>
-        <AdaptiveSelect aria-label="Período" value={p.period} onChange={e => p.onPeriod(e.target.value)} className={control}>
-          <option value="hoy">Hoy</option><option value="7dias">7 días</option><option value="30dias">30 días</option><option value="mes">Este mes</option><option value="año">Este año</option><option value="personalizado">Personalizado</option>
-        </AdaptiveSelect>
-        {p.period === "personalizado" && <>
-          <label className="flex items-center gap-1 text-xs text-slate-500">Desde<StatementDateInput label="Desde" value={p.startDate} onChange={p.onStartDate} className={`${control} w-28`} /></label>
-          <label className="flex items-center gap-1 text-xs text-slate-500">Hasta<StatementDateInput label="Hasta" value={p.endDate} onChange={p.onEndDate} className={`${control} w-28`} /></label>
-        </>}
         <AdaptiveSelect aria-label="Cuenta financiera" value={p.account} onChange={e => p.onAccount(e.target.value)} className={`${control} max-w-60`}><option value="all">Todas las cuentas</option>{p.accounts.map(a => <option key={a.id} value={a.id}>{financialAccountLabel(a.name)}</option>)}</AdaptiveSelect>
         <AdaptiveSelect aria-label="Tipo de movimiento" value={p.type} onChange={e => p.onType(e.target.value as "all" | "ingreso" | "egreso")} className={control}><option value="all">Todos los tipos</option><option value="ingreso">Ingresos</option><option value="egreso">Egresos</option></AdaptiveSelect>
         <button type="button" aria-expanded={moreFilters} onClick={() => setMoreFilters(value => !value)} className={action}><SlidersHorizontal className="h-3.5 w-3.5" />Más filtros{additionalFilters > 0 && <span className="rounded bg-brand-50 px-1 text-brand-700">{additionalFilters}</span>}</button>
-        {(p.search || p.account !== "all" || p.type !== "all" || additionalFilters > 0 || p.period !== "7dias") && <button type="button" onClick={p.onClear} className="text-xs font-semibold text-brand-600 hover:underline">Limpiar filtros</button>}
+        {(p.search || p.account !== "all" || p.type !== "all" || additionalFilters > 0 || !p.isDefaultPeriod) && <button type="button" onClick={p.onClear} className="h-8 text-xs font-semibold text-brand-600 hover:underline">Limpiar filtros</button>}
         <button type="button" onClick={p.onRefresh} aria-label="Actualizar movimientos" title="Actualizar movimientos" className={action}><RefreshCw className="h-3.5 w-3.5" /></button>
       </div>
       {moreFilters && <div className="mt-2.5 flex flex-wrap gap-3 border-t border-slate-100 pt-2.5">

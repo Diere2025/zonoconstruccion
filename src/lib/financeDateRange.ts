@@ -12,6 +12,13 @@ export function financeDateRange(preset: string, now = new Date()) {
     // Include today: seven calendar days start six days before today.
     day.setUTCDate(day.getUTCDate() - (preset === '7dias' ? 6 : 29));
     start = day.toISOString().slice(0, 10);
+  } else if (preset === 'semana') {
+    day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7);
+    start = day.toISOString().slice(0, 10);
+  } else if (preset === 'mes_pasado') {
+    day.setUTCDate(0);
+    end = day.toISOString().slice(0, 10);
+    start = end.slice(0, 8) + '01';
   } else if (preset === 'mes') start = today.slice(0, 8) + '01';
   else if (preset === 'año') start = today.slice(0, 4) + '-01-01';
   return { start, end };

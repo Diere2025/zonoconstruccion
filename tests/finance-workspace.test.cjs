@@ -68,7 +68,7 @@ test('movement overflow uses measured available width and reserves space for its
   const source = fs.readFileSync('src/components/finanzas/FinanceToolbar.tsx', 'utf8');
   const exports = {};
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText, {
-    exports, require: name => name === '@/components/finanzas/statements/StatementDateInput' ? {__esModule:true,default:()=>null} : name === '@/lib/financialAccountLabels' ? { financialAccountLabel: value => value } : name==='@/components/ui/AdaptiveSelect'?{__esModule:true,default:()=>null}:require(name)
+    exports, require: name => name === '@/components/ui/ReportDateRangePicker' ? {__esModule:true,default:()=>null} : name === '@/lib/financialAccountLabels' ? { financialAccountLabel: value => value } : name==='@/components/ui/AdaptiveSelect'?{__esModule:true,default:()=>null}:require(name)
   });
   const widths = [150, 120, 160, 140, 130, 160, 140];
   for (const [available, expected] of [[900, 3], [899, 2], [880, 2], [879, 1], [742, 1], [741, 0], [300, 0]]) {
@@ -107,15 +107,24 @@ test('pending migration leaves the list visible and links to the local preview',
  assert.equal(app.writes(),0);
 });
 
-test('filters reset pagination and clear restores the default range', () => {
-  const app = workspace({ currentPage: 3, filterCategory: 'Sueldos', filterCostCenterId: 'unit' });
+test('filters reset pagination and clear restores the default range', async () => {
+  const requests = [];
+  const app = workspace({ currentPage: 3, filterCategory: 'Sueldos', filterCostCenterId: 'unit' }, '', {
+    request: async url => { requests.push(url); return {}; }
+  });
   app.toolbar().onSearch('herramientas');
   assert.equal(app.state.get('currentPage'), 1);
-  app.render(); app.toolbar().onClear();
+  app.state.set('currentPage', 3);
+  app.render(); app.toolbar().onDateRange('2026-09-03', '2026-09-09');
+  assert.equal(app.state.get('currentPage'), 1);
+  assert.match(app.markup(), /03\/09\/2026 - 09\/09\/2026/);
+  app.toolbar().onRefresh();
+  assert.match(requests[0], /startDate=2026-09-03&endDate=2026-09-09/);
+  app.toolbar().onClear(); app.render();
   assert.equal(app.state.get('searchTerm'), '');
   assert.equal(app.state.get('filterCategory'), 'all');
   assert.equal(app.state.get('filterCostCenterId'), 'all');
-  assert.equal(app.state.get('presetRange'), '30dias');
+  assert.equal(app.toolbar().isDefaultPeriod, true);
 });
 test('compact defaults show 50 rows with optional fields accessible through details', () => {
   const app = workspace();

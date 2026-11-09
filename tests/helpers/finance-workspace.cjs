@@ -49,8 +49,10 @@ function workspace(overrides = {}, query = '', environment = {}) {
   };
   const icons = require('lucide-react');
   const labels = compile(fs.readFileSync('src/lib/financialAccountLabels.ts', 'utf8'), require);
-  const dateInput = compile(fs.readFileSync('src/components/finanzas/statements/StatementDateInput.tsx','utf8'),require).default;
-  const componentImports = name => name === '@/components/finanzas/statements/StatementDateInput' ? {__esModule:true,default:dateInput} : name === 'lucide-react' ? icons : name === '@/lib/financialAccountLabels' ? labels : require(name);
+  const time = compile(fs.readFileSync('src/lib/treasuryTransactionTime.ts','utf8'),require);
+  const dateRange = compile(fs.readFileSync('src/lib/financeDateRange.ts','utf8'), () => time);
+  const rangePicker = compile(fs.readFileSync('src/components/ui/ReportDateRangePicker.tsx','utf8'), name => name === '@/lib/financeDateRange' ? dateRange : name === '@/lib/treasuryTransactionTime' ? time : require(name)).default;
+  const componentImports = name => name === '@/components/ui/ReportDateRangePicker' ? {__esModule:true,default:rangePicker} : name === 'lucide-react' ? icons : name === '@/lib/financialAccountLabels' ? labels : require(name);
   const searchableSelect = compile(fs.readFileSync('src/components/ui/SearchableSelect.tsx', 'utf8'), componentImports).default;
   const adaptiveSelect=compile(fs.readFileSync('src/components/ui/AdaptiveSelect.tsx','utf8'),name=>name==='./SearchableSelect'?{__esModule:true,default:searchableSelect}:componentImports(name)).default;
   const toolbar = compile(fs.readFileSync('src/components/finanzas/FinanceToolbar.tsx', 'utf8'), name=>name==='@/components/ui/AdaptiveSelect'?{__esModule:true,default:adaptiveSelect}:componentImports(name)).default;
@@ -61,7 +63,7 @@ function workspace(overrides = {}, query = '', environment = {}) {
     '@/components/finanzas/FinancialAccountBadge': {__esModule:true,default:()=>null},
     '@/components/finanzas/operations/CollectionOrderLinkModal': {__esModule:true,default:()=>null},
     '@/lib/financialOperations/references': compile(fs.readFileSync('src/lib/financialOperations/references.ts','utf8'),require),
-    '@/lib/financeDateRange': compile(fs.readFileSync('src/lib/financeDateRange.ts','utf8'), name => compile(fs.readFileSync('src/lib/treasuryTransactionTime.ts','utf8'),require)),
+    '@/lib/financeDateRange': dateRange,
     'next/navigation': { useSearchParams: () => new URLSearchParams(query), useRouter: () => ({ push() {}, replace() {} }) },
     '@/lib/treasuryTransactionTime': { treasuryToday: () => '2026-09-28', treasuryDateTime: value => `${value}T12:00:00-03:00` },
     '@/lib/supabase': { supabase: { from: () => { writes++; throw new Error('Unexpected database call in UI check'); } } },
