@@ -44,12 +44,15 @@ export function applySettlementTerms(plans: Row[], terms: Row[], fees: Row[] = [
   const state = p.paymentState || {}, expected = Number(term.net_amount), paid = state.paidAmount ?? 0;
   const acceptance=term.difference_acceptance;
   const difference=Math.round((paid-expected)*100)/100;
-  const differenceAccepted=!!acceptance&&Number(acceptance.version)<=Number(term.version)&&Number(paid)>=Number(acceptance.paidAmount)&&expected>=Number(acceptance.netAmount)&&Number(acceptance.difference)<0&&Math.abs(Number(acceptance.difference))<=500;
-  const acceptedCredit=differenceAccepted?-Number(acceptance.difference):0;
+  const acceptedShortfall=!!acceptance&&Number(acceptance.version)<=Number(term.version)&&Number(paid)>=Number(acceptance.paidAmount)&&expected>=Number(acceptance.netAmount)&&Number(acceptance.difference)<0&&Math.abs(Number(acceptance.difference))<=500;
+  const acceptedExcess=!!acceptance&&Number(acceptance.version)===Number(term.version)&&Number(paid)===Number(acceptance.paidAmount)&&expected===Number(acceptance.netAmount)&&difference>0&&difference<=500&&difference===Number(acceptance.difference);
+  const differenceAccepted=acceptedShortfall||acceptedExcess;
+  const acceptedCredit=acceptedShortfall?-Number(acceptance.difference):0;
   const effectiveDifference=Math.round((paid+acceptedCredit-expected)*100)/100;
   const minorDifference=paid>0&&effectiveDifference!==0&&Math.abs(effectiveDifference)<100?effectiveDifference:differenceAccepted&&effectiveDifference===0?Number(acceptance.difference):null;
   const remaining = minorDifference!==null?0:Math.max(0, -effectiveDifference), settled = remaining === 0;
-  return {...p,settlementTerms:term,paymentState:{...state,expectedAmount:expected,remainingAmount:remaining,minorDifference,differenceAccepted,acceptedDifferenceAmount:acceptedCredit,overpaidAmount:Math.max(0,effectiveDifference),state:state.state === 'needs_review'?'needs_review':settled?'paid':paid>0?'partial':'unpaid',liquidated:p.status==='completed'&&settled&&state.state!=='needs_review'}};
+  const needsReview=state.state==='needs_review'||effectiveDifference>=100&&!acceptedExcess;
+  return {...p,settlementTerms:term,paymentState:{...state,expectedAmount:expected,remainingAmount:remaining,minorDifference,differenceAccepted,acceptedDifferenceAmount:acceptedCredit,overpaidAmount:minorDifference!==null||acceptedExcess?0:Math.max(0,effectiveDifference),state:needsReview?'needs_review':settled?'paid':paid>0?'partial':'unpaid',liquidated:p.status==='completed'&&settled&&!needsReview}};
  });
  return adjusted.map(p=>{
   const extras=p.actual?.extras||[],term=terms.find(t=>t.dispatch_id===p.dispatch_id),fee=fees.find(f=>(f.dispatchId||f.dispatch_id)===p.dispatch_id);
@@ -57,8 +60,11 @@ export function applySettlementTerms(plans: Row[], terms: Row[], fees: Row[] = [
   const same=(a:Row,b:Row)=>a.id===b.id&&Number(a.amount)===Number(b.amount)&&a.label===b.label&&a.reference===b.reference;
   const pending=extras.filter((e:Row)=>!approved.some((a:Row)=>same(a,e)));
   const changed=approved.some((a:Row)=>!extras.some((e:Row)=>same(a,e)));
-  const review=p.status==='completed'&&(pending.length>0||changed);
+  const review=['in_progress','completed'].includes(p.status)&&(pending.length>0||changed);
+  const settlementNeedsReview=p.status==='completed'&&(term?term.provisional===true:(fee?.provisional??fee?.fee?.provisional)===true);
+  const serviceCostConfirmed=!!term||!!fee;
+  const costNeedsReview=['in_progress','completed'].includes(p.status)&&!serviceCostConfirmed;
   const extraChargesDelta=extras.reduce((n:number,e:Row)=>n+Number(e.amount),0)-approved.reduce((n:number,e:Row)=>n+Number(e.amount),0);
-  return {...p,extraChargesPending:pending,extraChargesDelta,extrasNeedReview:review,paymentState:review?{...p.paymentState,state:'needs_review',liquidated:false}:p.paymentState};
+  return {...p,serviceCostConfirmed,extraChargesPending:pending,extraChargesDelta,extrasNeedReview:review,settlementNeedsReview,paymentState:costNeedsReview?{...p.paymentState,state:'needs_review',liquidated:false,remainingAmount:null}:review||settlementNeedsReview?{...p.paymentState,state:'needs_review',liquidated:false}:p.paymentState};
  });
 }

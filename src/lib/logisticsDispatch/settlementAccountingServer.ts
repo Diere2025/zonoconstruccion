@@ -31,7 +31,7 @@ export async function dispatchCostTerms(db:any,ids:string[]):Promise<Row[]>{
   const extras=plans.find(p=>p.dispatch_id===id)?.actual?.extras||[];
   const snapshot=term?.extra_snapshot??(fee?.fee?.additions||[]).filter((a:Row)=>a.extraId).map((a:Row)=>({...a,id:a.extraId}));
   const same=(a:Row,b:Row)=>a.id===b.id&&Number(a.amount)===Number(b.amount)&&a.label===b.label&&a.reference===b.reference;
-  const pending=extras.length!==snapshot.length||extras.some((e:Row)=>!snapshot.some((s:Row)=>same(e,s)));
+  const pending=term?.provisional===true||(!term&&fee?.fee?.provisional===true)||extras.length!==snapshot.length||extras.some((e:Row)=>!snapshot.some((s:Row)=>same(e,s)));
   return [{...(term||{dispatch_id:id,gross_amount:Number(fee!.total),deductions:[]}),cost_pending:pending}];
  });
 }
