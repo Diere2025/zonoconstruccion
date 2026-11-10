@@ -68,12 +68,34 @@ test('movement overflow uses measured available width and reserves space for its
   const source = fs.readFileSync('src/components/finanzas/FinanceToolbar.tsx', 'utf8');
   const exports = {};
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText, {
-    exports, require: name => name === '@/components/ui/ReportDateRangePicker' ? {__esModule:true,default:()=>null} : name === '@/lib/financialAccountLabels' ? { financialAccountLabel: value => value } : name==='@/components/ui/AdaptiveSelect'?{__esModule:true,default:()=>null}:require(name)
+    exports, require: name => name.startsWith('@/components/ui/') ? {__esModule:true,default:()=>null} : name === '@/lib/financialAccountLabels' ? { financialAccountLabel: value => value } : require(name)
   });
   const widths = [150, 120, 160, 140, 130, 160, 140];
   for (const [available, expected] of [[900, 3], [899, 2], [880, 2], [879, 1], [742, 1], [741, 0], [300, 0]]) {
     assert.equal(exports.visibleMovementCount(available, widths), expected);
   }
+});
+
+test('Excel includes every matching row for the selected accounts and refuses a stale date range', async () => {
+  const { transactions } = require('./helpers/finance-workspace.cjs');
+  const cashAndBank = transactions.map((tx, i) => ({ ...tx, financial_account_id: i % 2 ? 'cash' : 'bank' }));
+  const excluded = { ...transactions[0], id: 'other-account', financial_account_id: 'usd' };
+  let exported;
+  const app = workspace({
+    transactions: [...cashAndBank, excluded],
+    loadedPeriod: '2026-08-29/2026-09-28',
+    currentPage: 2,
+  }, '', { downloadExcel: async rows => { exported = rows; } });
+
+  app.toolbar().onAccounts(['cash', 'bank']);
+  app.render();
+  assert.equal(app.state.get('currentPage'), 1);
+  await app.toolbar().onExportExcel();
+  assert.deepEqual(Array.from(exported, row => row.id), cashAndBank.map(row => row.id));
+
+  app.toolbar().onDateRange('2026-09-01', '2026-09-28');
+  app.render();
+  assert.equal(app.toolbar().exportDisabled, true);
 });
 
 test('daily shortcuts open dedicated editors without direct database writes', () => {
