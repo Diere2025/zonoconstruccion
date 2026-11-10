@@ -5,7 +5,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getMPPaymentDayBounds } from '@/lib/mpPaymentDate';
 import { loadMonthlyAccountIncome } from '@/lib/mpAccountIncomeServer';
+import { nextAliasDay, suggestDailyAliases } from '@/lib/mpDailyAliases';
 import { getMPOrderLinkWarnings } from '@/lib/mpOrderLinkWarnings';
+import { treasuryToday } from '@/lib/treasuryTransactionTime';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -14,7 +16,7 @@ const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 type PaymentRole = 'seller' | 'admin' | 'administracion' | 'logistica' | 'fletero';
 
-async function getPaymentRole(request: Request): Promise<PaymentRole | null> {
+async function getPaymentAccess(request: Request) {
   const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token) return null;
 
@@ -23,24 +25,28 @@ async function getPaymentRole(request: Request): Promise<PaymentRole | null> {
 
   const { data: seller, error: sellerError } = await supabaseAdmin
     .from('sellers')
-    .select('role, roles')
+    .select('role, roles, is_active')
     .eq('id', user.id)
     .maybeSingle();
   if (sellerError) return null;
 
   const roles = new Set([seller?.role, ...(Array.isArray(seller?.roles) ? seller.roles : [])]);
-  if (roles.has('admin') || ['diego.boveda@gmail.com', 'caroibarra.93@gmail.com'].includes((user.email || '').toLowerCase())) return 'admin';
-  if (roles.has('administracion')) return 'administracion';
-  if (roles.has('logistica')) return 'logistica';
-  if (roles.has('fletero')) return 'fletero';
-  if (roles.has('seller')) return 'seller';
-  return null;
+  const email = (user.email || '').toLowerCase();
+  const isAdmin = roles.has('admin') || ['diego.boveda@gmail.com', 'caroibarra.93@gmail.com'].includes(email);
+  const role: PaymentRole | undefined = isAdmin ? 'admin' : (['administracion', 'logistica', 'fletero', 'seller'] as const)
+    .find(role => roles.has(role));
+  if (!role) return null;
+  const canPlan = (role === 'admin' && seller?.is_active !== false)
+    || (roles.has('administracion') && seller?.is_active === true && email === 'lauraguerra@zono.com.ar');
+  const canReadAliases = canPlan || (roles.has('logistica') && seller?.is_active === true);
+  return { role, userId: user.id, canPlan, canReadAliases };
 }
 
 export async function GET(request: Request) {
   try {
-    const userRole = await getPaymentRole(request);
-    if (!userRole) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
+    const access = await getPaymentAccess(request);
+    if (!access) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
+    const { role: userRole, canPlan, canReadAliases } = access;
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action') || 'list';
     if (userRole === 'seller' && !['list', 'accounts', 'search-orders'].includes(action)) {
@@ -163,9 +169,8 @@ export async function GET(request: Request) {
       const rangeStart=dateRange==='CUSTOM_RANGE'?getMPPaymentDayBounds(searchParams.get('from')||''):null;
       const rangeEnd=dateRange==='CUSTOM_RANGE'?getMPPaymentDayBounds(searchParams.get('to')||''):null;
       if(dateRange==='CUSTOM_RANGE'&&(!rangeStart||!rangeEnd||rangeStart.startIso>rangeEnd.startIso))return NextResponse.json({error:'Rango de fechas inválido.'},{status:400});
-      const today=argNow.toISOString().slice(0,10);
       // Monthly projection uses the current Argentina month, independently of list filters.
-      const asOf = today;
+      const asOf = treasuryToday(now);
       const todayBounds = getArgDayBounds(0);
       const yesterdayBounds = getArgDayBounds(-1);
       const threeDaysBounds = getArgDayBounds(-2);
@@ -299,18 +304,30 @@ export async function GET(request: Request) {
         return { totalCount, totalAmount, ...(userRole==='admin'?{accounts:[...byAccount.values()]}:{}) };
       })() : Promise.resolve(null);
 
-      const [{ data, error }, filteredStats, monthlyIncome] = await Promise.all([
+      const tomorrow = nextAliasDay(asOf);
+      const [{ data, error }, filteredStats, monthlyIncome, aliasRows] = await Promise.all([
         query.limit(300),
         filteredStatsPromise,
-        userRole==='admin'?loadMonthlyAccountIncome(supabaseAdmin,asOf):Promise.resolve(null)
+        userRole === 'admin' || canPlan ? loadMonthlyAccountIncome(supabaseAdmin, asOf) : null,
+        canReadAliases ? supabaseAdmin.from('mp_daily_aliases').select('collection_date, aliases')
+          .in('collection_date', [asOf, tomorrow]) : null,
       ]);
       if (error) throw error;
+      if (aliasRows?.error) console.error('[Alias diarios MP]', aliasRows.error.code);
 
       return NextResponse.json({
         success: true,
         data: data || [],
         filteredStats,
-        accountIncome: userRole==='admin'?(monthlyIncome||[]).map(account=>({...account,periodAmount:filteredStats?.accounts?.find(row=>row.id===account.id)?.periodAmount||0})):undefined,
+        accountIncome: monthlyIncome?.map(account => ({
+          ...account, periodAmount: filteredStats?.accounts?.find(row => row.id === account.id)?.periodAmount || 0,
+        })),
+        dailyAliases: aliasRows ? (aliasRows.error ? null : {
+          today: asOf,
+          tomorrow,
+          published: aliasRows.data.map(row => ({ date: row.collection_date, aliases: row.aliases })),
+          plan: canPlan && monthlyIncome ? suggestDailyAliases(monthlyIncome, asOf) : undefined,
+        }) : undefined,
         effectiveRole: userRole,
         effectiveRange: dateRange
       });
@@ -325,11 +342,44 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const userRole = await getPaymentRole(request);
-    if (!userRole) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
+    const access = await getPaymentAccess(request);
+    if (!access) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
+    const { role: userRole, canPlan, userId } = access;
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
     const body = await request.json().catch(() => ({}));
+
+    if (action === 'publish-daily-aliases') {
+      if (!canPlan) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
+      const today = treasuryToday();
+      const tomorrow = nextAliasDay(today);
+      if (body?.date !== tomorrow || !Array.isArray(body.aliases) || body.aliases.length !== 2) {
+        return NextResponse.json({ error: 'Actualizá la sugerencia para mañana.' }, { status: 409 });
+      }
+      const { data: published, error: readError } = await supabaseAdmin.from('mp_daily_aliases')
+        .select('aliases').eq('collection_date', tomorrow).maybeSingle();
+      if (readError) throw readError;
+      if (published) {
+        if (published.aliases[0] === body.aliases[0] && published.aliases[1] === body.aliases[1]) {
+          return NextResponse.json({ success: true });
+        }
+        return NextResponse.json({ error: 'Ya hay dos alias publicados para mañana.' }, { status: 409 });
+      }
+      const accounts = await loadMonthlyAccountIncome(supabaseAdmin, today);
+      const plan = suggestDailyAliases(accounts, today);
+      const aliases = plan.aliases.map(item => item.alias);
+      if (today !== treasuryToday() || aliases.length !== 2 || aliases.some((alias, index) => alias !== body.aliases[index])) {
+        return NextResponse.json({ error: 'La sugerencia cambió con los últimos cobros. Revisá los alias actualizados.' }, { status: 409 });
+      }
+      const { error } = await supabaseAdmin.from('mp_daily_aliases')
+        .insert({ collection_date: tomorrow, aliases, published_by: userId });
+      if (error?.code === '23505') {
+        return NextResponse.json({ error: 'Ya hay dos alias publicados para mañana.' }, { status: 409 });
+      }
+      if (error) throw error;
+      return NextResponse.json({ success: true });
+    }
+
     body.userRole = userRole;
     if (userRole === 'seller') {
       if (!['link-order', 'unlink-order'].includes(action || '')) {

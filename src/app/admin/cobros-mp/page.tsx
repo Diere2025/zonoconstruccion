@@ -6,6 +6,8 @@ import { isMPPaymentOnDay } from '@/lib/mpPaymentDate';
 import ReportDateRangePicker from '@/components/ui/ReportDateRangePicker';
 import type {AccountIncome} from '@/lib/mpAccountIncome';
 import MPAccountProjection from '@/components/MPAccountProjection';
+import MPDailyAliases from '@/components/payments/MPDailyAliases';
+import type { AliasPlan, DailyAliases } from '@/lib/mpDailyAliases';
 import MPRefreshButton from '@/components/payments/MPRefreshButton';
 import {
   ShieldCheck,
@@ -211,6 +213,7 @@ export default function CobrosMercadoPagoPage() {
   const [dateFrom,setDateFrom]=useState(()=>new Date(Date.now()-3*3600000).toISOString().slice(0,10));
   const [dateTo,setDateTo]=useState(()=>new Date(Date.now()-3*3600000).toISOString().slice(0,10));
   const [accountIncome,setAccountIncome]=useState<AccountIncome[]>([]);
+  const [dailyAliases, setDailyAliases] = useState<DailyAliases | null>();
   const paymentsRequestRef = useRef(0);
   const [showHidden, setShowHidden] = useState(false);
   const [hideInternal, setHideInternal] = useState<boolean>(() => {
@@ -894,12 +897,17 @@ export default function CobrosMercadoPagoPage() {
       if (data.success && requestId === paymentsRequestRef.current) {
         setPayments(data.data || []);
         setStats(data.filteredStats || null);
-        setAccountIncome(data.effectiveRole==='admin'?data.accountIncome||[]:[]);
+        setAccountIncome(data.accountIncome || []);
+        setDailyAliases(data.dailyAliases);
       } else if (requestId === paymentsRequestRef.current) {
         setStats(null);setAccountIncome([]);
+        setDailyAliases(undefined);
       }
     } catch (e) {
-      if (requestId === paymentsRequestRef.current) {setStats(null);setAccountIncome([]);}
+      if (requestId === paymentsRequestRef.current) {
+        setStats(null);setAccountIncome([]);
+        setDailyAliases(undefined);
+      }
       console.error('Error loading MP payments:', e);
     } finally {
       if (requestId === paymentsRequestRef.current) setIsLoading(false);
@@ -908,6 +916,19 @@ export default function CobrosMercadoPagoPage() {
 
   const loadPaymentsRef = useRef(loadPayments);
   useEffect(() => { loadPaymentsRef.current = loadPayments; }, [loadPayments]);
+
+  async function publishDailyAliases(plan: AliasPlan) {
+    const response = await fetchCobrosData('/api/admin/cobros-mp-data?action=publish-daily-aliases', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: plan.date, aliases: plan.aliases.map(item => item.alias) }),
+    });
+    const result = await response.json();
+    await loadPaymentsRef.current();
+    if (!response.ok || !result.success) {
+      throw new Error(response.status === 409 ? result.error : 'No se pudieron publicar los alias.');
+    }
+  }
 
   useEffect(() => {
     loadAccounts();
@@ -1715,7 +1736,8 @@ export default function CobrosMercadoPagoPage() {
           </div>
         )}
 
-        {currentUserRole === 'admin' && accountIncome.length > 0 && <MPAccountProjection accounts={accountIncome.filter(a => selectedAccountId === 'ALL' || a.id === selectedAccountId)} />}
+        {dailyAliases !== undefined && <MPDailyAliases data={dailyAliases} onPublish={publishDailyAliases} />}
+        {accountIncome.length > 0 && <MPAccountProjection accounts={accountIncome.filter(a => selectedAccountId === 'ALL' || a.id === selectedAccountId)} />}
         {/* Filters and Controls (Hidden for Transportistas) */}
         {!isFleteroRole && (
           <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4">

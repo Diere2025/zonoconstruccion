@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 const administratorEmails = new Set(['diego.boveda@gmail.com', 'caroibarra.93@gmail.com']);
 
 /** Validate the session and consult server-owned roles before accessing management reports. */
-export async function requireFinanceAdmin(request: Request) {
+export async function requireFinanceAdmin(request: Request, scope: 'management' | 'supplier-accounts' = 'management') {
   const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token) return { status: 401, error: 'La sesión venció. Volvé a ingresar.' };
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -22,9 +22,15 @@ export async function requireFinanceAdmin(request: Request) {
   if (byId.error || seller.error) return { status: 503, error: 'No se pudo verificar el acceso a Dirección General.' };
   const roles = [seller.data?.role, ...(Array.isArray(seller.data?.roles) ? seller.data.roles : [])]
     .map(value => String(value || '').trim().toLowerCase());
+  const email = (user.email || '').toLowerCase();
+  if (scope === 'supplier-accounts' && byId.data?.is_active === true
+    && roles.includes('administracion') && email === 'lauraguerra@zono.com.ar') return null;
   const allowed = seller.data?.is_active !== false && (roles.includes('admin')
-    || administratorEmails.has((user.email || '').toLowerCase())
+    || administratorEmails.has(email)
     || user.app_metadata?.role === 'admin');
-  if (!allowed) return { status: 403, error: 'Estado de Resultados está disponible solo para administradores.' };
+  if (!allowed) return {
+    status: 403,
+    error: scope === 'supplier-accounts' ? 'No tenés acceso a CC Proveedores.' : 'Estado de Resultados está disponible solo para administradores.',
+  };
   return null;
 }

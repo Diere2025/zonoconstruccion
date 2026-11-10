@@ -1,11 +1,12 @@
 'use client';
 
 import { ChevronDown, TrendingUp } from 'lucide-react';
-import type { AccountIncome } from '@/lib/mpAccountIncome';
+import { projectIncomeThresholdDate, type AccountIncome } from '@/lib/mpAccountIncome';
+import { MP_ALIAS_LIMITS } from '@/lib/mpDailyAliases';
 
 const money = (amount: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(amount);
 const dateLabel = (date: string) => date.split('-').reverse().join('/');
-const position = (amount: number) => Math.max(0, Math.min(100, amount / 50000000 * 100));
+const millions = (amount: number) => '$' + (amount / 1_000_000) + 'M';
 
 export default function MPAccountProjection({ accounts }: { accounts: AccountIncome[] }) {
   return (
@@ -23,25 +24,34 @@ export default function MPAccountProjection({ accounts }: { accounts: AccountInc
         <div className="grid gap-4 lg:grid-cols-3">
           {accounts.map(account => {
             const projected = account.dailyAverage * Number(account.monthEnd.slice(8, 10));
-            const status = account.monthAmount >= 50000000 ? 'Límite alcanzado' : account.monthAmount >= 40000000 ? 'Meta alcanzada' : projected >= 50000000 ? 'Se proyecta superar el límite' : projected >= 40000000 ? 'Se proyecta alcanzar la meta' : 'Por debajo de la meta';
-            const color = account.monthAmount >= 50000000 || projected >= 50000000 ? 'bg-red-500' : account.monthAmount >= 40000000 ? 'bg-amber-500' : 'bg-blue-600';
-            const targetDate = (date: string | null, target: number) => account.monthAmount >= target ? 'Alcanzado' : !date ? 'Sin ingresos' : date > account.monthEnd ? 'No alcanza este mes' : dateLabel(date);
+            const policy = MP_ALIAS_LIMITS.find(item => item.id === account.id);
+            const limit = policy?.limit ?? 40_000_000;
+            const overflow = policy ? policy.overflowLimit : 50_000_000;
+            const thresholds = [{ label: (policy ? 'Tope ' : 'Meta ') + millions(limit), amount: limit }];
+            if (overflow) thresholds.push({ label: (policy ? 'Tope excepcional ' : 'Límite ') + millions(overflow), amount: overflow });
+            const maximum = Math.max(overflow ?? limit, projected, account.monthAmount);
+            const position = (amount: number) => Math.max(0, amount / maximum * 100) + '%';
+            const status = account.monthAmount >= limit ? 'Tope habitual alcanzado'
+              : projected >= limit ? 'Se proyecta alcanzar el tope habitual' : 'Por debajo del tope habitual';
+            const color = projected >= (overflow ?? limit) ? 'bg-red-500' : account.monthAmount >= limit ? 'bg-amber-500' : 'bg-blue-600';
+            const targetDate = (target: number) => {
+              const date = projectIncomeThresholdDate(account, target);
+              return account.monthAmount >= target ? 'Alcanzado' : !date ? 'Sin ingresos' : date > account.monthEnd ? 'No alcanza este mes' : dateLabel(date);
+            };
             return (
               <article key={account.id} className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
                 <h3 className="break-words text-sm font-bold text-[#001538]">{account.name}</h3>
                 <p className="mt-1 text-xs text-slate-500">Acumulado del mes · Corte {dateLabel(account.asOf)}</p>
                 <p className="mt-1 text-xl font-bold text-[#001538]">{money(account.monthAmount)}</p>
                 <p className="mt-2 text-xs font-medium text-slate-600">{status}</p>
-                <div className="relative mt-4 h-4 rounded-full bg-slate-200" role="img" aria-label={'Acumulado ' + money(account.monthAmount) + ', proyectado al cierre ' + money(projected) + ', meta 40 millones y límite 50 millones'}>
-                  <div className="absolute inset-y-0 left-0 rounded-full bg-blue-200" style={{ width: position(projected) + '%' }} />
-                  <div className={'absolute inset-y-0 left-0 rounded-full ' + color} style={{ width: position(account.monthAmount) + '%' }} />
-                  <span className="absolute -top-1 bottom-[-4px] left-[80%] border-l-2 border-amber-600" />
-                  <span className="absolute -top-1 bottom-[-4px] right-0 border-l-2 border-red-600" />
+                <div className="relative mt-4 h-4 rounded-full bg-slate-200" role="img" aria-label={['Acumulado ' + money(account.monthAmount), 'proyectado al cierre ' + money(projected), ...thresholds.map(item => item.label)].join(', ')}>
+                  <div className="absolute inset-y-0 left-0 rounded-full bg-blue-200" style={{ width: position(projected) }} />
+                  <div className={'absolute inset-y-0 left-0 rounded-full ' + color} style={{ width: position(account.monthAmount) }} />
+                  {thresholds.map(({ amount }, index) => <span key={amount} className={'absolute -top-1 bottom-[-4px] -translate-x-full border-l-2 ' + (index === 0 && overflow ? 'border-amber-600' : 'border-red-600')} style={{ left: position(amount) }} />)}
                 </div>
-                <div className="relative mt-2 h-4 text-[10px] text-slate-500"><span>0</span><span className="absolute left-[80%] -translate-x-full text-amber-700">Meta $40M</span><span className="absolute right-0 text-red-700">$50M</span></div>
                 <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-slate-600"><span className="flex items-center gap-1"><i className={'h-2 w-2 rounded-full ' + color} />Acumulado</span><span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-blue-200" />Estimado al cierre</span></div>
                 <dl className="mt-4 space-y-2 border-t border-slate-200 pt-3 text-xs">
-                  {[['Estimado al cierre', money(projected)], ['Promedio diario', money(account.dailyAverage)], ['Meta $40M', targetDate(account.date40, 40000000)], ['Límite $50M', targetDate(account.date50, 50000000)]].map(([label, value]) => <div key={label} className="flex flex-wrap justify-between gap-1"><dt className="text-slate-500">{label}</dt><dd className="font-semibold text-slate-700">{value}</dd></div>)}
+                  {[['Estimado al cierre', money(projected)], ['Promedio diario', money(account.dailyAverage)], ...thresholds.map(item => [item.label, targetDate(item.amount)])].map(([label, value]) => <div key={label} className="flex flex-wrap justify-between gap-1"><dt className="text-slate-500">{label}</dt><dd className="font-semibold text-slate-700">{value}</dd></div>)}
                 </dl>
               </article>
             );

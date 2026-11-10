@@ -19,7 +19,7 @@ function guard({ user = { id: 'u1', email: 'operator@example.test' }, seller = n
     exports, process: { env: { NEXT_PUBLIC_SUPABASE_URL: 'https://example.test', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'service' } },
     require: () => ({ createClient: (_url, key) => key === 'anon' ? { auth: { getUser: async () => ({ data: { user }, error: null }) } } : db })
   });
-  return { check: headers => exports.requireFinanceAdmin({ headers: new Headers(headers) }), reads: () => reads };
+  return { check: (headers, scope) => exports.requireFinanceAdmin({ headers: new Headers(headers) }, scope), reads: () => reads };
 }
 
 test('missing and expired sessions cannot read management reports', async () => {
@@ -31,6 +31,17 @@ test('missing and expired sessions cannot read management reports', async () => 
 test('administration and self-declared metadata cannot grant access to EERR', async () => {
   const api = guard({ user: { id: 'u1', email: 'admin-operator@example.test', user_metadata: { role: 'admin', roles: ['admin'] } }, seller: { role: 'administracion', roles: ['seller'], is_active: true } });
   assert.equal((await api.check({ authorization: 'Bearer valid' })).status, 403);
+});
+test('Laura can access supplier accounts only while her Administration profile is active', async () => {
+  const user = { id: 'laura', email: 'lauraguerra@zono.com.ar' };
+  const seller = { role: 'administracion', is_active: true };
+  const headers = { authorization: 'Bearer valid' };
+  const laura = guard({ user, seller });
+  assert.equal(await laura.check(headers, 'supplier-accounts'), null);
+  assert.equal((await laura.check(headers)).status, 403);
+  assert.equal((await guard({ seller }).check(headers, 'supplier-accounts')).status, 403);
+  assert.equal((await guard({ user, seller: { ...seller, is_active: false } }).check(headers, 'supplier-accounts')).status, 403);
+  assert.equal((await guard({ user, seller: { ...seller, role: 'seller' } }).check(headers, 'supplier-accounts')).status, 403);
 });
 test('database administrator roles and configured administrators are allowed', async () => {
   for (const seller of [{ role: 'admin', is_active: true }, { role: 'administracion', roles: ['admin'], is_active: true }]) {

@@ -32,7 +32,7 @@ async function callList(role, date, options = {}) {
   const queries = [];
   const incomeDates = [];
   const client = {
-    auth: { getUser: async () => ({ data: { user: { id: 'user-1' } } }) },
+    auth: { getUser: async () => ({ data: { user: { id: 'user-1', email: options.email } } }) },
     from(table) {
       const calls = [];
       queries.push({ table, calls });
@@ -43,10 +43,14 @@ async function callList(role, date, options = {}) {
             const range = calls.find(c => c[0] === 'range');
             const limit = calls.find(c => c[0] === 'limit')?.[1];
             const rows = options.rows || [];
+            if (table === 'mp_daily_aliases') return resolve({ data: options.published || [], error: options.publishError || null });
             const data = table === 'mp_accounts' ? [] : range ? rows.slice(range[1], range[2] + 1) : rows.slice(0, limit);
             resolve({ data, error: select.startsWith('amount, id') && options.statsError ? { message: 'Stats unavailable' } : null });
           };
-          if (method === 'maybeSingle' || method === 'single') return async () => ({ data: table === 'sellers' ? { role, roles: [] } : options.payment || null });
+          if (method === 'maybeSingle' || method === 'single') return async () => ({
+            data: table === 'sellers' ? { role, roles: [], is_active: options.active ?? true }
+              : table === 'mp_daily_aliases' ? options.published?.[0] || null : options.payment || null,
+          });
           return (...args) => { calls.push([method, ...args]); return query; };
         },
       });
@@ -64,6 +68,11 @@ async function callList(role, date, options = {}) {
       if (name === '@supabase/supabase-js') return { createClient: () => client };
       if (name === '@/lib/mpPaymentDate') return { getMPPaymentDayBounds };
       if (name === '@/lib/mpOrderLinkWarnings') return require('../src/lib/mpOrderLinkWarnings.ts');
+      if (name === '@/lib/treasuryTransactionTime') return require('../src/lib/treasuryTransactionTime.ts');
+      if (name === '@/lib/mpDailyAliases') return {
+        nextAliasDay: day => getMPPaymentDayBounds(day).endExclusiveIso.slice(0, 10),
+        suggestDailyAliases: () => ({ aliases: (options.suggested || []).map(alias => ({ alias })) }),
+      };
       if (name === '@/lib/mpAccountIncomeServer') return {loadMonthlyAccountIncome:async(_db,asOf)=>{incomeDates.push(asOf);return [];}};
       throw new Error(`Unexpected import ${name}`);
     },
@@ -83,6 +92,30 @@ test('API queries the requested day for administration', async () => {
   assert.equal(response.body.effectiveRange, 'SPECIFIC_DATE');
   assert.ok(calls.some(c => c[0] === 'gte' && c[1] === 'received_at' && c[2] === '2026-09-29T03:00:00.000Z'));
   assert.ok(calls.some(c => c[0] === 'lt' && c[1] === 'received_at' && c[2] === '2026-09-30T03:00:00.000Z'));
+});
+
+test('Laura can publish a fresh pair once; Logística only sees published aliases', async () => {
+  const today = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const tomorrow = getMPPaymentDayBounds(today).endExclusiveIso.slice(0, 10);
+  const aliases = ['cobroszono', 'diegozono.mp'];
+  const email = 'lauraguerra@zono.com.ar';
+  const published = [{ collection_date: tomorrow, aliases }];
+  const options = { method: 'POST', filters: { action: 'publish-daily-aliases' }, body: { date: tomorrow, aliases }, suggested: aliases };
+  const allowed = await callList('administracion', today, { ...options, email });
+  assert.equal(allowed.response.status, 200);
+  const insert = allowed.queries.filter(q => q.table === 'mp_daily_aliases').flatMap(q => q.calls).find(c => c[0] === 'insert');
+  assert.equal(insert[1].published_by, 'user-1');
+  for (const [role, profile] of [['administracion', {}], ['administracion', { email, active: false }], ['logistica', { email }], ['seller', { email }]]) {
+    assert.equal((await callList(role, today, { ...options, ...profile })).response.status, 403);
+  }
+  assert.equal((await callList('administracion', today, { ...options, email, suggested: aliases.toReversed() })).response.status, 409);
+  assert.equal((await callList('administracion', today, { ...options, email, publishError: { code: '23505' } })).response.status, 409);
+  assert.equal((await callList('administracion', today, { ...options, email, published })).response.status, 200);
+  const logistics = await callList('logistica', today, { published });
+  assert.equal(logistics.response.body.dailyAliases.published[0].date, tomorrow);
+  assert.equal(logistics.response.body.dailyAliases.plan, undefined);
+  assert.equal(logistics.response.body.accountIncome, undefined);
+  assert.equal((await callList('seller', today, { published })).response.body.dailyAliases, undefined);
 });
 
 test('sellers can only query today, even with historical or forged role filters', async () => {

@@ -7,7 +7,7 @@ import { validateSupplierImport, validateSupplierReview } from '@/lib/supplierAc
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 async function context(request: Request) {
-  const denied = await requireFinanceAdmin(request);
+  const denied = await requireFinanceAdmin(request, 'supplier-accounts');
   if (denied) return { response: NextResponse.json({ error: denied.error }, { status: denied.status }) };
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
   const token = request.headers.get('authorization')!.replace(/^Bearer\s+/i, '');
