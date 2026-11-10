@@ -1,6 +1,7 @@
 "use client";
 import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
 import ReportDateRangePicker from "@/components/ui/ReportDateRangePicker";
+import SearchableMultiSelect from "@/components/ui/SearchableMultiSelect";
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowRightLeft, ChevronDown, Download, PlusCircle, RefreshCw, Search, SlidersHorizontal, Users } from "lucide-react";
@@ -16,8 +17,8 @@ interface Props {
   endDate: string;
   onDateRange: (from: string, to: string) => void;
   isDefaultPeriod: boolean;
-  account: string;
-  onAccount: (value: string) => void;
+  accountIds: string[];
+  onAccounts: (value: string[]) => void;
   accounts: { id: string; name: string }[];
   type: string;
   onType: (value: "all" | "ingreso" | "egreso") => void;
@@ -35,6 +36,8 @@ interface Props {
   onTransfer: () => void;
   onConcepts: () => void;
   onExport: () => void;
+  onExportExcel: () => void;
+  exportDisabled: boolean;
   onSync: () => void;
   syncing: boolean;
   disabled: boolean;
@@ -134,6 +137,7 @@ export default function FinanceToolbar(p: Props) {
             {openMenu === "actions" && <div className={menu}>
               <button type="button" className={menuItem} disabled={p.disabled} onClick={() => run(p.onTransfer)}><ArrowRightLeft className="h-3.5 w-3.5" />Transferencia manual</button><a href="/admin/finanzas?tab=counts" className={menuItem}>Conteo de efectivo</a><a href="/admin/finanzas?tab=partners" className={menuItem}>Retiros de socios</a><button type="button" className={menuItem} onClick={() => run(p.onConcepts)}><Search className="h-3.5 w-3.5" />Administrar conceptos</button>
               <a href="/admin/personal" className={menuItem}><Users className="h-3.5 w-3.5" />Personal y prestadores</a>
+              <button type="button" className={menuItem} disabled={p.exportDisabled} onClick={() => run(p.onExportExcel)}><Download className="h-3.5 w-3.5" />Exportar a Excel</button>
               <button type="button" className={menuItem} onClick={() => run(p.onExport)}><Download className="h-3.5 w-3.5" />Exportar CSV</button>
               <button type="button" disabled={p.syncing} className={menuItem} onClick={() => run(p.onSync)}><RefreshCw className={`h-3.5 w-3.5 ${p.syncing ? "animate-spin" : ""}`} />{p.syncing ? "Importando…" : "Importar desde Sheets · cuentas pendientes"}</button>
             </div>}
@@ -146,10 +150,13 @@ export default function FinanceToolbar(p: Props) {
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
           <input aria-label="Buscar movimiento" placeholder="Buscar concepto, subcategoría, notas…" value={p.search} onChange={e => p.onSearch(e.target.value)} className={`${control} w-full pl-8`} />
         </div>
-        <AdaptiveSelect aria-label="Cuenta financiera" value={p.account} onChange={e => p.onAccount(e.target.value)} className={`${control} max-w-60`}><option value="all">Todas las cuentas</option>{p.accounts.map(a => <option key={a.id} value={a.id}>{financialAccountLabel(a.name)}</option>)}</AdaptiveSelect>
+        <div className="w-60 max-w-full">
+          <SearchableMultiSelect label="Cuentas financieras" value={p.accountIds} onChange={p.onAccounts}
+            placeholder="Todas las cuentas" options={p.accounts.map(a => ({ value: a.id, label: financialAccountLabel(a.name) }))} />
+        </div>
         <AdaptiveSelect aria-label="Tipo de movimiento" value={p.type} onChange={e => p.onType(e.target.value as "all" | "ingreso" | "egreso")} className={control}><option value="all">Todos los tipos</option><option value="ingreso">Ingresos</option><option value="egreso">Egresos</option></AdaptiveSelect>
         <button type="button" aria-expanded={moreFilters} onClick={() => setMoreFilters(value => !value)} className={action}><SlidersHorizontal className="h-3.5 w-3.5" />Más filtros{additionalFilters > 0 && <span className="rounded bg-brand-50 px-1 text-brand-700">{additionalFilters}</span>}</button>
-        {(p.search || p.account !== "all" || p.type !== "all" || additionalFilters > 0 || !p.isDefaultPeriod) && <button type="button" onClick={p.onClear} className="h-8 text-xs font-semibold text-brand-600 hover:underline">Limpiar filtros</button>}
+        {(p.search || p.accountIds.length > 0 || p.type !== "all" || additionalFilters > 0 || !p.isDefaultPeriod) && <button type="button" onClick={p.onClear} className="h-8 text-xs font-semibold text-brand-600 hover:underline">Limpiar filtros</button>}
         <button type="button" onClick={p.onRefresh} aria-label="Actualizar movimientos" title="Actualizar movimientos" className={action}><RefreshCw className="h-3.5 w-3.5" /></button>
       </div>
       {moreFilters && <div className="mt-2.5 flex flex-wrap gap-3 border-t border-slate-100 pt-2.5">

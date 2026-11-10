@@ -49,12 +49,14 @@ import { Button } from "@/components/ui/Button";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
 import { useSearchParams, useRouter } from "next/navigation";
 import FinanceToolbar, { type QuickMovement, type OptionalFinanceColumn } from "@/components/finanzas/FinanceToolbar";
+import { displayReportDate } from "@/components/ui/ReportDateRangePicker";
 import SupplierAccounts from "@/components/finanzas/SupplierAccounts";
 import FinancialConceptManager from "@/components/finanzas/FinancialConceptManager";
 import BankSheetImportModal from "@/components/finanzas/BankSheetImportModal";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import FinancialAccountBadge from '@/components/finanzas/FinancialAccountBadge';
 import { financialAccountLabel } from "@/lib/financialAccountLabels";
+import { downloadTreasuryMovements } from "@/lib/financialOperations/downloadTreasuryMovements";
 import type { FinancialConcept } from "@/lib/financialConcepts";
 
 
@@ -540,7 +542,9 @@ function FinanceWorkspace() {
   const defaultPeriod = financeDateRange('7dias');
   const [startDate, setStartDate] = useState(defaultPeriod.start);
   const [endDate, setEndDate] = useState(defaultPeriod.end);
-  const [filterAccountId, setFilterAccountId] = useState("all");
+  const [filterAccountIds, setFilterAccountIds] = useState<string[]>([]);
+  const [loadedPeriod, setLoadedPeriod] = useState("");
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'ingreso' | 'egreso'>('all');
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterCostCenterId, setFilterCostCenterId] = useState("all");
@@ -820,6 +824,7 @@ function FinanceWorkspace() {
       if (version !== transactionLoadVersion.current) return;
       if (payload.transactions) {
         setTransactions(payload.transactions);
+        setLoadedPeriod(`${startDate}/${endDate}`);
       }
       setOperationsAvailable(payload.features?.financialOperations ?? true);
       setTransactionsError("");
@@ -1017,7 +1022,7 @@ function FinanceWorkspace() {
       }
 
       // 1. Cuenta
-      if (filterAccountId !== "all" && t.financial_account_id !== filterAccountId) {
+      if (filterAccountIds.length && (!t.financial_account_id || !filterAccountIds.includes(t.financial_account_id))) {
         return false;
       }
 
@@ -1061,7 +1066,7 @@ function FinanceWorkspace() {
 
       return true;
     });
-  }, [transactions, showCancelled, filterAccountId, filterType, filterCategory, filterCostCenterId, searchTerm, startDate]);
+  }, [transactions, showCancelled, filterAccountIds, filterType, filterCategory, filterCostCenterId, searchTerm, startDate]);
 
   // KPIs Financieros Consolidados (Pesos y Dólares por separado)
   const financialKPIs = useMemo(() => {
@@ -1125,6 +1130,24 @@ function FinanceWorkspace() {
   useEffect(() => {
     setCurrentPage(page => Math.min(page, Math.max(1, totalPages)));
   }, [totalPages]);
+
+  const excelExportDisabled = loading || Boolean(transactionsError) || exportingExcel || loadedPeriod !== `${startDate}/${endDate}`;
+  const handleExportExcel = async () => {
+    if (excelExportDisabled) return;
+    if (!filteredTransactions.length) {
+      alert("No hay registros para exportar.");
+      return;
+    }
+    setExportingExcel(true);
+    try {
+      await downloadTreasuryMovements(filteredTransactions);
+    } catch (err) {
+      console.error("Error exportando movimientos a Excel:", err);
+      alert("No se pudo descargar el archivo Excel. Volvé a intentar.");
+    } finally {
+      setExportingExcel(false);
+    }
+  };
 
   // Exportar a CSV
   const handleExportCSV = () => {
@@ -1221,21 +1244,22 @@ function FinanceWorkspace() {
             search={searchTerm} onSearch={value => { setSearchTerm(value); setCurrentPage(1); }}
             startDate={startDate} endDate={endDate}
             onDateRange={changePeriod} isDefaultPeriod={startDate === defaultPeriod.start && endDate === defaultPeriod.end}
-            account={filterAccountId} onAccount={value => { setFilterAccountId(value); setCurrentPage(1); }} accounts={financialAccounts}
+            accountIds={filterAccountIds} onAccounts={value => { setFilterAccountIds(value); setCurrentPage(1); }} accounts={financialAccounts}
             type={filterType} onType={value => { setFilterType(value); setCurrentPage(1); }}
             category={filterCategory} onCategory={value => { setFilterCategory(value); setCurrentPage(1); }} categories={categoriesList}
             unit={filterCostCenterId} onUnit={value => { setFilterCostCenterId(value); setCurrentPage(1); }} units={costCenters}
             showCancelled={showCancelled} onShowCancelled={value => { setShowCancelled(value); setCurrentPage(1); }}
-            onClear={() => { setShowCancelled(false); setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); changePeriod(defaultPeriod.start, defaultPeriod.end); }}
+            onClear={() => { setShowCancelled(false); setSearchTerm(""); setFilterAccountIds([]); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); changePeriod(defaultPeriod.start, defaultPeriod.end); }}
             onRefresh={() => { void loadTransactions(); }} onNew={openQuickMovement} onTransfer={() => openQuickTransfer()}
             onConcepts={() => setIsConceptManagerOpen(true)} onExport={handleExportCSV} onSync={handleSyncFromSheets}
+            onExportExcel={handleExportExcel} exportDisabled={excelExportDisabled}
             syncing={false} disabled={(operationsAvailable===false && !localInspection) || Boolean(initDataError && financialAccounts.length === 0)}
             showSummary={showSummary} onSummary={toggleSummary} columns={optionalColumns} onColumn={toggleColumn}
           />
 
           {/* Tarjetas KPI Financieros */}
           {showSummary && <div className="rounded-xl border border-slate-200/70 bg-white p-3 shadow-sm">
-            <p className="mb-2 text-xs font-semibold text-slate-500">Resumen de movimientos filtrados · {formatDateDDMMYYYY(startDate)} al {formatDateDDMMYYYY(endDate)}</p>
+            <p className="mb-2 text-xs font-semibold text-slate-500">Resumen de movimientos filtrados · {displayReportDate(startDate)} al {displayReportDate(endDate)}</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Caja Pesos (ARS) */}
             <div className="space-y-2">
@@ -1335,7 +1359,8 @@ function FinanceWorkspace() {
                           && !t.supplier_payments?.some(p=>!p.reversed_at) && !t.client_payments?.some(p=>!p.reversed_at)
                           && !t.payment_planning_realizations?.length
                           && t.category!=='Movimiento de cuentas' && !t.applications?.some(a=>a.kind!=='Comprobante');
-                        const currentDate = formatDateDDMMYYYY(t.created_at);
+                        const accountingDay = treasuryToday(new Date(t.created_at));
+                        const currentDate = displayReportDate(accountingDay);
                         const showDateDivider = currentDate !== lastDate;
                         lastDate = currentDate;
 
@@ -1355,7 +1380,7 @@ function FinanceWorkspace() {
                                     )}
                                     <span>{currentDate}</span>
                                     <span className="text-[9px] bg-slate-200 text-slate-650 px-1.5 py-0.2 rounded-full font-bold">
-                                      {filteredTransactions.filter(tx => formatDateDDMMYYYY(tx.created_at) === currentDate).length}
+                                      {filteredTransactions.filter(tx => treasuryToday(new Date(tx.created_at)) === accountingDay).length}
                                     </span>
                                   </div>
                                 </td>
@@ -1792,7 +1817,7 @@ function FinanceWorkspace() {
                           <div className="flex justify-end items-center gap-2">
                             <button
                               onClick={() => {
-                                setFilterAccountId(acc.id);
+                                setFilterAccountIds([acc.id]);
                                 setCurrentPage(1);
                                 router.push('/admin/finanzas');
                               }}
