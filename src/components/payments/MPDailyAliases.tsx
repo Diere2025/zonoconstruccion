@@ -7,6 +7,7 @@ const dateLabel = (date: string) => date.split('-').reverse().join('/');
 const money = (amount: number) => new Intl.NumberFormat('es-AR', {
   style: 'currency', currency: 'ARS', maximumFractionDigits: 2,
 }).format(amount);
+const panel = 'space-y-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-xs sm:p-5';
 
 export default function MPDailyAliases({ data, onPublish }: {
   data: DailyAliases | null;
@@ -14,8 +15,9 @@ export default function MPDailyAliases({ data, onPublish }: {
 }) {
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState('');
-  const plan = data?.plan;
-  const tomorrowPublished = data?.published.some(item => item.date === data.tomorrow);
+  const planning = data?.view === 'planning' ? data : null;
+  const plan = planning?.plan;
+  const tomorrowPublished = planning?.published.some(item => item.date === planning.tomorrow);
 
   async function publish(plan: AliasPlan) {
     setPublishing(true);
@@ -29,16 +31,32 @@ export default function MPDailyAliases({ data, onPublish }: {
     }
   }
 
+  if (data?.view === 'today') {
+    return (
+      <section className={panel}>
+        <div>
+          <h2 className="text-sm font-bold text-slate-900 sm:text-base">Alias sugeridos para hoy</h2>
+          <p className="text-xs text-slate-500">{dateLabel(data.today)}</p>
+        </div>
+        {data.aliases.length === 2 ? (
+          <ul aria-label="Alias de cobro para hoy" className="flex flex-wrap gap-2">
+            {data.aliases.map(alias => <li key={alias} className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">{alias}</li>)}
+          </ul>
+        ) : <p className="text-sm text-amber-800">No hay dos alias disponibles dentro de los topes. Consultá con Tesorería.</p>}
+      </section>
+    );
+  }
+
   return (
-    <section className="space-y-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-xs sm:p-5">
+    <section className={panel}>
       <div>
         <h2 className="text-sm font-bold text-slate-900 sm:text-base">Alias diarios para Logística</h2>
-        <p className="text-xs text-slate-500">Usá los dos alias publicados para la fecha de cobro.</p>
+        <p className="text-xs text-slate-500">Revisá la sugerencia automática y los pares publicados por fecha.</p>
       </div>
-      {data ? (
+      {planning ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          {[data.today, data.tomorrow].map((date, index) => {
-            const day = data.published.find(item => item.date === date);
+          {[planning.today, planning.tomorrow].map((date, index) => {
+            const day = planning.published.find(item => item.date === date);
             return (
               <div key={date} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <h3 className="text-sm font-semibold text-slate-800">{index === 0 ? 'Hoy' : 'Mañana'} · {dateLabel(date)}</h3>

@@ -15,10 +15,15 @@ export type AliasPlan = {
   aliases: { alias: string; remaining: number; limit: number }[];
 };
 export type DailyAliases = {
+  view: 'today';
+  today: string;
+  aliases: string[];
+} | {
+  view: 'planning';
   today: string;
   tomorrow: string;
   published: PublishedAliasDay[];
-  plan?: AliasPlan;
+  plan: AliasPlan;
 };
 
 export function nextAliasDay(today: string) {

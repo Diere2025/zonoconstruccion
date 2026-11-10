@@ -94,7 +94,7 @@ test('API queries the requested day for administration', async () => {
   assert.ok(calls.some(c => c[0] === 'lt' && c[1] === 'received_at' && c[2] === '2026-09-30T03:00:00.000Z'));
 });
 
-test('Laura can publish a fresh pair once; Logística only sees published aliases', async () => {
+test('Laura can publish a fresh pair once and other roles cannot publish it', async () => {
   const today = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
   const tomorrow = getMPPaymentDayBounds(today).endExclusiveIso.slice(0, 10);
   const aliases = ['cobroszono', 'diegozono.mp'];
@@ -111,11 +111,29 @@ test('Laura can publish a fresh pair once; Logística only sees published aliase
   assert.equal((await callList('administracion', today, { ...options, email, suggested: aliases.toReversed() })).response.status, 409);
   assert.equal((await callList('administracion', today, { ...options, email, publishError: { code: '23505' } })).response.status, 409);
   assert.equal((await callList('administracion', today, { ...options, email, published })).response.status, 200);
-  const logistics = await callList('logistica', today, { published });
-  assert.equal(logistics.response.body.dailyAliases.published[0].date, tomorrow);
-  assert.equal(logistics.response.body.dailyAliases.plan, undefined);
-  assert.equal(logistics.response.body.accountIncome, undefined);
   assert.equal((await callList('seller', today, { published })).response.body.dailyAliases, undefined);
+});
+
+test('Logística only receives today’s aliases, automatically calculated from yesterday', async () => {
+  const today = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const yesterday = new Date(Date.parse(today) - 86_400_000).toISOString().slice(0, 10);
+  const tomorrow = getMPPaymentDayBounds(today).endExclusiveIso.slice(0, 10);
+  const suggested = ['cobroszono', 'diegozono.mp'];
+  const otherPair = ['diegozono.mp', 'pagoszono.26'];
+  const automatic = await callList('logistica', today, { suggested, published: [{ collection_date: tomorrow, aliases: otherPair }] });
+  assert.equal(automatic.response.status, 200);
+  const daily = automatic.response.body.dailyAliases;
+  assert.deepEqual(Object.keys(daily).sort(), ['aliases', 'today', 'view']);
+  assert.equal(daily.view, 'today');
+  assert.equal(daily.today, today);
+  assert.deepEqual(Array.from(daily.aliases), suggested);
+  assert.deepEqual(automatic.incomeDates, [yesterday]);
+  assert.equal(automatic.response.body.accountIncome, undefined);
+  const published = await callList('logistica', today, { suggested, published: [{ collection_date: today, aliases: otherPair }] });
+  assert.deepEqual(published.response.body.dailyAliases.aliases, otherPair);
+  assert.deepEqual(published.incomeDates, []);
+  const unavailable = await callList('logistica', today);
+  assert.equal(unavailable.response.body.dailyAliases.aliases.length, 0);
 });
 
 test('sellers can only query today, even with historical or forged role filters', async () => {

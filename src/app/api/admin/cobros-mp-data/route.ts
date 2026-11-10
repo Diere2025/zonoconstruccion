@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getMPPaymentDayBounds } from '@/lib/mpPaymentDate';
 import { loadMonthlyAccountIncome } from '@/lib/mpAccountIncomeServer';
-import { nextAliasDay, suggestDailyAliases } from '@/lib/mpDailyAliases';
+import { nextAliasDay, suggestDailyAliases, type DailyAliases } from '@/lib/mpDailyAliases';
 import { getMPOrderLinkWarnings } from '@/lib/mpOrderLinkWarnings';
 import { treasuryToday } from '@/lib/treasuryTransactionTime';
 
@@ -308,12 +308,34 @@ export async function GET(request: Request) {
       const [{ data, error }, filteredStats, monthlyIncome, aliasRows] = await Promise.all([
         query.limit(300),
         filteredStatsPromise,
-        userRole === 'admin' || canPlan ? loadMonthlyAccountIncome(supabaseAdmin, asOf) : null,
+        canPlan ? loadMonthlyAccountIncome(supabaseAdmin, asOf) : null,
         canReadAliases ? supabaseAdmin.from('mp_daily_aliases').select('collection_date, aliases')
-          .in('collection_date', [asOf, tomorrow]) : null,
+          .in('collection_date', canPlan ? [asOf, tomorrow] : [asOf]) : null,
       ]);
       if (error) throw error;
-      if (aliasRows?.error) console.error('[Alias diarios MP]', aliasRows.error.code);
+      let dailyAliases: DailyAliases | null | undefined;
+      if (aliasRows) {
+        try {
+          if (aliasRows.error) throw aliasRows.error;
+          if (canPlan && monthlyIncome) {
+            dailyAliases = {
+              view: 'planning', today: asOf, tomorrow,
+              published: aliasRows.data.map(row => ({ date: row.collection_date, aliases: row.aliases })),
+              plan: suggestDailyAliases(monthlyIncome, asOf),
+            };
+          } else {
+            const published = aliasRows.data.find(row => row.collection_date === asOf);
+            const yesterday = yesterdayBounds.startIso.slice(0, 10);
+            const aliases = published?.aliases ?? suggestDailyAliases(
+              await loadMonthlyAccountIncome(supabaseAdmin, yesterday), yesterday,
+            ).aliases.map(item => item.alias);
+            dailyAliases = { view: 'today', today: asOf, aliases };
+          }
+        } catch (error) {
+          console.error('[Alias diarios MP]', error);
+          dailyAliases = null;
+        }
+      }
 
       return NextResponse.json({
         success: true,
@@ -322,12 +344,7 @@ export async function GET(request: Request) {
         accountIncome: monthlyIncome?.map(account => ({
           ...account, periodAmount: filteredStats?.accounts?.find(row => row.id === account.id)?.periodAmount || 0,
         })),
-        dailyAliases: aliasRows ? (aliasRows.error ? null : {
-          today: asOf,
-          tomorrow,
-          published: aliasRows.data.map(row => ({ date: row.collection_date, aliases: row.aliases })),
-          plan: canPlan && monthlyIncome ? suggestDailyAliases(monthlyIncome, asOf) : undefined,
-        }) : undefined,
+        dailyAliases,
         effectiveRole: userRole,
         effectiveRange: dateRange
       });
