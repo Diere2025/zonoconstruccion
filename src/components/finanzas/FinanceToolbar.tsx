@@ -30,6 +30,8 @@ interface Props {
   units: { id: string; name: string; code: string }[];
   showCancelled: boolean;
   onShowCancelled: (value: boolean) => void;
+  onlyPendingRefundOrders: boolean;
+  onPendingRefundOrders: (value: boolean) => void;
   onClear: () => void;
   onRefresh: () => void;
   onNew: (kind: QuickMovement) => void;
@@ -156,7 +158,8 @@ export default function FinanceToolbar(p: Props) {
         </div>
         <AdaptiveSelect aria-label="Tipo de movimiento" value={p.type} onChange={e => p.onType(e.target.value as "all" | "ingreso" | "egreso")} className={control}><option value="all">Todos los tipos</option><option value="ingreso">Ingresos</option><option value="egreso">Egresos</option></AdaptiveSelect>
         <button type="button" aria-expanded={moreFilters} onClick={() => setMoreFilters(value => !value)} className={action}><SlidersHorizontal className="h-3.5 w-3.5" />Más filtros{additionalFilters > 0 && <span className="rounded bg-brand-50 px-1 text-brand-700">{additionalFilters}</span>}</button>
-        {(p.search || p.accountIds.length > 0 || p.type !== "all" || additionalFilters > 0 || !p.isDefaultPeriod) && <button type="button" onClick={p.onClear} className="h-8 text-xs font-semibold text-brand-600 hover:underline">Limpiar filtros</button>}
+        <button type="button" aria-pressed={p.onlyPendingRefundOrders} onClick={() => p.onPendingRefundOrders(!p.onlyPendingRefundOrders)} className={`${action} ${p.onlyPendingRefundOrders ? 'border-brand-300 bg-brand-50 text-brand-700' : ''}`}>Devoluciones pendientes de asociar</button>
+        {(p.search || p.accountIds.length > 0 || p.type !== "all" || additionalFilters > 0 || p.onlyPendingRefundOrders || !p.isDefaultPeriod) && <button type="button" onClick={p.onClear} className="h-8 text-xs font-semibold text-brand-600 hover:underline">Limpiar filtros</button>}
         <button type="button" onClick={p.onRefresh} aria-label="Actualizar movimientos" title="Actualizar movimientos" className={action}><RefreshCw className="h-3.5 w-3.5" /></button>
       </div>
       {moreFilters && <div className="mt-2.5 flex flex-wrap gap-3 border-t border-slate-100 pt-2.5">

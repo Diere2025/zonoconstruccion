@@ -7,7 +7,7 @@ import { financialContext,financialMutationContext } from '@/lib/financialOperat
 import { isUuid, OperationError, validateOperation } from '@/lib/financialOperations/validation';
 import {prepareOperationForm} from '@/lib/financialOperations/formDefaults';
 import {specialTypes} from '@/lib/financialOperations/specialized';
-import {isSupplierApplicationSource} from '@/lib/financialOperations/types';
+import {isCustomerRefundConcept,isSupplierApplicationSource} from '@/lib/financialOperations/types';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +32,18 @@ export async function GET(request: Request) {
       const ids=[...new Set(payments.map(p=>p.cash_transaction_id).filter(Boolean))];
       const movements:Array<{id:string;type:string;movement_code?:string|null}>=[];
       for(let i=0;i<ids.length;i+=100){const page=await db.from('cash_transactions').select('*').in('id',ids.slice(i,i+100));if(page.error)throw page.error;movements.push(...(page.data||[]));}
-      return NextResponse.json({order:order.data,applications:payments.filter(p=>!p.reversed_at&&p.status==='Aprobado').map(p=>{const tx=movements.find(t=>t.id===p.cash_transaction_id);return {id:p.id,code:tx?movementCode(tx):`REC-${p.id.toUpperCase()}`,kind:tx?'Cobro':'Recibo',href:tx?movementHref(tx.id):'',amount:Number(p.amount)};})},{headers:{'Cache-Control':'no-store'}});
+      const refunds=[];
+      for(let offset=0;;offset+=500){
+        const page=await db.from('cash_transactions').select('id,type,amount,movement_code,financial_operations(status)').eq('refund_order_id',orderId).order('id').range(offset,offset+499);
+        if(page.error)throw page.error;
+        for(const t of page.data || []){
+          const operation=Array.isArray(t.financial_operations)?t.financial_operations[0]:t.financial_operations;
+          if(operation?.status!=='cancelled')refunds.push({id:t.id,code:movementCode(t),kind:'Devolución',href:movementHref(t.id),amount:Number(t.amount)});
+        }
+        if((page.data||[]).length<500)break;
+      }
+      const receipts=payments.filter(p=>!p.reversed_at&&p.status==='Aprobado').map(p=>{const tx=movements.find(t=>t.id===p.cash_transaction_id);return {id:p.id,code:tx?movementCode(tx):`REC-${p.id.toUpperCase()}`,kind:tx?'Cobro':'Recibo',href:tx?movementHref(tx.id):'',amount:Number(p.amount)};});
+      return NextResponse.json({order:order.data,applications:[...receipts,...refunds]},{headers:{'Cache-Control':'no-store'}});
     }
     const purchaseId=url.searchParams.get('purchase_id');
     if(purchaseId){
@@ -77,29 +88,38 @@ export async function GET(request: Request) {
       }
       snapshot.code=movementCode(snapshot.transaction);
       snapshot.payload.person_id=snapshot.operation?.person_id || undefined;
+      const t=snapshot.transaction;
+      let isRefund=false;
+      if(['general','operating_expense'].includes(snapshot.payload.operation_type)&&t.type==='egreso'){
+        const catalog=t.financial_concept_id?await db.from('financial_concepts').select('concept,category,movement_type').eq('id',t.financial_concept_id).maybeSingle():{data:null,error:null};
+        if(catalog.error)throw catalog.error;
+        isRefund=isCustomerRefundConcept(catalog.data||{concept:t.concept,category:t.category,movement_type:'Egreso'});
+        if(isRefund)snapshot.payload.operation_type='general';
+      }
+      snapshot.payload.refund_order_id=t.refund_order_id||undefined;
       const receipt=snapshot.payload.operation_type==='customer_collection'?await db.from('client_payments').select('client_id,order_id,id').eq('cash_transaction_id',id).is('reversed_at',null).order('order_id',{nullsFirst:false}).limit(1).maybeSingle():{data:null,error:null};
       if(receipt.error)throw receipt.error;
       if(snapshot.payload.operation_type==='customer_collection'&&receipt.data){snapshot.payload.client_id=receipt.data.client_id;snapshot.payload.order_id=receipt.data.order_id||undefined;snapshot.payload.client_payment_id=receipt.data.order_id?receipt.data.id:undefined;}
       const client=snapshot.payload.client_id?await db.from('clients').select('id,business_name').eq('id',snapshot.payload.client_id).single():{data:null,error:null};
       if(client.error)throw client.error;
       const purchaseIds = (snapshot.payload.allocations || []).map((row:{purchase_id:string})=>row.purchase_id);
-      const [purchases,order] = await Promise.all([
+      const [purchases,order,refundOrder] = await Promise.all([
         purchaseIds.length ? db.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,credit_applied_amount,currency,created_at,purchase_date,document_type,purchase_order_id,purchase_reception_id,purchase_orders(oc_code),purchase_receptions!supplier_purchases_purchase_reception_id_fkey(delivery_slip_number,reception_date,purchase_orders!purchase_receptions_purchase_order_id_fkey(oc_code),purchase_reception_orders(purchase_orders(oc_code)))').in('id',purchaseIds) : Promise.resolve({data:[],error:null}),
-        snapshot.payload.order_id ? db.from('orders').select('id,legacy_code,customer_name,total_amount,client_payments(id,amount,currency,status,cash_transaction_id,reversed_at)').eq('id',snapshot.payload.order_id).single() : Promise.resolve({data:null,error:null})
+        snapshot.payload.order_id ? db.from('orders').select('id,legacy_code,customer_name,total_amount,client_payments(id,amount,currency,status,cash_transaction_id,reversed_at)').eq('id',snapshot.payload.order_id).single() : Promise.resolve({data:null,error:null}),
+        t.refund_order_id ? db.from('orders').select('id,legacy_code,customer_name').eq('id',t.refund_order_id).single() : Promise.resolve({data:null,error:null})
       ]);
-      if (purchases.error || order.error) throw purchases.error || order.error;
+      if (purchases.error || order.error || refundOrder.error) throw purchases.error || order.error || refundOrder.error;
       const scopeResult=purchaseIds.length?await db.from('supplier_document_account_scope').select('id,account_included').in('id',purchaseIds):{data:[],error:null};
       if(scopeResult.error)throw scopeResult.error;
       const scope=new Map((scopeResult.data||[]).map(p=>[p.id,p.account_included]));
-      const t=snapshot.transaction;
-      const supplierApplicationEligible=isSupplierApplicationSource(snapshot.payload.operation_type,t.type)
+      const supplierApplicationEligible=!isRefund&&isSupplierApplicationSource(snapshot.payload.operation_type,t.type)
         && !snapshot.payload.supplier_id && !snapshot.payload.client_payment_id && !snapshot.payload.person_id && !t.employee_id && !t.register_id
         && !t.treasury_settlement_id && !t.reversal_of_transaction_id && !snapshot.planning
         && (!snapshot.operation || snapshot.operation.status==='posted') && t.category!=='Movimiento de cuentas'
         && !snapshot.applications.some((a:{kind:string})=>a.kind!=='Comprobante');
       const partnerLinks=supplierApplicationEligible?await db.from('financial_partner_allocations').select('id').eq('cash_transaction_id',t.id).is('reversed_at',null).limit(1):null;
       if(partnerLinks?.error)throw partnerLinks.error;
-      return NextResponse.json({...snapshot,supplierApplicationEligible:supplierApplicationEligible&&!partnerLinks?.data?.length,purchases:(purchases.data||[]).map(p=>({...p,account_included:scope.get(p.id)===true,editable_allocation_amount:snapshot.payload.allocations?.find((a:{purchase_id:string;amount:string})=>a.purchase_id===p.id)?.amount||'0'})),order:order.data,client:client.data},{headers:{'Cache-Control':'no-store'}});
+      return NextResponse.json({...snapshot,supplierApplicationEligible:supplierApplicationEligible&&!partnerLinks?.data?.length,purchases:(purchases.data||[]).map(p=>({...p,account_included:scope.get(p.id)===true,editable_allocation_amount:snapshot.payload.allocations?.find((a:{purchase_id:string;amount:string})=>a.purchase_id===p.id)?.amount||'0'})),order:order.data,refundOrder:refundOrder.data,client:client.data},{headers:{'Cache-Control':'no-store'}});
     }
     const [methods,vouchers,conceptTypes] = await Promise.all([
       db.from('payment_methods').select('id,name').order('name'),

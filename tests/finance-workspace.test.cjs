@@ -2,6 +2,19 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { workspace } = require('./helpers/finance-workspace.cjs');
 
+test('pending refund filter opens the existing movement to choose its order',()=>{
+ const {transactions}=require('./helpers/finance-workspace.cjs');
+ const refund={...transactions[1],id:'refund',concept:'Devolución pendiente',refund_order_pending:true};
+ const app=workspace({transactions:[refund,transactions[0]]});
+ app.toolbar().onPendingRefundOrders(true);
+ assert.ok(app.markup().includes('Devolución pendiente'));
+ assert.ok(!app.markup().includes(transactions[0].concept));
+ app.find(el=>el.props?.title==='Abrir la devolución para asociar el pedido').props.onClick();
+ assert.equal(app.state.get('operationEditor').transactionId,refund.id);
+ app.toolbar().onClear();
+ assert.equal(app.state.get('onlyPendingRefundOrders'),false);
+});
+
 test('cancelled originals and compensations are hidden by default and readable as disabled history', () => {
   const {transactions}=require('./helpers/finance-workspace.cjs');
   const original={...transactions[0],id:'original',concept:'Pago anulado',financial_operations:{id:'op',operation_type:'general',version:2,status:'cancelled',detail:{}}};

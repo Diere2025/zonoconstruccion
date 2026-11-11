@@ -11,13 +11,18 @@ export type OperationInput = {
   direction: 'ingreso' | 'egreso'; amount: string; payment_method_id: string;
   concept: string; category: string; sub_category?: string; efe_category?: string; financial_concept_id?: string;
   cost_center_id?: string; route_sheet_id?: string; notes?: string; employee_id?: string;person_id?:string;
-  supplier_id?: string; client_id?: string; order_id?: string; client_payment_id?: string;
+  supplier_id?: string; client_id?: string; order_id?: string; client_payment_id?: string; refund_order_id?: string;
   allocations?: Array<{purchase_id: string; amount: string}>;
   detail: { automatic?: boolean; period?: string; payroll_kind?: string; beneficiary?: string; reference?: string; organism?: string; supplier_kind?: 'registered' | 'eventual'; supplier_name?: string; supplier_allocation_mode?: 'oldest_first' | 'documents' };
   voucher_ids?: string[]; confirm_without_voucher?:boolean;
 };
 export type OperationSummary = { id: string; operation_type: OperationType; version: number; status: string; detail: OperationInput['detail'];operation_vouchers?:Array<{voucher_id:string}> };
 export type OperationTarget = { transaction_id: string; operation_id?: string; expected_version?: number; expected_transaction?: Record<string, unknown> };
+
+export function isCustomerRefundConcept(concept: {concept:string;category:string;movement_type:string} | undefined) {
+  return concept?.category === 'Recaudación' && concept.movement_type === 'Egreso'
+    && ['Devolución de cobro','Devolución parcial de cobro'].includes(concept.concept);
+}
 
 export function isInactiveFinancialMovement(tx: { financial_operations?: { status: string } | null; reversal_of_transaction_id?: string | null }): boolean {
   return tx.financial_operations?.status === 'cancelled' || Boolean(tx.reversal_of_transaction_id);

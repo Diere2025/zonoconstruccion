@@ -15,5 +15,6 @@ export function guidedOptions(concepts:FinancialConcept[]):GuidedOption[]{return
  else if(category==='Movimiento de cuentas'){group='Movimiento entre cajas';concept='Transferencia interna';detail=clean(c.concept);}
  else if(category==='Fondos a rendir'){group='Fondos a rendir';concept=/^rendido/i.test(c.concept)?'Devolución o rendición':'Entrega de fondos';detail=clean(c.concept).replace(/^rendir|^rendido/i,'').trim();}
  else{group='Otros movimientos';concept=category;detail=clean(c.concept);}
+ if(group==='Cobros de clientes'&&concept==='Devoluciones'&&['Devolución de cobro','Devolución parcial de cobro'].includes(c.concept))detail+=` · ${c.movement_type}`;
  return {id:c.id,group,concept,detail,efe:c.efe_category};}).sort((a,b)=>a.group.localeCompare(b.group,'es')||a.concept.localeCompare(b.concept,'es')||a.detail.localeCompare(b.detail,'es'));}
 export function guidedVariants(options:GuidedOption[],group:string,concept:string){return options.filter(x=>x.group===group&&x.concept===concept);}

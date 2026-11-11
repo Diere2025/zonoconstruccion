@@ -242,10 +242,15 @@ test('switching common classification removes supplier links and sets the cash d
  assert.equal(selected.operation_type,'general');assert.equal(selected.direction,'ingreso');assert.equal(selected.supplier_id,undefined);assert.equal(Object.keys(selected.detail).length,0);assert.equal(selected.financial_concept_id,c.id);
 });
 
-test('a customer refund remains an expense rather than becoming a customer collection',()=>{
- const c={id:id(9),concept:'Devolución a cliente',category:'Recaudación',sub_category:'Devoluciones',movement_type:'Egreso',efe_category:'Ventas',is_active:true};
- const selected=common.selectCommonMovement(base,c,[],[]);
+test('a refund uses the outgoing catalog entry and never inherits the preceding order',()=>{
+ const c={id:id(9),concept:'Devolución parcial de cobro',category:'Recaudación',sub_category:'Devoluciones',movement_type:'Egreso',efe_category:'Ventas',is_active:true};
+ assert.equal(types.isCustomerRefundConcept(c),true);
+ assert.equal(types.isCustomerRefundConcept({...c,movement_type:'Ingreso'}),false);
+ const selected=common.selectCommonMovement({...base,refund_order_id:id(8)},c,[],[]);
  assert.equal(selected.operation_type,'general');assert.equal(selected.direction,'egreso');assert.equal(selected.financial_concept_id,c.id);
+ assert.equal(selected.refund_order_id,undefined);
+ validation.validateOperation({...selected,refund_order_id:id(7)});
+ assert.throws(()=>validation.validateOperation({...selected,refund_order_id:id(7),direction:'ingreso'}),/Pedido de devolución inválido/);
 });
 
 test('automatically posted MP movements can be corrected while preserving their reference',()=>{

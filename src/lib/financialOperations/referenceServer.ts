@@ -55,7 +55,7 @@ export async function supplierReferenceData(db: SupabaseClient, supplierId: stri
   for(const [id,refs] of supplierCreditReferences(credits,purchases))applications.byPurchase.set(id,[...applications.byPurchase.get(id)||[],...refs]);
   return {payments,movements,...applications};
 }
-export async function movementApplications(db: SupabaseClient, rows: Array<CodedMovement & {operation_id?: string | null}>) {
+export async function movementApplications(db: SupabaseClient, rows: Array<CodedMovement & {operation_id?: string | null;refund_order_id?:string|null}>) {
   const result=new Map<string,ApplicationReference[]>();
   await readBatches(rows, async chunk => {
     const ids=chunk.map(t=>t.id);
@@ -71,6 +71,17 @@ export async function movementApplications(db: SupabaseClient, rows: Array<Coded
     const refs=supplierApplications(allocations,payments,allocations.flatMap(a=>a.supplier_purchases?[a.supplier_purchases]:[]),chunk);
     for(const p of payments)if(p.cash_transaction_id)result.set(p.cash_transaction_id,[...(result.get(p.cash_transaction_id)||[]),...(refs.byPayment.get(p.id)||[])]);
     for(const p of clients){const order=one(p.orders);if(!p.reversed_at&&order){const list=result.get(p.cash_transaction_id)||[];list.push({id:order.id,code:order.legacy_code||order.id,kind:'Pedido',href:`/admin/finanzas?tab=flow&order=${order.id}`,amount:Number(p.amount)});result.set(p.cash_transaction_id,list);}}
+    const refundOrderIds=[...new Set(chunk.flatMap(t=>t.refund_order_id?[t.refund_order_id]:[]))];
+    if(refundOrderIds.length){
+      const orders=await all<{id:string;legacy_code:string|null}>(db.from('orders').select('id,legacy_code').in('id',refundOrderIds).order('id'));
+      for(const t of chunk){
+        const order=orders.find(o=>o.id===t.refund_order_id);
+        if(!order)continue;
+        const list=result.get(t.id)||[];
+        if(!list.some(ref=>ref.kind==='Pedido'&&ref.id===order.id))list.push({id:order.id,code:order.legacy_code||order.id,kind:'Pedido',href:`/admin/finanzas?tab=flow&order=${order.id}`});
+        result.set(t.id,list);
+      }
+    }
     // Bank statement order references reuse the existing movement; they never create client payments.
     try {
       const bankLinks=await all(db.from('bank_entry_ledger_links').select('entry_id,cash_transaction_id,bank_statement_entries(bank_statement_order_links(order_id,orders(id,legacy_code)))').in('cash_transaction_id',ids).order('entry_id'));

@@ -249,6 +249,7 @@ interface CashTransactionWithRelations {
   classification?: {category:string;concept:string;person:string;destination:string;label:string;detail?:string}|null;
   movement_code?:string|null;
   applications?:ApplicationReference[];
+  refund_order_pending?: boolean;
   treasury_settlement_id?:string|null;
   financial_operations?:OperationSummary|null;
   reversal_of_transaction_id?:string|null;
@@ -429,6 +430,7 @@ function FinanceWorkspace() {
   const cancellationInFlight = useRef(false);
   const [cancellingTransactionId, setCancellingTransactionId] = useState<string | null>(null);
   const [showCancelled, setShowCancelled] = useState(false);
+  const [onlyPendingRefundOrders, setOnlyPendingRefundOrders] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
   const [orderReference,setOrderReference]=useState<string|null>(null);
@@ -1015,6 +1017,7 @@ function FinanceWorkspace() {
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
       if (!showCancelled && isInactiveFinancialMovement(t)) return false;
+      if (onlyPendingRefundOrders && !t.refund_order_pending) return false;
       // 0. Rango de Fechas (Filtro en cliente para Fecha Inicio)
       const txDate = treasuryToday(new Date(t.created_at));
       if (txDate < startDate) {
@@ -1066,7 +1069,7 @@ function FinanceWorkspace() {
 
       return true;
     });
-  }, [transactions, showCancelled, filterAccountIds, filterType, filterCategory, filterCostCenterId, searchTerm, startDate]);
+  }, [transactions, showCancelled, onlyPendingRefundOrders, filterAccountIds, filterType, filterCategory, filterCostCenterId, searchTerm, startDate]);
 
   // KPIs Financieros Consolidados (Pesos y Dólares por separado)
   const financialKPIs = useMemo(() => {
@@ -1249,7 +1252,8 @@ function FinanceWorkspace() {
             category={filterCategory} onCategory={value => { setFilterCategory(value); setCurrentPage(1); }} categories={categoriesList}
             unit={filterCostCenterId} onUnit={value => { setFilterCostCenterId(value); setCurrentPage(1); }} units={costCenters}
             showCancelled={showCancelled} onShowCancelled={value => { setShowCancelled(value); setCurrentPage(1); }}
-            onClear={() => { setShowCancelled(false); setSearchTerm(""); setFilterAccountIds([]); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); changePeriod(defaultPeriod.start, defaultPeriod.end); }}
+            onlyPendingRefundOrders={onlyPendingRefundOrders} onPendingRefundOrders={value => { setOnlyPendingRefundOrders(value); setCurrentPage(1); }}
+            onClear={() => { setShowCancelled(false); setOnlyPendingRefundOrders(false); setSearchTerm(""); setFilterAccountIds([]); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); changePeriod(defaultPeriod.start, defaultPeriod.end); }}
             onRefresh={() => { void loadTransactions(); }} onNew={openQuickMovement} onTransfer={() => openQuickTransfer()}
             onConcepts={() => setIsConceptManagerOpen(true)} onExport={handleExportCSV} onSync={handleSyncFromSheets}
             onExportExcel={handleExportExcel} exportDisabled={excelExportDisabled}
@@ -1326,7 +1330,7 @@ function FinanceWorkspace() {
             </div>
           ) : transactionsError ? null : filteredTransactions.length === 0 ? (
             <div className="bg-white p-12 text-center text-slate-400 font-bold text-xs rounded-2xl border border-slate-200/60 shadow-sm">
-              No se encontraron movimientos financieros para los filtros y fechas seleccionados.
+              {onlyPendingRefundOrders ? 'No hay devoluciones pendientes de asociar para los filtros y fechas seleccionados.' : 'No se encontraron movimientos financieros para los filtros y fechas seleccionados.'}
             </div>
           ) : (
             <div className="bg-white p-2 rounded-xl border border-slate-200/60 shadow-sm space-y-2">
@@ -1353,7 +1357,7 @@ function FinanceWorkspace() {
                       return paginatedTransactions.map(t => {
                         const isIngreso = t.type === 'ingreso';
                         const inactive = isInactiveFinancialMovement(t);
-                        const canLinkSupplier = operationsAvailable!==false && !inactive
+                        const canLinkSupplier = operationsAvailable!==false && !inactive && !t.refund_order_pending
                           && isSupplierApplicationSource(inferOperationType(t),t.type)
                           && !t.register_id && !t.treasury_settlement_id && !t.employee_id
                           && !t.supplier_payments?.some(p=>!p.reversed_at) && !t.client_payments?.some(p=>!p.reversed_at)
@@ -1391,7 +1395,10 @@ function FinanceWorkspace() {
                               <tr className="hover:bg-slate-50/70 transition-colors font-semibold text-slate-700">
                                 <td className="py-1.5 px-2 text-slate-400">{currentDate}</td>
                                 <td className="py-1.5 px-2 font-mono text-xs"><button type="button" className="text-brand-700 underline" onClick={()=>setOperationEditor({kind:inferOperationType(t),transactionId:t.id})}>{movementCode(t)}</button></td>
-                                <td className="py-1.5 px-2 text-xs">{t.applications?.length?t.applications.map((a,i)=><a key={a.id+'-'+i} href={a.href} className="block text-brand-700 underline" title={a.amount!==undefined?`Importe aplicado: ${a.amount.toLocaleString('es-AR')}`:undefined}>{a.kind} · {a.code}</a>):'—'}</td>
+                                <td className="py-1.5 px-2 text-xs">
+                                  {t.applications?.map((a,i)=><a key={a.id+'-'+i} href={a.href} className="block text-brand-700 underline" title={a.amount!==undefined?`Importe aplicado: ${a.amount.toLocaleString('es-AR')}`:undefined}>{a.kind} · {a.code}</a>)}
+                                  {t.refund_order_pending ? <button type="button" title="Abrir la devolución para asociar el pedido" className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800" onClick={()=>setOperationEditor({kind:'general',transactionId:t.id})}>Pendiente de asociar</button> : !t.applications?.length && '—'}
+                                </td>
                                 <td className="py-1.5 px-2 text-center">
                                   {isIngreso ? (
                                     <span className="inline-flex items-center gap-0.5 text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded text-[9px] font-black uppercase">

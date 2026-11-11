@@ -25,6 +25,6 @@ export function selectCommonMovement(value:OperationInput,c:FinancialConcept,sup
  else if(option.group==='Impuestos'&&c.movement_type==='Egreso'){operation_type='tax_payment';detail={period:value.effective_date.slice(0,7),organism:name};}
  return {...value,operation_type,financial_concept_id:c.id,concept:c.concept,category:c.category,sub_category:c.sub_category,efe_category:c.efe_category,
   direction:operation_type==='customer_collection'||c.movement_type==='Ingreso'?'ingreso':'egreso',
-  supplier_id,employee_id,person_id,order_id:undefined,client_id:undefined,client_payment_id:undefined,
+  supplier_id,employee_id,person_id,order_id:undefined,client_id:undefined,client_payment_id:undefined,refund_order_id:undefined,
   destination_account_id:undefined,cost_center_id:undefined,route_sheet_id:undefined,allocations:[],detail};
 }

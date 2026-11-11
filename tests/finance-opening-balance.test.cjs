@@ -3,6 +3,19 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
+function readModule(path) {
+  const exports = {};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS }
+  }).outputText, {exports});
+  return exports;
+}
+const operationTypes = readModule('src/lib/financialOperations/types.ts');
+const operationReferences = readModule('src/lib/financialOperations/references.ts');
+const requestErrors = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/authenticatedRequest.ts', 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS }
+}).outputText, {exports: requestErrors});
 
 function route(prior,options={}) {
   const exports = {};
@@ -34,7 +47,9 @@ function route(prior,options={}) {
       : name === '@/lib/financialOperations/server' ? {financialContext:async()=>({db})}
       : name === '@/lib/financialOperations/validation' ? {OperationError:class extends Error {}}
       : name === '@/lib/financialClassification/server' ? {movementClassifications:async()=>new Map()}
-      : name === '@/lib/financialOperations/referenceServer' ? {movementApplications:async()=>new Map()}
+      : name === '@/lib/financialOperations/referenceServer' ? {movementApplications:async()=>new Map(options.applications)}
+      : name === '@/lib/financialOperations/types' ? operationTypes
+      : name === '@/lib/financialOperations/references' ? operationReferences
       : name === '@/lib/financialOperations/partnerReporting' ? {partnerAssignments:async()=>new Map(),businessPortion:()=>({})}
       : { compareTreasuryTransactions: () => 0 }
   });
@@ -81,4 +96,20 @@ test('active migration reads supplier invoices despite allocation relationship',
  assert.equal(response.status,200);
  assert.equal(response.body.features.financialOperations,true);
  assert.equal(response.body.transactions.length,1);
+});
+
+test('only active customer refunds without an order appear as pending',async()=>{
+ const refund={created_at:'2026-10-01',financial_account_id:'account',amount:25,type:'egreso',category:'Recaudación',concept:'Devolución parcial de cobro'};
+ const api=route({data:[],error:null},{transactions:[
+   {...refund,id:'legacy'},
+   {...refund,id:'catalog',concept:'Detalle manual',financial_concepts:{category:'Recaudación',movement_type:'Egreso',concept:'Devolución de cobro'}},
+   {...refund,id:'linked',refund_order_id:'order'},
+   {...refund,id:'bank'},
+   {...refund,id:'cancelled',financial_operations:{status:'cancelled'}},
+   {...refund,id:'incoming',type:'ingreso'},
+ ],applications:[['bank',[{id:'order',kind:'Pedido',code:'PED-01'}]]]});
+ const response=await api.GET({url:'https://example.test/api?action=transactions&startDate=2026-10-01'});
+ assert.equal(response.status,200);
+ const pending=response.body.transactions.filter(t=>t.refund_order_pending).map(t=>t.id).sort();
+ assert.deepEqual(Array.from(pending),['catalog','legacy']);
 });

@@ -9,15 +9,16 @@ import GuidedClassificationPicker from '../GuidedClassificationPicker';
 
 import type {ApplicationReference,SupplierPaymentApplicationSummary} from '@/lib/financialOperations/references';
 import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
-import { operationLabels,type OperationInput,type OperationType,type OperationTarget } from '@/lib/financialOperations/types';
+import { isCustomerRefundConcept,operationLabels,type OperationInput,type OperationType,type OperationTarget } from '@/lib/financialOperations/types';
 import { validateOperation } from '@/lib/financialOperations/validation';
 import { transferDefaults } from '@/lib/financialOperations/transferDefaults';
 import {prepareOperationForm} from '@/lib/financialOperations/formDefaults';
 import AccountPicker from './AccountPicker';
 import SelectionModal from './SelectionModal';
+import RefundOrderPicker,{type RefundOrder} from './RefundOrderPicker';
 import OperationAttachments,{uploadOperationAttachments} from './OperationAttachments';
 import MissingVoucherModal from './MissingVoucherModal';
 import {needsSupplierVoucher} from '@/lib/financialOperations/voucherStatus';
@@ -39,7 +40,7 @@ type Helpers={financialAccounts:Account[];employees:EmployeeOption[];suppliers:S
   pendingPurchases:PurchaseOption[];costCenters:Array<{id:string;name:string}>;routeSheets:Array<{id:string;run_number:number;delivery_date:string}>;people?:Array<Person&{financial_people_concepts:Array<{concept_id:string}>}>};
 type Options={paymentMethods:Array<{id:string;name:string}>;concepts:FinancialConcept[];conceptTypes:Array<{financial_concept_id:string;operation_type:OperationType}>;
  vouchers:Array<{id:string;reference:string|null;counterparty:string|null;voucher_date:string}>};
-type Snapshot={transaction:Record<string,unknown>;operation:{id:string;version:number;status:string}|null;planning:boolean;payload:OperationInput;purchases:PurchaseOption[];order:Order|null;supplierApplicationEligible?:boolean;supplierPaymentApplications?:SupplierPaymentApplicationSummary|null};
+type Snapshot={transaction:Record<string,unknown>;operation:{id:string;version:number;status:string}|null;planning:boolean;payload:OperationInput;purchases:PurchaseOption[];order:Order|null;refundOrder?:RefundOrder|null;supplierApplicationEligible?:boolean;supplierPaymentApplications?:SupplierPaymentApplicationSummary|null};
 type MovementReference={code:string;applications:ApplicationReference[];supplierPayment?:SupplierPaymentApplicationSummary|null};
 function RegisteredApplications({reference}:{reference:MovementReference}) {
  const payment=reference.supplierPayment;
@@ -83,6 +84,8 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
  const [helpers,setHelpers]=useState<Helpers|null>(null),[options,setOptions]=useState<Options|null>(null);
  const [target,setTarget]=useState<OperationTarget|undefined>(),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[savedNotice,setSavedNotice]=useState('');
  const [query,setQuery]=useState(''),[orders,setOrders]=useState<Order[]>([]),[chosenOrder,setChosenOrder]=useState<Order|null>(null);
+ const [refundOrder,setRefundOrder]=useState<RefundOrder|null>(null);
+ const searchRefundOrders=useCallback(async(q:string)=>(await api(`/api/admin/finanzas-data?action=search-refund-orders&q=${encodeURIComponent(q)}`)).orders || [],[api]);
  const [clients,setClients]=useState<Array<{id:string;business_name:string}>>([]),[chosenClient,setChosenClient]=useState<{id:string;business_name:string}|null>(null);
  const [extraPurchases,setExtraPurchases]=useState<PurchaseOption[]>([]),[blocked,setBlocked]=useState('');
  const pending=useRef<{signature:string;key:string}|null>(null);
@@ -118,6 +121,10 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
     setHelpers(h);setOptions(o);
     if(s){
       const snapshot=s as Snapshot;
+      if(!snapshot.payload.financial_concept_id&&snapshot.payload.operation_type==='general'&&snapshot.payload.direction==='egreso'){
+        const catalog=(o.concepts as FinancialConcept[]).find(c=>isCustomerRefundConcept(c)&&c.concept===snapshot.payload.concept&&c.category===snapshot.payload.category);
+        if(catalog)snapshot.payload.financial_concept_id=catalog.id;
+      }
       if(!duplicate)setReference({code:s.code,applications:s.applications||[],supplierPayment:snapshot.supplierPaymentApplications});
       if(snapshot.transaction.treasury_settlement_id)setBlocked('Este movimiento se corrige desde Rendiciones.');
       else if(snapshot.planning)setBlocked('Desconciliá este movimiento desde Planificación antes de corregirlo.');
@@ -127,7 +134,8 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
       setSupplierDraft(draft);
       if(linkSupplier&&!draft)setBlocked('Este egreso ya no está disponible para vincular a un proveedor.');
       setValue(linkSupplier&&draft?draft:{...snapshot.payload,detail:{...snapshot.payload.detail,...(snapshot.payload.operation_type==='supplier_payment'&&snapshot.payload.detail?.supplier_kind!=='eventual'?{supplier_allocation_mode:duplicate?'oldest_first':snapshot.payload.detail?.supplier_allocation_mode||'documents'}:{})},operation_type:initialMode==='link'?kind:snapshot.payload.operation_type,
-        ...(duplicate?{effective_date:treasuryToday(),order_id:undefined,client_id:undefined,client_payment_id:undefined,allocations:[],voucher_ids:[],route_sheet_id:undefined}: {})});
+        ...(duplicate?{effective_date:treasuryToday(),order_id:undefined,client_id:undefined,client_payment_id:undefined,refund_order_id:undefined,allocations:[],voucher_ids:[],route_sheet_id:undefined}: {})});
+      setRefundOrder(duplicate?null:snapshot.refundOrder||null);
       if(!duplicate)setTarget({transaction_id:String(snapshot.transaction.id),operation_id:snapshot.operation?.id,expected_version:snapshot.operation?.version,expected_transaction:snapshot.transaction});
       setExtraPurchases(snapshot.purchases || []);setChosenOrder(duplicate?null:snapshot.order);if(!duplicate&&s.client)setChosenClient(s.client);
     } else {
@@ -151,6 +159,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
  const change=(patch:Partial<OperationInput>)=>{setError('');setSavedNotice('');setValue(v=>({...v,...patch}));};
  const account=helpers?.financialAccounts.find(a=>a.id===value.account_id);
  const isTransfer=value.operation_type==='internal_transfer';
+ const isRefund=isCustomerRefundConcept(options?.concepts.find(c=>c.id===value.financial_concept_id));
  const purchases=[...extraPurchases,...(helpers?.pendingPurchases || [])].filter((p,i,rows)=>rows.findIndex(x=>x.id===p.id)===i && p.currency===account?.currency);
  async function submit(e?:React.FormEvent,allowWithoutVoucher=false){
   e?.preventDefault();setError('');
@@ -158,7 +167,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
   if(readOnly){setError('Para guardar operaciones reales falta activar la migración 136.');return;}
   try {
    if(compact&&!value.financial_concept_id)throw new Error('Elegí una clasificación de la lista.');
-   let prepared=prepareOperationForm(value,options?.paymentMethods || [],supplierApplication);
+   let prepared=prepareOperationForm({...value,refund_order_id:isRefund?value.refund_order_id:undefined},options?.paymentMethods || [],supplierApplication);
    if(prepared.operation_type==='payroll_payment'&&!prepared.employee_id)throw new Error('Seleccioná un empleado o eventual habilitado. Podés darlo de alta desde este formulario.');
    validateOperation(files.length?{...prepared,voucher_ids:[...(prepared.voucher_ids||[]),"00000000-0000-0000-0000-000000000001"]}:prepared);
    if(needsSupplierVoucher(prepared,files.length)&&!allowWithoutVoucher){setMissingVoucher(true);return;}
@@ -170,9 +179,9 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
    if(!pending.current || pending.current.signature!==signature)pending.current={signature,key:crypto.randomUUID()};
    setBusy(true);await api('/api/admin/financial-operations',{method:'POST',body:JSON.stringify({...payload,key:pending.current.key})});
    if(inline){
-    pending.current=null;setMissingVoucher(false);setFiles([]);setChosenOrder(null);setChosenClient(null);
-    setValue(v=>({...v,amount:'',notes:'',voucher_ids:[],allocations:[],order_id:undefined,client_id:undefined,client_payment_id:undefined,detail:{...v.detail,...(v.operation_type==='supplier_payment'?{supplier_allocation_mode:'oldest_first' as const}:{})}}));
-    setSavedNotice('Movimiento registrado. Podés cargar el siguiente.');
+    pending.current=null;setMissingVoucher(false);setFiles([]);setChosenOrder(null);setChosenClient(null);setRefundOrder(null);
+    setValue(v=>({...v,amount:'',notes:'',voucher_ids:[],allocations:[],order_id:undefined,client_id:undefined,client_payment_id:undefined,refund_order_id:undefined,detail:{...v.detail,...(v.operation_type==='supplier_payment'?{supplier_allocation_mode:'oldest_first' as const}:{})}}));
+    setSavedNotice(isRefund&&!prepared.refund_order_id?'Devolución registrada. Quedó pendiente de asociar.':'Movimiento registrado. Podés cargar el siguiente.');
     requestAnimationFrame(()=>dialog.current?.querySelector<HTMLInputElement>('input[aria-label="Importe"]')?.focus());
    }else onClose();
    onSaved();
@@ -184,7 +193,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
     {value.operation_type==='tax_payment' && <TaxFields value={value} onChange={setValue}/>}
     {value.operation_type==='customer_collection'&&<div className="space-y-2"><span className="text-xs font-semibold">Pedido o cliente</span><div className="flex gap-2"><button type="button" disabled={busy} className={fieldClass+' text-left'} onClick={()=>{setChoosingOrder(true);setQuery('');setOrders([]);}}>{chosenOrder?(chosenOrder.legacy_code||chosenOrder.id.slice(0,8))+' · '+chosenOrder.customer_name:chosenClient?chosenClient.business_name+' · Saldo a favor':'Seleccionar pedido o cliente'}</button>{(chosenOrder||chosenClient)&&<button type="button" disabled={busy} className="rounded border px-3 text-xs" onClick={()=>{setChosenOrder(null);setChosenClient(null);change({order_id:undefined,client_id:undefined,client_payment_id:undefined});}}>Quitar</button>}</div>{value.client_payment_id&&<div className="flex justify-between text-xs"><span>Cobro existente vinculado</span><button type="button" onClick={()=>change({client_payment_id:undefined})}>Quitar vínculo</button></div>}</div>}
 
-    {!compact&&['general','operating_expense','tax_payment'].includes(value.operation_type)&&<GuidedClassificationPicker collapseHierarchy label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>value.operation_type==='general'||options.conceptTypes.some(t=>t.financial_concept_id===c.id&&t.operation_type===value.operation_type))} onChange={id=>{if(!id){change({financial_concept_id:undefined,concept:''});return;}const c=options.concepts.find(x=>x.id===id);if(c)change({financial_concept_id:c.id,concept:c.concept,category:c.category,sub_category:c.sub_category,efe_category:c.efe_category,...(value.operation_type==='general'&&c.movement_type!=='Mov. Financiero'?{direction:c.movement_type==='Ingreso'?'ingreso':'egreso'}:{})});}}/>}
+    {!compact&&['general','operating_expense','tax_payment'].includes(value.operation_type)&&<GuidedClassificationPicker collapseHierarchy label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>value.operation_type==='general'||options.conceptTypes.some(t=>t.financial_concept_id===c.id&&t.operation_type===value.operation_type))} onChange={id=>{if(!id){change({financial_concept_id:undefined,concept:'',refund_order_id:undefined});return;}const c=options.concepts.find(x=>x.id===id);if(c)change({refund_order_id:isCustomerRefundConcept(c)?value.refund_order_id:undefined,financial_concept_id:c.id,concept:c.concept,category:c.category,sub_category:c.sub_category,efe_category:c.efe_category,...(value.operation_type==='general'&&c.movement_type!=='Mov. Financiero'?{direction:c.movement_type==='Ingreso'?'ingreso':'egreso'}:{})});}}/>}
     {!compact&&!value.financial_concept_id&&!['supplier_payment','customer_collection','payroll_payment'].includes(value.operation_type)&&<label className="block text-xs font-semibold">Detalle<input aria-label="Detalle" className={fieldClass} required minLength={2} maxLength={240} value={value.concept} onChange={e=>change({concept:e.target.value})}/></label>}
     <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Más opciones</summary>{(compact||!!value.financial_concept_id||['supplier_payment','customer_collection','payroll_payment'].includes(value.operation_type))&&<label className="mt-3 block text-xs font-semibold">Detalle del movimiento (opcional)<input aria-label="Detalle" className={fieldClass} maxLength={240} value={value.concept} onChange={e=>change({concept:e.target.value})}/></label>}<label className="mt-3 block text-xs font-semibold">Observaciones<textarea className={`${fieldClass} h-20 py-2`} value={value.notes || ''} maxLength={4000} onChange={e=>change({notes:e.target.value})}/></label></details>
     {!compact&&value.operation_type==='general' && <details className="rounded-lg border border-slate-200 p-3"><summary className="text-sm">Clasificación y referencias</summary><p className="mt-2 text-xs text-slate-500">Categoría y subcategoría agrupan el movimiento en informes; EFE lo ubica en el estado de flujo de efectivo. Centro de costo y hoja de ruta lo relacionan con su actividad.</p><div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -215,16 +224,17 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
      <p className="text-sm">Para cambiar la aplicación al saldo inicial, abrí Herramientas y ajustes → Aplicar pagos y créditos a apertura.</p>
      <a className="text-sm text-brand-700 underline" href="/admin/finanzas?tab=cc">Abrir CC Proveedores</a>
    </div>:helpers && options?<form data-shortcut-submit onSubmit={submit}><fieldset disabled={busy} className={inline?'grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]':'space-y-4'}>
-    {compact&&<GuidedClassificationPicker compact dense={inline} disabled={busy} label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>c.movement_type!=='Mov. Financiero'&&c.category!=='Movimiento de cuentas')} onChange={id=>{if(!id){change({financial_concept_id:undefined});return;}const c=options.concepts.find(x=>x.id===id);if(c)setValue(v=>selectCommonMovement(v,c,helpers.suppliers,helpers.employees));}}/>}
+    {compact&&<GuidedClassificationPicker compact dense={inline} disabled={busy} label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>c.movement_type!=='Mov. Financiero'&&c.category!=='Movimiento de cuentas')} onChange={id=>{if(!id){change({financial_concept_id:undefined,refund_order_id:undefined});return;}const c=options.concepts.find(x=>x.id===id);if(c)setValue(v=>selectCommonMovement(v,c,helpers.suppliers,helpers.employees));}}/>}
     <div className={inline?'grid min-w-0 items-start gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)_auto]':'grid gap-3 sm:grid-cols-2'}>
      <label className="text-xs font-semibold">Fecha<ErpDateInput className={fieldClass} type="date" required disabled={mode==='link'} value={value.effective_date} onChange={e=>change({effective_date:e.target.value})}/></label>
      <AccountPicker label={isTransfer?'Cuenta origen':inline?'Caja':'Cuenta'} accounts={helpers.financialAccounts.filter(a=>a.is_active&&!a.is_custody)} value={value.account_id} disabled={mode==='link'||busy} onChange={id=>change({account_id:id,allocations:[],client_payment_id:undefined})}/>
      {isTransfer&&<AccountPicker label="Cuenta destino" accounts={helpers.financialAccounts.filter(a=>a.is_active&&!a.is_custody&&a.id!==value.account_id&&a.currency===account?.currency)} value={value.destination_account_id||''} disabled={busy} onChange={id=>change({destination_account_id:id})}/>}
-     {!compact&&value.operation_type==='general' && <label className="text-xs font-semibold">Dirección<AdaptiveSelect searchLabel="Dirección" className={fieldClass} disabled={mode==='link'} value={value.direction} onChange={e=>change({direction:e.target.value as OperationInput['direction']})}><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></AdaptiveSelect></label>}
+     {!compact&&value.operation_type==='general' && <label className="text-xs font-semibold">Dirección<AdaptiveSelect searchLabel="Dirección" className={fieldClass} disabled={mode==='link'||isRefund} value={value.direction} onChange={e=>change({direction:e.target.value as OperationInput['direction']})}><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></AdaptiveSelect></label>}
      <label className="text-xs font-semibold">Importe {account?.currency}<input aria-label="Importe" className={fieldClass} type="number" required min="0.01" step="0.01" disabled={mode==='link'} value={value.amount} onChange={e=>change({amount:e.target.value})}/></label>
      {inline&&<button disabled={busy||readOnly||!value.financial_concept_id} className="mt-4 h-10 rounded-lg bg-brand-600 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy?'Guardando…':'Registrar'}</button>}
     </div>
     {inline&&<details key={value.operation_type+Boolean(value.supplier_id)} open={!!value.financial_concept_id&&(!['general','supplier_payment'].includes(value.operation_type)||(value.operation_type==='supplier_payment'&&!value.supplier_id))} className="min-w-0 lg:col-span-2"><summary className="cursor-pointer text-xs text-slate-600">Comprobante, observaciones y aplicación</summary><div className="mt-3 space-y-3">{additionalFields}</div></details>}
+    {isRefund&&<RefundOrderPicker order={value.refund_order_id?refundOrder:null} disabled={busy} search={searchRefundOrders} onChange={order=>{setRefundOrder(order);change({refund_order_id:order?.id});}}/>}
     {!inline&&additionalFields}
     {compact&&onMoreOperations&&<button type="button" disabled={busy} onClick={onMoreOperations} className="text-left text-xs text-blue-700 underline lg:col-span-2">Ver otros tipos de operación</button>}
     {!inline&&<div className="flex justify-end gap-2"><button type="button" disabled={busy} onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">Cerrar</button><button disabled={busy || readOnly} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{readOnly?'Guardado pendiente de migración':busy?'Guardando…':compact?'Registrar movimiento':mode==='link'?'Confirmar vinculación':value.operation_type==='customer_collection'?'Registrar cobro':value.operation_type==='internal_transfer'?'Registrar transferencia':value.operation_type==='operating_expense'?'Registrar gasto':value.operation_type==='general'?'Guardar movimiento':'Registrar pago'}</button></div>}

@@ -150,5 +150,35 @@ function definition(name){const sql=fs.readFileSync('database/db_migration_v136_
  assert.deepEqual(await bankPayments(pending.cash),expectedBankPayment);
  await rejected(()=>classify(ambiguousConcept),/ya está vinculado a un proveedor/);
  assert.deepEqual(await bankPayments(pending.cash),expectedBankPayment);
+
+ const refundMigration=fs.readFileSync('database/db_migration_20261111_customer_refund_order.sql','utf8')
+   .replace(/^begin;/im,'').replace(/^commit;/im,'');
+ await db.query(refundMigration);await db.query(refundMigration);
+ const refundOrder=randomUUID(),otherOrder=randomUUID(),client=randomUUID(),receipt=randomUUID();
+ await db.query("insert into orders values($1,100,'Entregado',$3),($2,200,'Cancelado',$3)",[refundOrder,otherOrder,client]);
+ await db.query("insert into client_payments(id,order_id,client_id,amount,currency,status) values($1,$2,$3,100,'ARS','Aprobado')",[receipt,refundOrder,client]);
+ const orderState=async()=>(await db.query('select * from client_payments where client_id=$1',[client])).rows;
+ const beforeRefund=await orderState();
+ for(const label of ['Devolución de cobro','Devolución parcial de cobro']){
+   const refundConcept=randomUUID();
+   await db.query("insert into financial_concepts(id,concept,category,sub_category,efe_category,movement_type,is_active) values($1,$2,'Recaudación','Venta - MercadoPago','Ventas Minoristas','Egreso',true)",[refundConcept,label]);
+   const payload={operation_type:'general',direction:'egreso',account_id:account,payment_method_id:method,effective_date:'2026-10-06',amount:'45.67',concept:label,category:'Recaudación',sub_category:'Venta - MercadoPago',efe_category:'Ventas Minoristas',financial_concept_id:refundConcept,detail:{}};
+   const saveRefund=async(p,key=randomUUID(),target={})=>(await db.query('select save_financial_operation($1,$2,$3,$4,$5,$6) r',[actor,key,'save',p,target,''])).rows[0].r;
+   await rejected(()=>saveRefund({...payload,refund_order_id:randomUUID()}),/foreign key/);
+   const request=randomUUID();
+   const result=await saveRefund(payload,request);
+   assert.deepEqual(await saveRefund(payload,request),result);
+   await rejected(()=>saveRefund({...payload,refund_order_id:otherOrder},request),/Clave reutilizada/);
+   const tx=result.transaction_ids[0];
+   const getRefund=async()=>(await db.query('select type,amount::text,refund_order_id from cash_transactions where id=$1',[tx])).rows[0];
+   assert.deepEqual(await getRefund(),{type:'egreso',amount:'45.67',refund_order_id:null});
+   const edit={transaction_id:tx,operation_id:result.operation_id,expected_version:result.version};
+   const linked={...payload,refund_order_id:refundOrder};
+   const updated=await saveRefund(linked,randomUUID(),edit);
+   assert.deepEqual(await getRefund(),{type:'egreso',amount:'45.67',refund_order_id:refundOrder});
+   await saveRefund({...linked,refund_order_id:otherOrder},randomUUID(),{...edit,expected_version:updated.version});
+   assert.equal((await getRefund()).refund_order_id,otherOrder);
+ }
+ assert.deepEqual(await orderState(),beforeRefund);
  await db.query('rollback');console.log('PASS isolated PostgreSQL cents regression: FIFO, partial payment, exclusions, repeatable migration, retry, editing, surplus, manual override and cancellation; isolated fixtures rolled back.');
 }catch(e){await db.query('rollback');throw e;}finally{await db.end();}})().catch(e=>{console.error(e.message, e.position, e.internalQuery, e.query);process.exitCode=1;});

@@ -23,6 +23,7 @@ export function validateOperation(input: unknown): asserts input is OperationInp
     if (p[field] && !isUuid(p[field])) throw new OperationError(`Referencia inválida: ${field}.`);
   }
   if (!['ingreso','egreso'].includes(p.direction)) throw new OperationError('Dirección inválida.');
+  if (p.refund_order_id != null && (!isUuid(p.refund_order_id) || !isUuid(p.financial_concept_id) || p.operation_type !== 'general' || p.direction !== 'egreso')) throw new OperationError('Pedido de devolución inválido.');
   if (p.operation_type === 'customer_collection' && p.direction !== 'ingreso') throw new OperationError('Un cobro debe ingresar dinero.');
   if (['supplier_payment','payroll_payment','operating_expense','tax_payment'].includes(p.operation_type) && p.direction !== 'egreso') throw new OperationError('El pago debe ser un egreso.');
   const amount = moneyValue(p.amount);

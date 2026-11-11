@@ -1,5 +1,7 @@
 import {movementClassifications} from '@/lib/financialClassification/server';
 import {movementApplications} from '@/lib/financialOperations/referenceServer';
+import {movementOrderReferences} from '@/lib/financialOperations/references';
+import {isCustomerRefundConcept,isInactiveFinancialMovement} from '@/lib/financialOperations/types';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { compareTreasuryTransactions } from '@/lib/treasuryTransactionTime';
@@ -22,6 +24,13 @@ type CashTransactionRow = {
   financial_account_id: string | null;
   amount: number | string | null;
   type: string;
+  category: string;
+  concept: string | null;
+  refund_order_id?: string | null;
+  reversal_of_transaction_id?: string | null;
+  financial_operations?: {status:string} | null;
+  financial_concepts?: {concept:string;category:string;movement_type:string} | null;
+  client_payments?: Array<{order_id?:string|null;reversed_at?:string|null}>;
   [key: string]: unknown;
 };
 
@@ -100,6 +109,15 @@ export async function GET(request: Request) {
       });
     }
 
+    if (action === 'search-refund-orders') {
+      const q=(searchParams.get('q') || '').replace(/[%_,.()"\\*]/g,' ').trim();
+      if(q.length<3 || q.length>120)return NextResponse.json({orders:[]});
+      const {data,error}=await supabaseAdmin.from('orders').select('id,legacy_code,customer_name,total_amount')
+        .or(`legacy_code.ilike.%${q}%,customer_name.ilike.%${q}%`).order('order_date',{ascending:false}).order('id').limit(30);
+      if(error)throw error;
+      return NextResponse.json({orders:data || []});
+    }
+
     if (action === 'search-pending-orders' || action === 'search-collection-orders') {
       const q = (searchParams.get('q') || '').trim();
       if (!q || q.length < 3) {
@@ -169,6 +187,7 @@ export async function GET(request: Request) {
           .select(`
             *,
             ${operationsAvailable?'financial_operations(id,operation_type,version,status,detail,operation_vouchers(voucher_id)),':''}
+            financial_concepts!cash_transactions_financial_concept_id_fkey(concept,category,movement_type),
             payment_planning_realizations(id,item_id,reversed_at),
             financial_accounts(name, type),
             cost_centers(name, code),
@@ -243,9 +262,15 @@ export async function GET(request: Request) {
           accountBalances[accId] -= amt;
         }
 
+        const {financial_concepts:catalogConcept,...movement}=t;
+        const references=applications.get(t.id)||[];
+        const refundConcept=catalogConcept||{concept:t.concept||'',category:t.category,movement_type:'Egreso'};
+        const isRefund=t.type==='egreso'&&isCustomerRefundConcept(refundConcept);
         return {
-          ...t,
-          applications:applications.get(t.id)||[],
+          ...movement,
+          applications:references,
+          refund_order_pending:isRefund&&!isInactiveFinancialMovement(t)&&!t.refund_order_id
+            && !movementOrderReferences({applications:references,client_payments:t.client_payments}).length,
           client_payments: Array.isArray(t.client_payments) ? t.client_payments.filter((p: {reversed_at?:string|null})=>!p.reversed_at) : [],
           supplier_payments: Array.isArray(t.supplier_payments) ? t.supplier_payments.filter((p: {reversed_at?:string|null})=>!p.reversed_at) : [],
           running_balance: accountBalances[accId]
