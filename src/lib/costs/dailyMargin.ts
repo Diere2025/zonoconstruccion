@@ -7,6 +7,8 @@ export interface MarginOrder {id:string;legacy_code:string|null;status?:string;t
 export interface Delivered {order_id:string;real_delivery_date:string|null;status:string}
 export interface InstallationCost {id:string;name:string;unitCost:number}
 export function isEncomiendaCode(code:unknown):boolean {return /^ENC(?:\d|\b)/i.test(String(code||'').trim());}
+export function isReferenceOrderCode(code:unknown):boolean {return /^ORIG(?:\d|\b)/i.test(String(code||'').trim());}
+export function isCancelledOrderStatus(status:unknown):boolean {return /^(cancelad[oa]|anulad[oa])$/.test(String(status||'').trim().toLocaleLowerCase('es-AR'));}
 export function isExchangeCode(code:unknown):boolean {return /^CAMB(?:\d|\b)/i.test(String(code||'').trim());}
 export function deliveryDates(deliveries:Delivered[]) {
   const dates=new Map<string,Set<string>>();

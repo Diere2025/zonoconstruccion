@@ -466,7 +466,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     if (pathname === '/admin') return;
     if (pathname === '/incidencias' || pathname.startsWith('/incidencias/') || pathname === '/solicitudes-logistica' || pathname.startsWith('/solicitudes-logistica/')) return;
     const search = typeof window !== 'undefined' ? window.location.search : '';
-    if (pathname === '/admin/finanzas/eerr' && !isAdminRole) {
+    if ((pathname === '/admin/finanzas/eerr' || pathname === '/admin/finanzas/eerr/sistema') && !isAdminRole) {
       router.replace(hasRole('administracion') ? '/admin/finanzas' : '/vendedores');
     } else if (isSpecializedOperator && pathname && !canAccessSpecializedRoute(pathname, search)) {
       const fallback = hasRole('compras') ? '/admin/compras?tab=purchase_orders' : hasRole('instalador') ? '/visitas' : '/admin/cobros-mp';

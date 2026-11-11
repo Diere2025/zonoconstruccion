@@ -267,21 +267,12 @@ export default function EstadoResultadosView() {
   useEffect(() => {
     fetchData();
 
-    // Refresh when the user returns. The server cache absorbs quick tab switches.
-    const handleFocus = () => {
-      void fetchData(false, true);
-    };
-    window.addEventListener('focus', handleFocus);
-
-    // EERR is analytical data: two minutes is fresh enough, and hidden tabs do no work.
+    // Keep periodic reads silent while visible, independent of window focus changes.
     const interval = window.setInterval(() => {
       if (!document.hidden) void fetchData(false, true);
     }, 120000);
 
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-      window.clearInterval(interval);
-    };
+    return () => window.clearInterval(interval);
   }, [fetchData]);
 
   const formatCurrency = (val: number) => {
@@ -789,7 +780,7 @@ export default function EstadoResultadosView() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 rounded-3xl text-white shadow-xl">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-2xl font-bold tracking-tight">Estado de Resultados (EERR)</h2>
+            <h2 className="text-2xl font-bold tracking-tight">EERR Planillas</h2>
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               Conexión Privada Service Account
