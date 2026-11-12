@@ -6,6 +6,8 @@ import React, { useEffect, useState, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
+import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
+import { supabase } from "@/lib/supabase";
 import {
   TrendingUp,
   Package,
@@ -34,6 +36,8 @@ import {
   AlertCircle,
   Check
 } from "lucide-react";
+
+const requestMappings = createAuthenticatedRequester(supabase);
 
 interface DashboardData {
   kpis: {
@@ -308,8 +312,7 @@ function WholesaleDashboardContent() {
   const fetchMappings = async () => {
     try {
       setMappingLoading(true);
-      const res = await fetch('/api/admin/dashboard-mayorista/mappings');
-      const json = await res.json();
+      const json = await requestMappings('/api/admin/dashboard-mayorista/mappings');
       if (json.success) {
         setHistoricalItems(json.historical_products || []);
         setCatalogProducts(json.catalog_products || []);
@@ -359,15 +362,13 @@ function WholesaleDashboardContent() {
   const handleSaveMapping = async (historicalName: string, productId: string | null) => {
     try {
       setSavingMappingFor(historicalName);
-      const res = await fetch('/api/admin/dashboard-mayorista/mappings', {
+      const json = await requestMappings('/api/admin/dashboard-mayorista/mappings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           historical_name: historicalName,
           current_product_id: productId || null
         })
       });
-      const json = await res.json();
       if (json.success) {
         const count = json.result?.updated_items_count || 0;
         setMappingSuccessMessage(`Vinculación guardada. Se actualizaron ${count} ítems en el historial.`);

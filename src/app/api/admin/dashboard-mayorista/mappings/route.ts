@@ -3,14 +3,33 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { authenticateSystemAdministrator } from '@/lib/systemAdminAccess';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+async function authorizeMappings(request: Request) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    return NextResponse.json({ error: 'No se pudieron verificar los permisos de administrador.' }, { status: 503 });
+  }
 
-const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+  const db = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const access = await authenticateSystemAdministrator(request, db);
+  if (!access.user) {
+    const error = access.status === 403
+      ? 'Solo los administradores pueden gestionar las vinculaciones mayoristas.'
+      : access.error;
+    return NextResponse.json({ error }, { status: access.status });
+  }
+  return db;
+}
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const supabaseAdmin = await authorizeMappings(request);
+    if (supabaseAdmin instanceof NextResponse) return supabaseAdmin;
+
     // 1. Get active products in catalog
     const { data: catalogProducts, error: prodErr } = await supabaseAdmin
       .from('products')
@@ -68,6 +87,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const supabaseAdmin = await authorizeMappings(request);
+    if (supabaseAdmin instanceof NextResponse) return supabaseAdmin;
+
     const body = await request.json();
     const { historical_name, current_product_id } = body;
 
