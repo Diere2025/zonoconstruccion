@@ -3,6 +3,7 @@ import {supplierApplicationInput} from '@/lib/financialOperations/supplierApplic
 import ErpDateInput from '@/components/ui/ErpDateInput';
 
 import {selectCommonMovement} from '@/lib/financialOperations/commonMovement';
+import {guidedOptions} from '@/lib/financialClassification/guided';
 import SupplierPicker from './SupplierPicker';
 import SupplierDocuments from './SupplierDocuments';
 import GuidedClassificationPicker from '../GuidedClassificationPicker';
@@ -93,9 +94,11 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
  const [missingVoucher,setMissingVoucher]=useState(false);
  const dialog=useRef<HTMLDivElement>(null);
  const [managingPeople,setManagingPeople]=useState(false);
+ const [fundDraft,setFundDraft]=useState<Pick<OperationInput,'effective_date'|'account_id'|'amount'|'notes'>|null>(null);
+ const openFund=()=>{setError('');setFundDraft({effective_date:value.effective_date,account_id:value.account_id,amount:value.amount,notes:value.notes});};
  async function refreshPeople(){try{const h=await api('/api/admin/finanzas-data?action=init');setHelpers(h);}catch(e){setError(e instanceof Error?e.message:'No se pudo actualizar personal.');}}
  useEffect(()=>{
-  if(inline)return;
+  if(inline||fundDraft)return;
   const previous=document.activeElement as HTMLElement|null;
   dialog.current?.focus();
   const key=(event:KeyboardEvent)=>{
@@ -109,7 +112,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
    }
   };
   document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);previous?.focus();};
- },[busy,onClose,inline]);
+ },[busy,onClose,inline,fundDraft]);
  useEffect(()=>{
   let active=true;
   setLoading(true);setError('');setBlocked('');setSupplierDraft(null);
@@ -215,6 +218,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
    {reference&&<RegisteredApplications reference={reference}/>}
    {!compact&&<OperationHelp kind={value.operation_type}/>}
    {compact&&!inline&&<p className="mb-4 text-sm text-slate-500">Buscá un movimiento común y su clasificación se completa automáticamente.</p>}
+   {compact&&!transactionId&&mode==='save'&&<div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-blue-50 p-3"><button type="button" disabled={busy||loading} onClick={openFund} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-800">Crear o rendir un fondo</button><p className="text-xs text-slate-600">Para entregar dinero a una persona y luego rendir gastos o devolver el sobrante. Sin pedido ni cliente.</p></div>}
    {preview && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Vista local · {realDataPreview?'datos reales en consulta':'datos de ejemplo'}. Guardar solo registra una simulación en esta pantalla.</p>}
    {readOnly && <p className="mb-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">Formulario integrado con datos reales. Podés revisar y completar los campos; guardar requiere activar la migración pendiente.</p>}
    {supplierApplication&&!blocked&&<p className="mb-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">El egreso quedará clasificado como pago a proveedor y conservará su código, fecha, cuenta e importe.</p>}
@@ -224,7 +228,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
      <p className="text-sm">Para cambiar la aplicación al saldo inicial, abrí Herramientas y ajustes → Aplicar pagos y créditos a apertura.</p>
      <a className="text-sm text-brand-700 underline" href="/admin/finanzas?tab=cc">Abrir CC Proveedores</a>
    </div>:helpers && options?<form data-shortcut-submit onSubmit={submit}><fieldset disabled={busy} className={inline?'grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]':'space-y-4'}>
-    {compact&&<GuidedClassificationPicker compact dense={inline} disabled={busy} label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>c.movement_type!=='Mov. Financiero'&&c.category!=='Movimiento de cuentas')} onChange={id=>{if(!id){change({financial_concept_id:undefined,refund_order_id:undefined});return;}const c=options.concepts.find(x=>x.id===id);if(c)setValue(v=>selectCommonMovement(v,c,helpers.suppliers,helpers.employees));}}/>}
+    {compact&&<GuidedClassificationPicker compact dense={inline} disabled={busy} label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>c.movement_type!=='Mov. Financiero'&&c.category!=='Movimiento de cuentas')} onChange={id=>{if(!id){change({financial_concept_id:undefined,refund_order_id:undefined});return;}const c=options.concepts.find(x=>x.id===id);if(c){if(!transactionId&&mode==='save'&&guidedOptions([c])[0]?.group==='Fondos a rendir'){openFund();return;}setError('');setChosenOrder(null);setChosenClient(null);setValue(v=>selectCommonMovement(v,c,helpers.suppliers,helpers.employees));}}}/>}
     <div className={inline?'grid min-w-0 items-start gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)_auto]':'grid gap-3 sm:grid-cols-2'}>
      <label className="text-xs font-semibold">Fecha<ErpDateInput className={fieldClass} type="date" required disabled={mode==='link'} value={value.effective_date} onChange={e=>change({effective_date:e.target.value})}/></label>
      <AccountPicker label={isTransfer?'Cuenta origen':inline?'Caja':'Cuenta'} accounts={helpers.financialAccounts.filter(a=>a.is_active&&!a.is_custody)} value={value.account_id} disabled={mode==='link'||busy} onChange={id=>change({account_id:id,allocations:[],client_payment_id:undefined})}/>
@@ -243,5 +247,6 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
   {missingVoucher&&<MissingVoucherModal files={files} onFilesChange={setFiles} busy={busy} error={error} onClose={()=>setMissingVoucher(false)} onSave={without=>{void submit(undefined,without);}}/>}
   {choosingOrder&&<SelectionModal title="Seleccionar pedido o cliente" onClose={()=>setChoosingOrder(false)}>{orderSelection}</SelectionModal>}
   {managingPeople&&<PeopleManager onClose={()=>setManagingPeople(false)} onChanged={()=>{void refreshPeople();}}/>}
+  {fundDraft&&<SpecialOperationEditor kind="custody_fund" initialFundDraft={fundDraft} requestOverride={requestOverride} preview={preview} readOnly={readOnly} onClose={()=>setFundDraft(null)} onSaved={()=>{setFundDraft(null);if(inline){change({amount:'',notes:''});setSavedNotice('Operación del fondo registrada.');}else onClose();onSaved();}}/>}
  </div>;
 }

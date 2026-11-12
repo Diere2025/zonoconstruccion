@@ -3,7 +3,7 @@ import type {OperationType} from './types';
 export const specialTypes=['custody_fund','currency_exchange','financing','partner_equity','asset_trade','cash_count'] as const;
 export type SpecialType=typeof specialTypes[number];
 export const isSpecialType=(type:OperationType|string):type is SpecialType=>(specialTypes as readonly string[]).includes(type);
-export type SpecialInput={operation_type:SpecialType;action:string;effective_date:string;account_id:string;payment_method_id:string;amount:string;concept:string;notes?:string;destination_account_id?:string;destination_amount?:string;fee?:string;fee_account_id?:string;counterparty?:string;reference?:string;asset_name?:string;purpose?:string;resource_id?:string;cutoff?:string;counted?:string;confirm?:boolean;personal_paid?:boolean;document_not_registered?:boolean;voucher_ids?:string[];reimbursement_mode?:'cash'|'compensation'};
+export type SpecialInput={operation_type:SpecialType;action:string;effective_date:string;account_id:string;payment_method_id:string;amount:string;concept:string;notes?:string;destination_account_id?:string;destination_amount?:string;fee?:string;fee_account_id?:string;counterparty?:string;reference?:string;asset_name?:string;purpose?:string;resource_id?:string;cutoff?:string;counted?:string;confirm?:boolean;personal_paid?:boolean;document_not_registered?:boolean;voucher_ids?:string[];auto_custody?:boolean;reimbursement_mode?:'cash'|'compensation'};
 export type Account={id:string;name:string;currency:string;is_active:boolean;type?:string;is_custody?:boolean};
 export type PartnerWithdrawal={id:string;effective_date:string;counterparty:string;reference:string;currency:string;amount:string;remaining:string};
 export type Fund={id:string;custodian:string;purpose:string;account_id:string;currency:string;balance:string;pending:string;version:number;status:string};
@@ -11,7 +11,7 @@ export type Loan={id:string;counterparty:string;reference:string;currency:string
 export type Count={id:string;account_id:string;cutoff:string;expected:string;counted:string;fingerprint:string;status:string;version:number};
 export type Resources={accounts:Account[];funds:Fund[];loans:Loan[];counts:Count[]};
 export type SpecialLine={account_id:string;direction:'ingreso'|'egreso';amount:string;category:string;line:string};
-export type SpecialPlan={lines:SpecialLine[];fund?:{id?:string;version?:number;create?:{custodian:string;purpose:string;account_id:string;currency:string};balance_delta:string;pending_delta:string;close?:boolean};loan?:{id?:string;version?:number;create?:{counterparty:string;reference:string;currency:string;side:string};capital_delta:string};count?:{id?:string;version?:number;account_id:string;cutoff:string;expected:string;counted:string;fingerprint:string;status:string;opening?:boolean}};
+export type SpecialPlan={lines:SpecialLine[];fund?:{id?:string;version?:number;create?:{custodian:string;purpose:string;account_id:string;currency:string;auto_account?:boolean;name?:string};balance_delta:string;pending_delta:string;close?:boolean};loan?:{id?:string;version?:number;create?:{counterparty:string;reference:string;currency:string;side:string};capital_delta:string};count?:{id?:string;version?:number;account_id:string;cutoff:string;expected:string;counted:string;fingerprint:string;status:string;opening?:boolean}};
 export function decimal(cents:number){return (cents/100).toFixed(2);}
 function nonnegative(v:unknown){if(/^(?:0)(?:\.0{1,2})?$/.test(String(v)))return 0;return moneyValue(v);}
 export function buildSpecialPlan(p:SpecialInput,r:Resources,cut?:{balance:string;fingerprint:string;has_history:boolean}):SpecialPlan{
@@ -71,11 +71,13 @@ export function buildSpecialPlan(p:SpecialInput,r:Resources,cut?:{balance:string
   }
  }else if(p.operation_type==='custody_fund'){
   if(p.action==='deliver'){
-   const dest=account(p.destination_account_id);identified();
+   const automatic=p.auto_custody===true;
+   if(automatic&&(!isUuid(p.destination_account_id)||r.accounts.some(x=>x.id===p.destination_account_id)))throw new OperationError('Referencia de custodia automática inválida.');
+   const dest=automatic?{id:p.destination_account_id!,currency:a.currency}:account(p.destination_account_id);identified();
    if(a.id===dest.id||a.currency!==dest.currency)throw new OperationError('Elegí una cuenta de custodia distinta y de la misma moneda.');
    if(r.funds.some(f=>f.account_id===dest.id&&f.status==='open'))throw new OperationError('Esa cuenta ya tiene un fondo abierto.');
    if(!p.purpose?.trim())throw new OperationError('Indicá la finalidad del fondo.');
-   const amount=moneyValue(p.amount);plan.fund={create:{custodian:p.counterparty!,purpose:p.purpose!,account_id:dest.id,currency:dest.currency},balance_delta:decimal(amount),pending_delta:'0.00'};
+   const amount=moneyValue(p.amount);plan.fund={create:{custodian:p.counterparty!,purpose:p.purpose!,account_id:dest.id,currency:dest.currency,...(automatic?{auto_account:true,name:('Custodia · '+p.counterparty+' · '+p.reference).slice(0,220)+' · '+dest.id.slice(0,8)}:{})},balance_delta:decimal(amount),pending_delta:'0.00'};
    line(a.id,'egreso',amount,'Movimiento de cuentas','source');line(dest.id,'ingreso',amount,'Movimiento de cuentas','custody');
   }else{
    const f=r.funds.find(x=>x.id===p.resource_id&&x.status==='open');if(!f)throw new OperationError('Elegí un fondo abierto.');
@@ -112,6 +114,7 @@ export function buildSpecialPlan(p:SpecialInput,r:Resources,cut?:{balance:string
    const delta=Math.round((Number(c.counted)-Number(c.expected))*100);plan.count={...c,status:'adjusted'};line(a.id,delta>=0?'ingreso':'egreso',Math.abs(delta),'Ajuste de arqueo','adjustment');
   }else throw new OperationError('Acción de arqueo inválida.');
  }
+ if(p.operation_type==='custody_fund'&&['deliver','return','reimburse'].includes(p.action)&&a.is_custody)throw new OperationError('Elegí una caja disponible fuera de custodia.');
  if(p.operation_type!=='custody_fund'&&plan.lines.some(line=>r.funds.some(f=>f.status==='open'&&f.account_id===line.account_id)))throw new OperationError('La cuenta está bajo custodia: operala desde su fondo.');
  return plan;
 }

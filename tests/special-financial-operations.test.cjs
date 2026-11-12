@@ -22,3 +22,15 @@ test('a partner cash refund creates one income and a documented offset moves no 
  assert.equal(buildSpecialPlan({...compensation,voucher_ids:[ids[2]]},resources()).lines.length,0);
 });
 test('count records no money, adjustment requires unchanged cut and explicit reason, opening rejects history',()=>{const r=resources(),cut={balance:'100',fingerprint:'version1',has_history:true},cutoff=new Date(Date.now()-60000).toISOString();const p=buildSpecialPlan({...base,operation_type:'cash_count',action:'record',cutoff,counted:'90'},r,cut);assert.equal(p.lines.length,0);r.counts=[{id:ids[3],account_id:ids[0],cutoff,expected:'100',counted:'90',fingerprint:'version1',version:1,status:'recorded'}];const input={...base,operation_type:'cash_count',action:'adjust',resource_id:ids[3],confirm:true,notes:'Faltante verificado'};assert.throws(()=>buildSpecialPlan(input,r,{...cut,fingerprint:'version2'}),/cambiaron/);const adjust=buildSpecialPlan(input,r,cut);assert.equal(adjust.lines[0].direction,'egreso');assert.equal(adjust.lines[0].amount,'10.00');assert.throws(()=>buildSpecialPlan({...base,operation_type:'cash_count',action:'opening',cutoff,counted:'100',confirm:true},r,cut),/nueva apertura/);});
+
+test('a new fund provisions a dedicated account and balances both ledger lines',()=>{
+ const r=resources(),p={...base,operation_type:'custody_fund',action:'deliver',auto_custody:true,destination_account_id:ids[3],purpose:'Logística Ferretería',amount:'60000'};
+ const plan=buildSpecialPlan(p,r);
+ assert.equal(plan.fund.create.auto_account,true);
+ assert.equal(plan.fund.create.currency,'ARS');
+ assert.equal(plan.fund.create.account_id,ids[3]);
+ assert.deepEqual(Array.from(plan.lines,l=>[l.account_id,l.direction,l.amount]),[[ids[0],'egreso','60000.00'],[ids[3],'ingreso','60000.00']]);
+ assert.throws(()=>buildSpecialPlan({...p,destination_account_id:ids[1]},r),/automática inválida/);
+ r.accounts[0].is_custody=true;
+ assert.throws(()=>buildSpecialPlan(p,r),/fuera de custodia/);
+});

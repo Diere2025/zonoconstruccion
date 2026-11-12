@@ -5,6 +5,7 @@ export function guidedOptions(concepts:FinancialConcept[]):GuidedOption[]{return
  if(category==='Extracciones'){group='Extracciones '+(person||'personales');}
  else if(category==='Sueldos'&&/extracciones carolina/i.test(c.sub_category)){group='Extracciones Carolina Ibarra';if(/visa|mastercard/i.test(c.concept)){concept='Tarjetas';detail=clean(c.concept).replace(/\s*-\s*CAROLINA$/i,'');}}
  else if(category==='Recaudación'&&/rendici[oó]n flete externo|venta - recorridos|^(IVECO|KIA) /i.test(c.concept)){group='Rendición de fletero';concept='Rendición';detail=[person,x?.detail,x?.destination].filter(Boolean).join(' · ')||(/^rendici[oó]n flete externo$/i.test(c.concept)?'Sin persona especificada':clean(c.concept));}
+ else if(category==='Recaudación'&&/^Cambio\s*\(Rendir\s*\/\s*Rendido\)/i.test(c.concept)){group='Fondos a rendir';concept='Cambio de recorridos';detail=clean(c.concept);}
  else if(category==='Recaudación'){group='Cobros de clientes';concept=/devoluci[oó]n/i.test(c.concept)?'Devoluciones':/cambio/i.test(c.concept)?'Cambio de recorridos':/descuento/i.test(c.concept)?'Descuentos':'Cobro';detail=clean(c.concept);}
  else if(['Proveedores','Proveedores (Deuda)','Insumo de Producto'].includes(category)){group='Pago a proveedor';concept=category==='Proveedores (Deuda)'?'Pago de deuda':/^reserva/i.test(c.concept)?'Reserva o anticipo':'Pago a proveedor';detail=person||clean(c.concept);}
  else if(category==='Servicio de Flete'){group='Pago de flete';concept='Servicio de flete';detail=person||clean(c.concept);}

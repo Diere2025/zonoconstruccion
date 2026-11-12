@@ -263,3 +263,15 @@ test('automatically posted MP movements can be corrected while preserving their 
  for(const automatic of ['true',1,null,{}])assert.throws(()=>validation.validateOperation({...edited,detail:{automatic}}),/Detalle específico inválido/);
  assert.throws(()=>validation.validateOperation({...edited,detail:{unknown:true}}),/Detalle específico inválido/);
 });
+
+test('legacy route change and custody classifications never require a customer or order',()=>{
+ for(const [concept,category] of [['Cambio (Rendir / Rendido)','Recaudación'],['Rendir Logística Ferretería','Fondos a rendir'],['Rendido Logística Ferretería','Fondos a rendir']]){
+  const c={id:id(9),concept,category,sub_category:'Cambio Entregas',movement_type:'Ingreso',efe_category:'Pago a Proveedores',is_active:true};
+  assert.equal(guided.guidedOptions([c])[0].group,'Fondos a rendir');
+  const selected=common.selectCommonMovement(base,c,[],[]);
+  assert.equal(selected.operation_type,'general');
+  assert.equal(selected.order_id,undefined);assert.equal(selected.client_id,undefined);
+ }
+ const c={id:id(9),concept:'Cobro de cliente',category:'Recaudación',sub_category:'Ventas',movement_type:'Ingreso',efe_category:'Ventas',is_active:true};
+ assert.equal(common.selectCommonMovement(base,c,[],[]).operation_type,'customer_collection');
+});
