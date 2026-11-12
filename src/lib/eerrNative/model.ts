@@ -1,6 +1,10 @@
+import type { ExchangeReview } from './exchanges';
+import type { Advertising } from './advertising';
+
 // Monetary calculations use cents. Every displayed total is the sum of its daily rows.
 export const expenseCategories = ['Insumo de Producto','Insumo GLP','Publicidad','Publicidad (Fee)','IVA + IIBB','Costo Financiera','Alquileres','Sueldos','Honorarios','Servicio de Flete','Costos MercadoPago','Gastos Operativos','Vehículos','Eventuales','Gasto Peajes','Otros Ingresos y Egresos','Pérdida Extraordinaria','IIGG','Impuestos'] as const;
 export type ExpenseCategory = typeof expenseCategories[number];
+const tiktokCategory = 'Publicidad TikTok';
 export type Provision = {amount:number;status:'estimated'|'confirmed';note:string};
 export type Provisions = Partial<Record<ExpenseCategory,Provision>>;
 export function provisionFieldErrors(value:unknown):Partial<Record<keyof Provision,string>> {
@@ -14,7 +18,7 @@ export function provisionFieldErrors(value:unknown):Partial<Record<keyof Provisi
 }
 export type Movement = {id:string;day:string;code:string;concept:string;category:string;type:string;amount:number;personal:number;currency:string;businessUnit:string;reversed:boolean};
 export type ExcludedMovement = Pick<Movement, 'id' | 'day' | 'code' | 'concept' | 'category' | 'amount'> & { reason: string };
-export type Sale = {id:string;code:string;day:string;sales:number;freightCharged:number;surchargesCharged:number;cost:number|null;knownCost:number;exchange:boolean;status:string};
+export type Sale = {id:string;code:string;day:string;sales:number;freightCharged:number;surchargesCharged:number;cost:number|null;knownCost:number;exchange:boolean;status:string;lines?:{name:string;quantity:number;discount?:boolean}[]};
 export function localToday(now=new Date()) {return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);}
 export function localYesterday(now = new Date()) {
  const day = new Date(localToday(now) + 'T00:00:00Z');
@@ -44,11 +48,22 @@ export function validateProvisions(value:unknown):Provisions {
 }
 const cents=(x:number)=>{if(!Number.isFinite(x))throw new Error('Importe inválido en la fuente.');return Math.round(x*100);};
 const excluded=new Set(['Recaudación','Cobranza','Proveedores','Proveedores (Deuda)','Movimiento de cuentas','Fondos a rendir','Extracciones','Socios','1.Inicial Caja','Compra de dólares','Compra de maquinaria','Compra de rodado','Compra de muebles y equipos','Deuda Bancaria','Deuda bancaria']);
-export function buildReport(month:string,sales:Sale[],movements:Movement[],provisions:Provisions,latestDay=localYesterday(),until?:string) {
+export function buildReport(month:string,sales:Sale[],movements:Movement[],provisions:Provisions,latestDay=localYesterday(),until?:string,reviews:ReadonlyMap<string,ExchangeReview>=new Map(),advertising?:Advertising) {
  const p=period(month,latestDay,until),daily=new Map(p.days.map(day=>[day,{day,revenue:0,cardSurcharges:0,cmv:0,expenses:0,otherIncome:0,missingCosts:0}]));
  const entries:{day:string;kind:string;category:string;amount:number;reference:string;source:string;note:string}[]=[];
  const issues:{reference:string;reason:string}[]=[],excludedMovements:ExcludedMovement[]=[];
- for(const s of sales){const d=daily.get(s.day);if(!d)continue;if(s.exchange){issues.push({reference:s.code,reason:'Cambio pendiente de conciliación: excluido de ventas y CMV.'});continue;}
+ const exchanges:{id:string;code:string;day:string;cost:number;costIncomplete:boolean;products:{name:string;quantity:number}[];review:ExchangeReview|null}[]=[];
+ for(const s of sales){const d=daily.get(s.day);if(!d)continue;
+  if(s.exchange){
+   const review=reviews.get(s.id)??null;
+   const cost=cents(s.cost??s.knownCost);
+   d.cmv+=cost;
+   if(s.cost===null){d.missingCosts++;issues.push({reference:s.code,reason:'Falta completar el costo de reposición del cambio.'});}
+   if(!review||['pending','supplier_requested','supplier_partial'].includes(review.status))issues.push({reference:s.code,reason:'Cambio pendiente de revisión. El costo identificado ya está incluido en el CMV.'});
+   exchanges.push({id:s.id,code:s.code,day:s.day,cost:cost/100,costIncomplete:s.cost===null,products:(s.lines??[]).filter(line=>!line.discount).map(({name,quantity})=>({name,quantity})),review});
+   entries.push({day:s.day,kind:'cost',category:'CMV identificado',amount:cost/100,reference:s.code,source:'Reposición por cambio',note:s.cost===null?'Costo parcial de reposición':'Costo de reposición estimado'});
+   continue;
+  }
   const cardSurcharges=cents(s.surchargesCharged);
   const revenue=cents(s.sales)+cents(s.freightCharged)+cardSurcharges;
   d.revenue+=revenue;
@@ -58,6 +73,19 @@ export function buildReport(month:string,sales:Sale[],movements:Movement[],provi
   const cost=cents(s.cost??s.knownCost);d.cmv+=cost;entries.push({day:s.day,kind:'cost',category:'CMV identificado',amount:cost/100,reference:s.code,source:'Motor de costos (estimación actual)',note:s.status});
  }
  const excludedExpenseByProvision:Record<string,number>={};
+ const metaCategory=(category:string)=>!!advertising&&(category==='Publicidad'||category==='Publicidad (Fee)');
+ if(advertising?.issue)issues.push({reference:'Publicidad Meta',reason:advertising.issue});
+ for(const row of advertising?.days??[]){
+  const day=daily.get(row.day);
+  if(!day||row.usd===0)continue;
+  for(const [category,value] of [['Publicidad',row.spendArs],['Publicidad (Fee)',row.feeArs]] as const){
+   if(value===null)continue;
+   day.expenses+=cents(value);
+   entries.push({day:row.day,kind:'expense',category,amount:value,reference:advertising!.account,
+    source:'Consumo diario de Meta',note:category==='Publicidad'?'Costo de los fondos consumidos':'Fee imputado al saldo consumido'});
+  }
+ }
+ const purchaseReferences = new Set(advertising?.purchaseReferences ?? []);
  for(const original of movements){
   // Hipergas is the GLP supplier. Only ordinary supplier payments are mapped;
   // explicit debt, transfers and custody categories retain their own treatment.
@@ -73,8 +101,18 @@ export function buildReport(month:string,sales:Sale[],movements:Movement[],provi
    id: m.id, day: m.day, code: m.code, concept: m.concept, category: m.category, amount: m.amount, reason,
   });
   if(m.reversed){skip('Anulación u original anulado');continue;}
+  if(purchaseReferences.has(m.code)||m.category==='Compra de USDT'||/^(?:Binance - Carga de saldo|Compra de USDT · Binance)$/i.test(m.concept.trim())){
+   skip('Compra de USDT · fondos de Binance');continue;
+  }
   const legacyMpInterest = isMpInterest && m.category === 'Intereses ganados' && m.businessUnit === 'Mov. Financiero';
   if(m.businessUnit&&m.businessUnit.toUpperCase()!=='ZONO'&&!legacyMpInterest){skip('Otra unidad de negocio');continue;}
+  if(metaCategory(m.category) && (!advertising?.purchaseReferences || /\b(meta|facebook|merco)\b/i.test(m.concept))){
+   if(m.currency==='ARS'&&['ingreso','egreso'].includes(m.type)){
+    const signed=(m.type==='egreso'?1:-1)*(cents(m.amount)-cents(m.personal));
+    excludedExpenseByProvision[m.category]=(excludedExpenseByProvision[m.category]||0)+signed;
+   }
+   skip('Reemplazado por consumo de Meta y fee de recargas');continue;
+  }
   if(excluded.has(m.category)){skip('Movimiento patrimonial, pago de compra o cobro ya representado en ventas');continue;}
   if(m.currency!=='ARS'){issues.push({reference:m.code,reason:'Moneda distinta de ARS: requiere conversión documentada.'});continue;}
   if(!['ingreso','egreso'].includes(m.type)||!m.businessUnit){issues.push({reference:m.code,reason:'Falta confirmar tipo o unidad de negocio.'});continue;}
@@ -100,17 +138,44 @@ export function buildReport(month:string,sales:Sale[],movements:Movement[],provi
   if(provisions[m.category as ExpenseCategory]){excludedExpenseByProvision[m.category]=(excludedExpenseByProvision[m.category]||0)+signed;skip('Reemplazado por precarga mensual de este rubro');continue;}
   d.expenses+=signed;entries.push({day:m.day,kind:'expense',category:m.category,amount:signed/100,reference:m.code,source:'Movimiento financiero (fecha de caja)',note:m.concept+(m.personal?' · parte personal excluida':'')});
  }
+ for (const charge of advertising?.redot ?? []) {
+  const category = charge.kind === 'redot_ads' ? tiktokCategory : 'Gastos Operativos';
+  const day = daily.get(charge.day);
+  if (!day) continue;
+  if (charge.amountArs === null) {
+   issues.push({reference:charge.reference,reason:'Cargo de Redot pendiente de valuar en pesos.'});
+   continue;
+  }
+  if (charge.kind === 'service' && provisions['Gastos Operativos']) {
+   excludedExpenseByProvision[category] = (excludedExpenseByProvision[category] || 0) + cents(charge.amountArs);
+   excludedMovements.push({id:charge.reference,day:charge.day,code:charge.reference,concept:charge.detail,
+    category,amount:charge.amountArs,reason:'Reemplazado por precarga mensual de Gastos Operativos'});
+   continue;
+  }
+  day.expenses += cents(charge.amountArs);
+  entries.push({day:charge.day,kind:'expense',category,amount:charge.amountArs,reference:charge.reference,
+   source:'Consumo de Redot',note:charge.detail});
+ }
+ const workingDays = period(month, p.end).days.filter(day => new Date(day + 'T00:00:00Z').getUTCDay() !== 0);
+ const workingDaysThroughCutoff = workingDays.filter(day => day <= p.cutoff);
  for(const [category,v] of Object.entries(provisions)){
-  const total=cents(v.amount),base=Math.floor(total/p.length),remainder=total%p.length;
-  p.days.forEach((day,i)=>{const amount=base+(i<remainder?1:0);daily.get(day)!.expenses+=amount;entries.push({day,kind:'expense',category,amount:amount/100,reference:'Precarga '+month.slice(5)+'/'+month.slice(0,4),source:v.status==='estimated'?'Precarga estimada':'Precarga confirmada',note:v.note});});
+  if(metaCategory(category))continue;
+  const total = cents(v.amount);
+  const base = Math.floor(total / workingDays.length);
+  const remainder = total % workingDays.length;
+  workingDaysThroughCutoff.forEach((day, index) => {
+   const amount = base + (index < remainder ? 1 : 0);
+   daily.get(day)!.expenses += amount;
+   entries.push({day,kind:'expense',category,amount:amount/100,reference:'Precarga '+month.slice(5)+'/'+month.slice(0,4),source:v.status==='estimated'?'Precarga estimada':'Precarga confirmada',note:v.note});
+  });
  }
  const days=[...daily.values()].map(d=>({day:d.day,revenue:d.revenue/100,cardSurcharges:d.cardSurcharges/100,cmv:d.cmv/100,expenses:d.expenses/100,otherIncome:d.otherIncome/100,missingCosts:d.missingCosts,result:d.missingCosts?null:(d.revenue+d.otherIncome-d.cmv-d.expenses)/100}));
  const sum=(key:'revenue'|'cmv'|'expenses'|'otherIncome')=>[...daily.values()].reduce((n,d)=>n+d[key],0);
  const missing=days.reduce((n,d)=>n+d.missingCosts,0),hasIssues=missing>0||issues.length>0;
  const identifiedBalance=(sum('revenue')+sum('otherIncome')-sum('cmv')-sum('expenses'))/100;
  const totals={revenue:sum('revenue')/100,cmv:sum('cmv')/100,expenses:sum('expenses')/100,otherIncome:sum('otherIncome')/100,result:hasIssues?null:identifiedBalance,identifiedBalance};
- const groups=(expenseCategories as readonly string[]).map(category=>({category,amount:entries.filter(e=>e.kind==='expense'&&e.category===category).reduce((n,e)=>n+cents(e.amount),0)/100,mode:provisions[category as ExpenseCategory]?'Precarga (reemplaza movimientos)':'Movimientos de caja',replaced:(excludedExpenseByProvision[category]||0)/100}));
- return {period:p,totals,days,groups,entries,issues,excludedMovements,missingCosts:missing,status:hasIssues?'incomplete':'provisional',notices:['Resultado gerencial provisional: los gastos sin precarga se imputan por fecha de caja, no por devengamiento.','El CMV usa materiales/compra actuales; no es un costo histórico cerrado. Sus fuentes sincronizadas aún pueden depender de planillas.','Las precargas reemplazan el rubro completo y se distribuyen por días calendario, hasta el día de corte.','Sueldos, cargas, publicidad, fee, gas, impuestos y gastos pendientes deben revisarse aun si el rubro figura en cero. No es un cierre contable.']};
+ const groups=[...expenseCategories,tiktokCategory].map(category=>({category,amount:entries.filter(e=>e.kind==='expense'&&e.category===category).reduce((n,e)=>n+cents(e.amount),0)/100,mode:category===tiktokCategory?'Consumo de Redot':metaCategory(category)?'Consumo de Meta':provisions[category as ExpenseCategory]?'Precarga (reemplaza movimientos)':'Movimientos de caja',replaced:(excludedExpenseByProvision[category]||0)/100}));
+ return {period:p,totals,days,groups,entries,issues,excludedMovements,exchanges,missingCosts:missing,status:hasIssues?'incomplete':'provisional',notices:['Resultado gerencial provisional: los gastos sin precarga se imputan por fecha de caja, no por devengamiento.','El CMV usa materiales/compra actuales; no es un costo histórico cerrado. Sus fuentes sincronizadas aún pueden depender de planillas.','Las precargas reemplazan el rubro completo. Se dividen entre los días de lunes a sábado del mes y se imputan hasta la fecha de corte.','Sueldos, cargas, publicidad, fee, gas, impuestos y gastos pendientes deben revisarse aun si el rubro figura en cero. No es un cierre contable.']};
 }
 
 /** Chart values retain identified amounts even when the full result is pending. */

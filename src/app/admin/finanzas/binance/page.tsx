@@ -2,6 +2,7 @@
 
 import {useEffect,useRef,useState,type FormEvent} from 'react';
 import ErpDateInput from '@/components/ui/ErpDateInput';
+import ErpTimeInput from '@/components/ui/ErpTimeInput';
 import {supabase} from '@/lib/supabase';
 import {createAuthenticatedRequester} from '@/lib/authenticatedRequest';
 import {displayDateField} from '@/lib/dates/dateFields';
@@ -33,7 +34,7 @@ function AmountField({name,label,required=true}:{name:string;label:string;requir
 function MovementAmount({entry}:{entry:Entry}) {
   const {kind,wallet,amount,credited,bank_amount,transfer_fee,original_amount,original_currency} = entry;
   return <>
-    <div>{formatAmount(amount,currency(wallet))}{credited && <> → {formatAmount(credited,kind === 'transfer' ? 'USDT' : 'USD')}</>}</div>
+    <div>{Number(amount) === 0 && tracksOriginalAmount(kind) ? 'Débito en USDT pendiente' : formatAmount(amount,currency(wallet))}{credited && <> → {formatAmount(credited,kind === 'transfer' ? 'USDT' : 'USD')}</>}</div>
     {transfer_fee && Number(transfer_fee) > 0 && <div className="text-slate-600">Comisión incluida {formatAmount(transfer_fee,'USDT')}</div>}
     {bank_amount && <div className="text-slate-600">{formatAmount(bank_amount,'ARS')} · {new Intl.NumberFormat('es-AR',{maximumFractionDigits:2}).format(Number(bank_amount)/Number(amount))} ARS/USDT</div>}
     {original_amount && original_currency && <div className="text-slate-600">Cargo original {formatAmount(original_amount,original_currency)}</div>}
@@ -44,6 +45,7 @@ export default function BinanceReconciliationPage() {
   const [kind,setKind] = useState<MovementKind>('p2p');
   const [wallet,setWallet] = useState<Wallet>('binance');
   const [day,setDay] = useState('');
+  const [time,setTime] = useState('');
   const [page,setPage] = useState(0);
   const [revision,reload] = useState(0);
   const [data,setData] = useState<Reconciliation|null>(null);
@@ -78,7 +80,7 @@ export default function BinanceReconciliationPage() {
     if (writing.current) return;
     const form = event.currentTarget;
     const fields = Object.fromEntries(new FormData(form));
-    const entry = {...fields,kind,wallet,day};
+    const entry = {...fields,kind,wallet,day,time};
     const payload = JSON.stringify(entry);
     if (!entryToVoid && attempt.current?.payload !== payload) attempt.current = {payload,id:crypto.randomUUID()};
     const body = entryToVoid
@@ -95,6 +97,7 @@ export default function BinanceReconciliationPage() {
         attempt.current = null;
         form.reset();
         setDay('');
+        setTime('');
       }
       setNotice(entryToVoid ? 'Movimiento anulado.' : 'Movimiento registrado.');
       refresh(entryToVoid ? page : 0);
@@ -111,7 +114,7 @@ export default function BinanceReconciliationPage() {
       <h1 className="text-2xl font-bold">Binance y Redot</h1>
       <p className="mt-1 text-sm text-slate-600">Conciliá los pagos en pesos con las compras P2P, las transferencias, la publicidad y los servicios del exterior.</p>
     </header>
-    <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">Este registro vincula los pagos existentes del ERP y calcula los saldos de las billeteras con los movimientos cargados. Los cargos quedan disponibles para conciliar con sus comprobantes. El Estado de Resultados se gestiona por separado.</p>
+    <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">Vinculá la compra con su pago en pesos y registrá cada transferencia o consumo. El EERR toma el costo de los fondos consumidos según su destino.</p>
     {readError && <p role="alert" className="text-sm text-red-700">{readError} <button type="button" className="underline" onClick={() => refresh(page)}>Reintentar</button></p>}
     {data && <div className="grid gap-3 sm:grid-cols-3">
       {(Object.keys(wallets) as Wallet[]).map(key => {
@@ -145,12 +148,18 @@ export default function BinanceReconciliationPage() {
           <label className="space-y-1 text-sm">Fecha
             <ErpDateInput aria-label="Fecha del movimiento" className={input} value={day} onChange={event => setDay(event.target.value)} required/>
           </label>
+          <label className="space-y-1 text-sm">Hora (si está confirmada)
+            <ErpTimeInput label="Hora del movimiento" className={input} value={time} onChange={setTime}/>
+          </label>
           <label className="space-y-1 text-sm">{kind === 'p2p' ? 'ID de orden Binance P2P' : kind === 'transfer' ? 'ID o hash de la transferencia' : 'Referencia del movimiento'}
             <input className={input} name="reference" required maxLength={200}/>
           </label>
-          <AmountField key={kind} name="amount" label={kind === 'p2p' ? 'USDT recibidos en Binance' : ['transfer','ad_funding'].includes(kind) ? 'USDT debitados de la cuenta' : 'Importe en '+currency(wallet)}/>
+          <AmountField key={kind} name="amount" required={!tracksOriginalAmount(kind)} label={kind === 'p2p' ? 'USDT recibidos en Binance' : ['transfer','ad_funding'].includes(kind) ? 'USDT debitados de la cuenta' : tracksOriginalAmount(kind) ? 'Débito en USDT (si está confirmado)' : 'Importe en '+currency(wallet)}/>
           {kind === 'transfer' && <AmountField name="credited" label="USDT acreditados en Redot"/>}
-          {kind === 'ad_funding' && <AmountField name="credited" label="USD acreditados en publicidad"/>}
+          {kind === 'ad_funding' && <>
+            <AmountField name="credited" label="USD totales acreditados en publicidad"/>
+            <AmountField name="paid_credit" label="USD de la carga (si el total incluye un reintegro)" required={false}/>
+          </>}
           {kind === 'p2p' && <>
             <label className="space-y-1 text-sm">Código del egreso del ERP
               <input className={input} name="bank_code" placeholder="PAG-…" required maxLength={40}/>

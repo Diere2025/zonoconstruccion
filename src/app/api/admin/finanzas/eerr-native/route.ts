@@ -5,6 +5,9 @@ import {GET as marginReport} from '../../rentabilidad-diaria/route';
 import {partnerAssignments} from '@/lib/financialOperations/partnerReporting';
 import {readBatches} from '@/lib/financialOperations/readBatches';
 import {buildReport,displayDate,localToday,localYesterday,period,validateProvisions,type Movement,type Sale} from '@/lib/eerrNative/model';
+import {validateExchangeReview,type ExchangeReview} from '@/lib/eerrNative/exchanges';
+import {metaCostStart} from '@/lib/eerrNative/advertising';
+import {readAdvertising} from '@/lib/eerrNative/advertisingServer';
 export const runtime='edge';
 export const dynamic='force-dynamic';
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store'}});
@@ -14,7 +17,11 @@ export async function GET(request:Request){
   const url=new URL(request.url),latestDay=localYesterday();
   const p=period(url.searchParams.get('month')||'',latestDay,url.searchParams.get('until')??undefined);const db=costDatabase();
   const marginUrl=new URL(request.url);marginUrl.searchParams.set('from',p.start);marginUrl.searchParams.set('to',p.cutoff);marginUrl.searchParams.set('mode','historical');
-  const [marginResponse,config]=await Promise.all([marginReport(new Request(marginUrl,{headers:request.headers})),db.from('eerr_monthly_provisions').select('provisions,version,updated_at').eq('month',p.start).maybeSingle()]);
+  const [marginResponse,config,advertising]=await Promise.all([
+    marginReport(new Request(marginUrl,{headers:request.headers})),
+    db.from('eerr_monthly_provisions').select('provisions,version,updated_at').eq('month',p.start).maybeSingle(),
+    p.start>=metaCostStart?readAdvertising(db,request,p.days):undefined,
+  ]);
   const margin=await marginResponse.json();if(!marginResponse.ok)throw new Error(margin.error||'No se pudo leer rentabilidad.');
   const missingMigration=!!config.error&&['42P01','PGRST205'].includes(config.error.code);if(config.error&&!missingMigration)throw new Error(config.error.message);
   const raw:any[]=[];
@@ -24,14 +31,41 @@ export async function GET(request:Request){
   const assignments=await partnerAssignments(db,raw.map(r=>r.id));
   const fmt=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'});
   const movements:Movement[]=raw.map(r=>({id:r.id,code:r.movement_code||r.id,day:fmt.format(new Date(r.created_at)),concept:r.concept||'',category:r.category||'',type:r.type,amount:Number(r.amount),personal:(assignments.get(r.id)||[]).reduce((n,a)=>n+a.amount,0),currency:r.currency||'',businessUnit:r.business_unit||'',reversed:!!r.reversal_of_transaction_id||reversed.has(r.id)}));
-  const provisions=validateProvisions(config.data?.provisions||{});const report=buildReport(p.month,margin.orders as Sale[],movements,provisions,latestDay,p.cutoff);
+  const sales=margin.orders as Sale[];
+  const reviews=new Map<string,ExchangeReview>();
+  let canReviewExchanges=true;
+  await readBatches(sales.filter(sale=>sale.exchange).map(sale=>sale.id),async ids=>{
+    const {data,error}=await db.from('eerr_exchange_reviews').select('order_id,status,supplier,recognized_amount,note,version').in('order_id',ids);
+    if(error){
+      if(['42P01','PGRST205'].includes(error.code)){canReviewExchanges=false;return;}
+      throw error;
+    }
+    for(const {order_id,...review} of data) reviews.set(order_id,review as ExchangeReview);
+  });
+  const provisions=validateProvisions(config.data?.provisions||{});
+  const report=buildReport(p.month,sales,movements,provisions,latestDay,p.cutoff,reviews,advertising);
   const allExclusions=(margin.exclusions||[]) as {code:string;reason:string;scope:string;affectsResult?:boolean}[];
   const exclusions=allExclusions.filter(e=>e.affectsResult!==false);
   const omittedOrders=allExclusions.filter(e=>e.affectsResult===false);
   // A missing or conflicting delivery date must not silently yield a complete result.
   if(exclusions.length){report.issues.push(...exclusions.map(e=>({reference:e.code,reason:e.reason.replace(/\b\d{4}-\d{2}-\d{2}\b/g,displayDate)})));report.status='incomplete';report.totals.result=null;}
-  return reply({...report,omittedOrders,provisions,version:config.data?.version||0,canSave:!missingMigration,costUpdatedAt:margin.updatedAt,generatedAt:new Date().toISOString(),migrationNotice:missingMigration?'Falta habilitar la precarga mensual en la base de datos.':null});
+  return reply({...report,advertising,omittedOrders,provisions,version:config.data?.version||0,canSave:!missingMigration,canReviewExchanges,costUpdatedAt:margin.updatedAt,generatedAt:new Date().toISOString(),migrationNotice:missingMigration?'Falta habilitar la precarga mensual en la base de datos.':null});
  }catch(e){return reply({error:e instanceof Error?e.message:'No se pudo calcular el EERR nativo.'},400);}
+}
+export async function PATCH(request:Request){
+ const denied=await requireFinanceAdmin(request);if(denied)return reply({error:denied.error},denied.status);
+ try{
+  const {orderId,review:input}=await request.json();
+  if(typeof orderId!=='string'||!/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(orderId))throw new Error('Pedido inválido.');
+  const {version,...review}=validateExchangeReview(input);
+  const db=costDatabase();
+  const {data,error}=await db.auth.getUser(request.headers.get('authorization')!.replace(/^Bearer\s+/i,''));
+  if(error||!data.user)return reply({error:'La sesión venció.'},401);
+  const saved=await db.rpc('save_eerr_exchange_review',{p_actor:data.user.id,p_order:orderId,p_version:version,p_review:review});
+  if(saved.error)return reply({error:saved.error.message},saved.error.code==='40001'?409:saved.error.code==='42501'?403:400);
+  const {status,supplier,recognized_amount,note,version:nextVersion}=saved.data;
+  return reply({review:{status,supplier,recognized_amount,note,version:nextVersion}});
+ }catch(e){return reply({error:e instanceof Error?e.message:'No se pudo guardar la revisión.'},400);}
 }
 export async function PUT(request:Request){
  const denied=await requireFinanceAdmin(request);if(denied)return reply({error:denied.error},denied.status);

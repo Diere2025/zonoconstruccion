@@ -1,6 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript');
 function load(file,require){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require,Request,Response,URL,Intl,Date,Set,Map,Number,Object,Array,Error});return exports;}
 const model=load('src/lib/eerrNative/model.ts');
+const exchangeModel=load('src/lib/eerrNative/exchanges.ts');
 function api({denied=null,rpcError=null,missing=false,exclusions=[],now}={}){
  const trace=[];
  let reads=0,writes=0;const db={auth:{getUser:async()=>({data:{user:{id:'actor'}}})},rpc:async()=>{writes++;return {data:{version:1},error:rpcError};},from:table=>{
@@ -15,6 +16,9 @@ function api({denied=null,rpcError=null,missing=false,exclusions=[],now}={}){
   if(name.includes('partnerReporting'))return {partnerAssignments:async()=>new Map()};
   if(name.includes('readBatches'))return {readBatches:async()=>{}};
   if(name.includes('eerrNative/model'))return now ? {...model,localYesterday:()=>model.localYesterday(now)} : model;
+  if(name.includes('eerrNative/exchanges'))return exchangeModel;
+  if(name.endsWith('/advertising'))return {metaCostStart:'2026-10-01'};
+  if(name.endsWith('/advertisingServer'))return {readAdvertising:async()=>undefined};
   throw new Error(name);
  });return {...route,reads:()=>reads,writes:()=>writes,trace};
 }

@@ -2,17 +2,18 @@ import { dailyProgress, type buildReport, type ExpenseCategory } from './model';
 
 type Report = ReturnType<typeof buildReport>;
 type Row = { label: string; values: number[]; total: number; note?: string };
+type MatrixExpense = ExpenseCategory | 'Publicidad TikTok';
 
 export const expenseGroups = [
   { title: '2. Costos de Mercadería e Insumos (CMV)', color: '#2563eb', concepts: ['Insumo de Producto', 'Insumo GLP'] },
   { title: '3. Logística y Distribución', color: '#d97706', concepts: ['Servicio de Flete', 'Gasto Peajes', 'Vehículos'] },
-  { title: '4. Comercial y Marketing', color: '#dc2626', concepts: ['Publicidad', 'Publicidad (Fee)'] },
+  { title: '4. Comercial y Marketing', color: '#dc2626', concepts: ['Publicidad', 'Publicidad (Fee)', 'Publicidad TikTok'] },
   { title: '5. Personal, RRHH y Estructura', color: '#7c3aed', concepts: ['Sueldos', 'Eventuales', 'Honorarios', 'Alquileres'] },
   { title: '6. Gastos Operativos y Servicios', color: '#475569', concepts: ['Gastos Operativos'] },
   { title: '7. Impuestos, Gravámenes y Costos de Cobranza', color: '#0d9488', concepts: ['Costos MercadoPago', 'IVA + IIBB', 'IIGG', 'Impuestos', 'Costo Financiera'] },
-] as const satisfies ReadonlyArray<{ title: string; color: string; concepts: readonly ExpenseCategory[] }>;
+] as const satisfies ReadonlyArray<{ title: string; color: string; concepts: readonly MatrixExpense[] }>;
 
-const labels: Partial<Record<ExpenseCategory, string>> = {
+const labels: Partial<Record<MatrixExpense, string>> = {
   Eventuales: 'Personal Eventual (Jornales)',
   'Gastos Operativos': 'Gastos Operativos Zono',
   'Costos MercadoPago': 'Costos MercadoPago (Bruto)',
@@ -32,12 +33,12 @@ export function buildMatrix(report: Report) {
     expensesByDay.set(entry.category, amounts);
   }
 
-  function expense(category: ExpenseCategory) {
+  function expense(category: MatrixExpense) {
     const amounts = expensesByDay.get(category);
     const provision = report.groups.find(group => group.category === category)?.mode.startsWith('Precarga');
     const label = labels[category] ?? category;
     return row(label, days.map(day => (amounts?.get(day.day) ?? 0) / 100), undefined,
-      provision ? 'Precarga prorrateada al corte' : undefined);
+      provision ? 'Precarga al corte · lunes a sábado' : undefined);
   }
 
   const revenue = row('Facturación', days.map(day => day.revenue), totals.revenue);

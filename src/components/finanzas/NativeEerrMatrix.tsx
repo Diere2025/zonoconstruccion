@@ -6,7 +6,7 @@ import { displayDate, type buildReport } from '@/lib/eerrNative/model';
 import { buildMatrix } from '@/lib/eerrNative/matrix';
 
 type Report = ReturnType<typeof buildReport>;
-const currency = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 2 });
+const currency = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
 const money = (value: number | null) => value === null ? 'Pendiente' : currency.format(value);
 const percent = (value: number, base: number) =>
   base > 0 ? new Intl.NumberFormat('es-AR', { style: 'percent', maximumFractionDigits: 1 }).format(value / base) : '—';
@@ -28,15 +28,21 @@ export default function NativeEerrMatrix({ report }: { report: Report }) {
     return rows.length ? [{ ...group, rows }] : [];
   });
 
-  const projection = totals.result === null ? null : totals.result * period.length / days.length;
+  const projection = days.length ? totals.identifiedBalance * period.length / days.length : null;
   const amount = (category: string) => report.groups.find(group => group.category === category)?.amount ?? 0;
-  const adSpend = amount('Publicidad') + amount('Publicidad (Fee)');
+  const adSpend = amount('Publicidad') + amount('Publicidad (Fee)') + amount('Publicidad TikTok');
   const freight = amount('Servicio de Flete');
   const indicators = [
     { label: 'Facturación total', value: totals.revenue, detail: 'Ventas por fecha de entrega' },
     { label: 'Costo Mercadería (CMV)', value: totals.cmv, detail: percent(totals.cmv, totals.revenue) + ' sobre ventas · identificado' },
     { label: totals.result === null ? 'Resultado parcial' : 'Utilidad neta actual', value: totals.identifiedBalance, detail: 'Margen neto ' + percent(totals.identifiedBalance, totals.revenue) },
-    { label: 'Proyección fin de mes', value: projection, detail: projection === null ? 'Pendiente de conciliación' : 'Estimación por días calendario' },
+    {
+      label: 'Proyección fin de mes',
+      value: projection,
+      detail: totals.result === null
+        ? 'Estimación parcial por días calendario · pendiente de conciliación'
+        : 'Estimación por días calendario',
+    },
   ];
   const controls = [
     { label: 'Flete', value: freight, ratio: percent(freight, totals.revenue) },

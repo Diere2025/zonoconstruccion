@@ -4,7 +4,7 @@ import {useEffect,useRef,useState} from 'react';
 import {dailyProgress,displayDate,type buildReport} from '@/lib/eerrNative/model';
 
 type Day=ReturnType<typeof buildReport>['days'][number];
-const money=(value:number)=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:2}).format(value);
+const money=(value:number)=>new Intl.NumberFormat('es-AR',{style:'currency',currency: 'ARS', maximumFractionDigits: 0}).format(value);
 const compact=(value:number)=>'$ '+new Intl.NumberFormat('es-AR',{notation:'compact',maximumFractionDigits:1}).format(value);
 const height=240,left=66,right=18,top=18,bottom=34;
 

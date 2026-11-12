@@ -5,15 +5,21 @@ import {createAuthenticatedRequester} from '@/lib/authenticatedRequest';
 import {buildReport,displayDate,expenseCategories,localYesterday,period,provisionFieldErrors,validateProvisions,type Provisions,type ExpenseCategory,type ExcludedMovement} from '@/lib/eerrNative/model';
 import NativeEerrCharts from './NativeEerrCharts';
 import NativeEerrMatrix from './NativeEerrMatrix';
+import NativeEerrExchanges from './NativeEerrExchanges';
+import NativeEerrAdvertising from './NativeEerrAdvertising';
+import type { Advertising } from '@/lib/eerrNative/advertising';
+import type { ExchangeReview } from '@/lib/eerrNative/exchanges';
 const request=createAuthenticatedRequester(supabase);
-type Report=ReturnType<typeof buildReport>&{omittedOrders?:{code:string;reason:string}[];provisions:Provisions;version:number;canSave:boolean;costUpdatedAt:string;generatedAt:string;migrationNotice:string|null};
-const money=(n:number|null)=>n===null?'Pendiente':new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:2}).format(n);
+type Report=ReturnType<typeof buildReport>&{advertising?:Advertising;omittedOrders?:{code:string;reason:string}[];provisions:Provisions;version:number;canSave:boolean;canReviewExchanges:boolean;costUpdatedAt:string;generatedAt:string;migrationNotice:string|null};
+const money=(n:number|null)=>n===null?'Pendiente':new Intl.NumberFormat('es-AR',{style:'currency',currency: 'ARS', maximumFractionDigits: 0}).format(n);
 const field='rounded border border-slate-300 bg-white px-2 py-1.5 text-slate-900';
 const sections = [
   ['summary', 'Resumen'],
+  ['advertising', 'Publicidad'],
   ['daily', 'Resultado diario'],
   ['included', 'Importes incluidos'],
   ['pending', 'Pendientes y exclusiones'],
+  ['exchanges', 'Cambios'],
   ['excluded', 'Movimientos no sumados'],
   ['provisions', 'Precarga mensual'],
 ] as const;
@@ -124,10 +130,35 @@ export default function NativeEerrView(){
    };
  }, [dirty]);
  useEffect(()=>{const id=++generation.current;setLoading(true);setData(null);setError('');setDirty(false);setNotice('');setValidationShown(false);request(reportUrl).then((r:Report)=>{if(id===generation.current){setData(r);setDraft(r.provisions);}}).catch((e:Error)=>{if(id===generation.current)setError(e.message);}).finally(()=>{if(id===generation.current)setLoading(false);});return()=>{generation.current++;};},[reportUrl,reload]);
+ const followAdvertising=section==='advertising'&&!!data?.advertising&&!loading&&!dirty&&!saving;
+ useEffect(()=>{
+   if(!followAdvertising)return;
+   let active=true;
+   let running=false;
+   const current=generation.current;
+   const timer=window.setInterval(async()=>{
+     if(document.hidden||running)return;
+     running=true;
+     try{
+       const updated:Report=await request(reportUrl);
+       if(active&&current===generation.current){setData(updated);setDraft(updated.provisions);}
+     }catch{
+       if(active&&current===generation.current)setError('No se pudo actualizar el seguimiento de Meta. Usá Actualizar para reintentar.');
+     }finally{running=false;}
+   },5*60*1000);
+   return()=>{active=false;window.clearInterval(timer);};
+ },[followAdvertising,reportUrl,reload]);
  async function save(){if(!data)return;setValidationShown(true);setError('');setNotice('');let provisions:Provisions;try{provisions=validateProvisions(draft);}catch(e){setError(e instanceof Error?e.message:'Revisá la precarga.');requestAnimationFrame(()=>provisionPanel.current?.querySelector<HTMLInputElement>('[aria-invalid="true"]')?.focus());return;}setSaving(true);try{await request('/api/admin/finanzas/eerr-native',{method:'PUT',body:JSON.stringify({month,version:data.version,provisions})});const r=await request(reportUrl);setData(r);setDraft(r.provisions);setDirty(false);setValidationShown(false);setNotice('Precarga guardada. Resultado recalculado.');}catch(e){setError(e instanceof Error?e.message:'No se pudo guardar.');}finally{setSaving(false);}}
  function changeMonth(value:string){if(dirty&&!window.confirm('Hay una precarga sin guardar. ¿Querés descartarla y cambiar de mes?'))return;setMonth(value);setSelectedCutoff(null);}
  function changeCutoff(value:string){if(dirty&&!window.confirm('Hay una precarga sin guardar. ¿Querés descartarla y cambiar la fecha de corte?'))return;setSelectedCutoff(value === availablePeriod.cutoff ? null : value);}
  function refresh(){if(dirty&&!window.confirm('Hay una precarga sin guardar. ¿Querés descartarla y recargar?'))return;setReload(v=>v+1);}
+ async function saveExchange(orderId:string,review:ExchangeReview){
+   const current=generation.current;
+   await request('/api/admin/finanzas/eerr-native',{method:'PATCH',body:JSON.stringify({orderId,review})});
+   if(current!==generation.current)return;
+   const updated:Report=await request(reportUrl);
+   if(current===generation.current){setData(updated);setNotice('Seguimiento del cambio guardado.');}
+ }
  function edit(category:ExpenseCategory,patch:Partial<NonNullable<Provisions[ExpenseCategory]>>){setDraft(d=>({...d,[category]:{amount:NaN,status:'estimated',note:'',...d[category],...patch}}));setDirty(true);setError('');}
  const currentYear = Number(latestDay.slice(0,4));
  const latestMonth = latestDay.slice(5,7);
@@ -155,10 +186,10 @@ export default function NativeEerrView(){
     <summary className="cursor-pointer py-2 font-medium">Notas y criterios del EERR</summary>
     <div className="space-y-2 border-t border-slate-200 py-3">
      <ul className="list-disc space-y-1 pl-5">{data.notices.map(note => <li key={note}>{note}</li>)}</ul>
-     <p className="text-sm text-slate-600">Publicidad toma movimientos de caja, incluidas las cargas de saldo de Binance, salvo que se reemplace con una precarga mensual. La comparación con el consumo y el fee queda para una etapa posterior. Los fees registrados se muestran en «Publicidad (Fee)».</p>
+     <p>{data.advertising?'El consumo de Meta toma el costo y el fee de las recargas utilizadas. Los consumos de Redot se clasifican según su destino.':'Publicidad toma movimientos de caja o la precarga mensual del período.'}</p>
      <p>Las comisiones por pagos con tarjeta vía Payway se registran como «PAYNORTH - Fee» en «Costo Financiera», con la fecha del movimiento de caja.</p>
      {data.migrationNotice && <p className="font-medium">{data.migrationNotice}</p>}
-     {data.totals.result===null&&<p>Resultado parcial calculado con los importes identificados. Quedan {data.issues.length} incidencias: sus importes pendientes no están incluidos. El resultado del período queda pendiente de conciliación.{data.missingCosts>0&&` Hay ${data.missingCosts} pedidos con CMV incompleto.`}</p>}
+     {data.totals.result===null&&<p>Resultado parcial calculado con los importes identificados. Quedan {data.issues.length} incidencias por conciliar.{data.missingCosts>0&&` Hay ${data.missingCosts} pedidos con CMV incompleto.`}</p>}
     </div>
    </details>
    <a href="/admin/finanzas/eerr" target="_blank" rel="noopener"
@@ -171,6 +202,7 @@ export default function NativeEerrView(){
     {sections.map(([id, label], index) => {
       const count = id === 'included' ? data.entries.length
         : id === 'pending' ? data.issues.length
+        : id === 'exchanges' ? data.exchanges.length
         : id === 'excluded' ? data.excludedMovements.length
         : undefined;
       return (
@@ -204,6 +236,14 @@ export default function NativeEerrView(){
     })}
    </div>
 
+   <section {...panelProps('exchanges')}>
+    <NativeEerrExchanges exchanges={data.exchanges} canReview={data.canReviewExchanges} onSave={saveExchange}/>
+   </section>
+
+   <section {...panelProps('advertising')}>
+    <NativeEerrAdvertising data={data.advertising}/>
+   </section>
+
    <section {...panelProps('summary')} className="space-y-5">
     <NativeEerrMatrix report={data} />
     <details className="rounded-lg border border-slate-200 px-3 py-2">
@@ -213,8 +253,9 @@ export default function NativeEerrView(){
    </section>
 
    <section {...panelProps('provisions')} ref={provisionPanel}>
-    <h2 className="font-semibold">Precarga mensual</h2><p className="my-3 text-sm text-slate-600">La precarga es opcional: el EERR calcula con los movimientos registrados. Activá solo los rubros que querés reemplazar y completá importe, estado y fundamento. El importe es del mes completo y se distribuye por días calendario. Un cero explícito también reemplaza los movimientos. Confirmado describe la precarga, no certifica todo el EERR.</p>{!data.canSave&&<p role="alert" className="mb-3 rounded bg-amber-50 p-3 text-sm text-amber-900">La precarga está deshabilitada: {data.migrationNotice||'no se pudo habilitar su almacenamiento.'} Una vez habilitada, pulsá Actualizar.</p>}
-    <fieldset disabled={saving||!data.canSave} className="space-y-3">{expenseCategories.map((category,index)=>{const v=draft[category],errors=validationShown&&v?provisionFieldErrors(v):{};return <div key={category} className="rounded border p-3">
+    <h2 className="font-semibold">Precarga mensual</h2><p className="my-3 text-sm text-slate-600">La precarga es opcional: el EERR calcula con los movimientos registrados. Activá solo los rubros que querés reemplazar y completá importe, estado y fundamento. Ingresá el importe del mes completo. Se divide entre los días de lunes a sábado del mes y se imputa hasta la fecha de corte. Un cero explícito también reemplaza los movimientos. Confirmado describe la precarga, no certifica todo el EERR.</p>{!data.canSave&&<p role="alert" className="mb-3 rounded bg-amber-50 p-3 text-sm text-amber-900">La precarga está deshabilitada: {data.migrationNotice||'no se pudo habilitar su almacenamiento.'} Una vez habilitada, pulsá Actualizar.</p>}
+    {data.advertising&&<p className="mb-3 text-sm text-slate-600">Publicidad y su fee se calculan desde el consumo de Meta.</p>}
+    <fieldset disabled={saving||!data.canSave} className="space-y-3">{expenseCategories.filter(category=>!data.advertising||!['Publicidad','Publicidad (Fee)'].includes(category)).map((category,index)=>{const v=draft[category],errors=validationShown&&v?provisionFieldErrors(v):{};return <div key={category} className="rounded border p-3">
      <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={!!v} onChange={e=>{if(e.target.checked)edit(category,{});else{setDraft(d=>{const next={...d};delete next[category];return next;});setDirty(true);setError('');}}}/>{category}</label>
      {v&&<div className="mt-2 grid gap-2 sm:grid-cols-3">
       <label className="text-sm">Importe mensual ARS<input aria-label={'Importe '+category} aria-invalid={!!errors.amount} aria-describedby={errors.amount?`provision-amount-${index}`:undefined} className={field+' block w-full'} type="number" min="0" step="0.01" max="1000000000000" value={Number.isNaN(v.amount)?'':v.amount} onChange={e=>edit(category,{amount:e.target.value===''?NaN:Number(e.target.value)})}/>{errors.amount&&<span id={`provision-amount-${index}`} className="mt-1 block text-red-700">{errors.amount}</span>}</label>

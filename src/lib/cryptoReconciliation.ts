@@ -6,12 +6,12 @@ export type Wallet = keyof typeof wallets;
 
 export const movementKinds = {
   opening: {label:'Saldo inicial', wallets:['binance','redot','ads']},
-  p2p: {label:'Compra P2P de USDT', wallets:['binance']},
+  p2p: {label:'Compra de USDT · Binance', wallets:['binance']},
   transfer: {label:'Transferencia de Binance a Redot', wallets:['binance']},
   ad_funding: {label:'Carga de saldo publicitario', wallets:['binance','redot']},
   ad_spend: {label:'Consumo de saldo publicitario', wallets:['ads']},
   service: {label:'Servicio del exterior', wallets:['redot']},
-  redot_ads: {label:'Pago directo de publicidad', wallets:['redot']},
+  redot_ads: {label:'Publicidad TikTok · Redot', wallets:['redot']},
   personal: {label:'Consumo personal', wallets:['redot']},
   fee: {label:'Comisión debitada por separado', wallets:['binance','redot']},
 } satisfies Record<string,{label:string;wallets:Wallet[]}>;
@@ -44,8 +44,9 @@ export function validateCryptoEntry(value: unknown) {
   if (!validCalendarDate(day)) {
     throw new OperationError('Ingresá una fecha válida.');
   }
-  const reference = read('reference'), detail = read('detail');
-  if (!reference || reference.length > 200 || detail.length > 1000) throw new OperationError('Revisá la referencia y el detalle.');
+  const time = read('time');
+  if (time && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new OperationError('Ingresá el horario en formato HH:MM.');
+  const reference = read('reference');
 
   function amount(key:string, places=8, allowZero=false) {
     const text = read(key).replace(',','.');
@@ -60,9 +61,14 @@ export function validateCryptoEntry(value: unknown) {
   if (hasOriginal && !/^[A-Z]{3}$/.test(originalCurrency)) throw new OperationError('Ingresá la moneda del cargo, por ejemplo USD.');
   const bankCode = read('bank_code').toUpperCase();
   if (kind === 'p2p' && !/^[A-Z0-9-]{3,40}$/.test(bankCode)) throw new OperationError('Ingresá el código del egreso del ERP.');
-  const primary = amount('amount',wallet === 'ads' ? 2 : 8,kind === 'opening');
+  const primary = hasOriginal && !read('amount') ? '0' : amount('amount',wallet === 'ads' ? 2 : 8,kind === 'opening');
   const credited = kind === 'transfer' ? amount('credited') : kind === 'ad_funding' ? amount('credited',2) : null;
-
+  const paidCredit = kind === 'ad_funding' && read('paid_credit') ? amount('paid_credit',2) : null;
+  if (paidCredit && (Number(paidCredit) > Number(primary) || Number(paidCredit) >= Number(credited))) {
+    throw new OperationError('El crédito de la carga debe ser menor al total acreditado y no superar el débito en USDT.');
+  }
+  const detail = [time && 'Hora ' + time + '.', paidCredit && 'Carga neta USD ' + paidCredit + ';', read('detail')].filter(Boolean).join(' ');
+  if (!reference || reference.length > 200 || detail.length > 1000) throw new OperationError('Revisá la referencia y el detalle.');
 
   return {
     kind, wallet, day, reference, detail, amount:primary, credited,
