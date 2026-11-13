@@ -3933,6 +3933,28 @@ export default function PedidosPage() {
     }
   };
 
+  const openOrderProductPicker = async (picker: "visual" | "whatsapp") => {
+    if (!isWholesaleContext) {
+      if (!currentUserId) return;
+      try {
+        const { products: freshProducts } = await requestFormData(
+          `/api/vendedores/pedidos-init?userId=${encodeURIComponent(currentUserId)}&scope=catalog`
+        );
+        if (!Array.isArray(freshProducts)) throw new Error("Catálogo inválido");
+        setAllProducts(freshProducts);
+        setProducts(freshProducts);
+        sessionStorage.setItem("cached_pedidos_products", JSON.stringify(freshProducts));
+      } catch (error) {
+        console.error("Error refreshing order catalog:", error);
+        alert("No se pudieron cargar los precios vigentes. Volvé a abrir el selector para reintentar.");
+        return;
+      }
+    }
+
+    if (picker === "visual") setIsVisualModalOpen(true);
+    else setIsImportWhatsAppOpen(true);
+  };
+
   const handleStartNewOrder = () => {
     if (editingOrderId || orderItems.length > 0 || cliente.trim() || direccion.trim()) {
       if (!window.confirm("¿Deseás iniciar una nueva carga de pedido en blanco? Se descartarán los datos ingresados actualmente.")) {
@@ -7459,7 +7481,7 @@ export default function PedidosPage() {
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={() => setIsImportWhatsAppOpen(true)}
+                        onClick={() => openOrderProductPicker("whatsapp")}
                         className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg text-[10.5px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors border border-emerald-200/80 cursor-pointer shadow-2xs"
                         title="Pegar e importar presupuesto desde mensaje de WhatsApp"
                       >
@@ -7469,7 +7491,7 @@ export default function PedidosPage() {
                       {!isWholesaleContext && <button type="button" onClick={()=>setIsOutletPickerOpen(true)} className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700">Segunda y Outlet</button>}
                       <button
                         type="button"
-                        onClick={() => setIsVisualModalOpen(true)}
+                        onClick={() => openOrderProductPicker("visual")}
                         className="px-2.5 py-1 bg-brand-50 hover:bg-brand-100 text-brand-700 rounded-lg text-[10.5px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors border border-brand-200/60 cursor-pointer"
                         title="Abrir modal para agregar o modificar productos"
                       >
@@ -7505,11 +7527,11 @@ export default function PedidosPage() {
                     </div>
                   </div>
 
-                  <TankBaseWarning items={orderItems} onReview={() => setIsVisualModalOpen(true)} />
+                  <TankBaseWarning items={orderItems} onReview={() => openOrderProductPicker("visual")} />
                   {/* Estado vacío con botón para abrir modal */}
                   {orderItems.length === 0 ? (
                     <div
-                      onClick={() => setIsVisualModalOpen(true)}
+                      onClick={() => openOrderProductPicker("visual")}
                       className="p-6 border-2 border-dashed border-slate-300 hover:border-brand-500 bg-slate-50/50 hover:bg-brand-50/20 rounded-xl text-center cursor-pointer transition-all space-y-2.5 group"
                     >
                       <div className="w-11 h-11 rounded-full bg-white border border-slate-200 text-brand-600 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform shadow-2xs">
@@ -7522,14 +7544,14 @@ export default function PedidosPage() {
                       <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); setIsVisualModalOpen(true); }}
+                          onClick={(e) => { e.stopPropagation(); openOrderProductPicker("visual"); }}
                           className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" /> Seleccionar Productos y Kits
                         </button>
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); setIsImportWhatsAppOpen(true); }}
+                          onClick={(e) => { e.stopPropagation(); openOrderProductPicker("whatsapp"); }}
                           className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer"
                         >
                           <Download className="w-3.5 h-3.5" /> Pegar Presupuesto WhatsApp
@@ -7840,7 +7862,7 @@ export default function PedidosPage() {
                     <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
                       <button
                         type="button"
-                        onClick={() => setIsVisualModalOpen(true)}
+                        onClick={() => openOrderProductPicker("visual")}
                         className="text-brand-600 hover:underline font-bold text-[11px] flex items-center gap-1 cursor-pointer"
                       >
                         <Plus className="w-3 h-3" /> Agregar más productos
@@ -9657,7 +9679,7 @@ export default function PedidosPage() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-               <TankBaseWarning items={orderItems} onReview={() => { setShowSummaryModal(false); setIsVisualModalOpen(true); }} />
+               <TankBaseWarning items={orderItems} onReview={() => { setShowSummaryModal(false); openOrderProductPicker("visual"); }} />
                {/* Resumen Cliente y Envío */}
                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
@@ -9861,7 +9883,7 @@ export default function PedidosPage() {
 
             {/* Body */}
             <div className="p-5 overflow-y-auto space-y-4 flex-1">
-              <TankBaseWarning items={orderItems} onReview={() => { setShowEditConfirmModal(false); setIsVisualModalOpen(true); }} />
+              <TankBaseWarning items={orderItems} onReview={() => { setShowEditConfirmModal(false); openOrderProductPicker("visual"); }} />
               {/* Resumen de cambios detectados */}
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80">
                 <h3 className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">

@@ -38,7 +38,7 @@ function endpoint(authResult) {
     exports, require: name => modules[name], URL, process: { env: {} }, console,
     fetch: async (_, init) => { assert.equal(init.cache, 'no-store'); return new Response(); },
   });
-  return { get: token => exports.GET(new Request('https://example.test/api/vendedores/pedidos-init?userId=owner', {
+  return { get: (token, scope = '') => exports.GET(new Request('https://example.test/api/vendedores/pedidos-init?userId=owner' + scope, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })), queries: () => queries, options: () => options, sourceWrites: () => sourceWrites };
 }
@@ -48,6 +48,14 @@ test('missing and expired sessions return 401 before reading business data', asy
   assert.equal((await api.get()).status, 401);
   assert.equal((await api.get('expired')).status, 401);
   assert.equal(api.queries(), 0);
+});
+
+test('refreshing the order catalog reads only the seller and active products', async () => {
+  const api = endpoint({ data: { user: { id: 'owner' } }, error: null });
+  const response = await api.get('valid', '&scope=catalog');
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { products: [] });
+  assert.equal(api.queries(), 2);
 });
 
 test('temporary verification failures return 503 without misreporting permissions', async () => {

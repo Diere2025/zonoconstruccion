@@ -22,6 +22,7 @@ async function fetchAllProducts() {
       .from('products')
       .select('*')
       .eq('is_active', true)
+      .order('id')
       .range(page * pageSize, (page + 1) * pageSize - 1);
     if (error) throw error;
     if (data && data.length > 0) {
@@ -38,6 +39,14 @@ async function fetchAllProducts() {
   return allProducts;
 }
 
+async function priceOrderCatalog(rawProducts: any[], sellerType: 'minorista' | 'mayorista') {
+  const prices = await calculateBulkPrices(supabaseAdmin, rawProducts, sellerType);
+  return inheritVariantPrices(rawProducts.map(product => ({
+    ...product,
+    price: prices[product.id]?.price ?? product.price,
+    stock_current: product.stock_current ?? 999,
+  })));
+}
 
 
 export async function GET(request: Request) {
@@ -58,6 +67,17 @@ export async function GET(request: Request) {
     }
     if (user.id !== userId) {
       return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
+    }
+
+    if (searchParams.get('scope') === 'catalog') {
+      const [seller, products] = await Promise.all([
+        supabaseAdmin.from('sellers').select('seller_type').eq('id', userId).maybeSingle(),
+        fetchAllProducts(),
+      ]);
+      if (seller.error) throw seller.error;
+      return NextResponse.json({
+        products: await priceOrderCatalog(products, seller.data?.seller_type || 'minorista'),
+      });
     }
 
     const isAnabel = userId === '9876203c-8e16-48db-958e-37c54441fd9b';
@@ -164,20 +184,16 @@ export async function GET(request: Request) {
 
     // Calculate bulk dynamic prices on the server
     const rawProducts = productsRes || [];
-    let calculatedPrices: any = {};
+    let productsWithPrices;
     try {
-      calculatedPrices = await calculateBulkPrices(supabaseAdmin, rawProducts, sellerType);
+      productsWithPrices = await priceOrderCatalog(rawProducts, sellerType);
     } catch (e) {
       console.warn("Could not calculate dynamic prices server-side. Falling back to fixed prices.", e);
+      productsWithPrices = inheritVariantPrices(rawProducts.map(product => ({
+        ...product,
+        stock_current: product.stock_current ?? 999,
+      })));
     }
-
-    let productsWithPrices = rawProducts.map(p => ({
-      ...p,
-      price: calculatedPrices[p?.id] ? calculatedPrices[p.id].price : p.price,
-      stock_current: p.stock_current !== undefined ? p.stock_current : 999
-    }));
-
-    productsWithPrices = inheritVariantPrices(productsWithPrices);
 
     // Localities mapping
     const mappedLocalities = (localitiesRes.data || []).map((item: any) => ({
