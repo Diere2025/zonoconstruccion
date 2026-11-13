@@ -1,4 +1,9 @@
 "use client";
+import PurchaseQuantityInput from '@/components/admin/PurchaseQuantityInput';
+import {suggestedPurchaseUnit,purchaseUnitNote} from '@/lib/purchaseUnits';
+import SupplierOrderItemPicker from '@/components/admin/SupplierOrderItemPicker';
+import { plasticPriceName, plasticPriceSupplier, type PlasticPurchasePrices } from '@/lib/plasticPurchasePrices';
+import { moneyRound } from '@/lib/purchaseReconciliation';
 import ErpDateInput from '@/components/ui/ErpDateInput';
 
 
@@ -408,6 +413,8 @@ export default function ComprasAdminPage() {
   const [poCode, setPoCode] = useState("");
   const formatPoAmount=(amount:number,currency?:string|null)=>`${currency||'Moneda a confirmar'} ${Number(amount||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
   const [poCurrency,setPoCurrency]=useState("ARS");
+  const [poExchangeRate, setPoExchangeRate] = useState('');
+  const [poPlasticPrices, setPoPlasticPrices] = useState<{ supplierId: string; data: PlasticPurchasePrices | null } | null>(null);
   const [poPaymentCondition, setPoPaymentCondition] = useState("Efectivo");
   const [poPaymentTermDays, setPoPaymentTermDays] = useState("0");
   const [poEstimatedDeliveryDate, setPoEstimatedDeliveryDate] = useState("");
@@ -442,6 +449,25 @@ export default function ComprasAdminPage() {
   const [showNewReceptionModal, setShowNewReceptionModal] = useState(false);
 
   const receiptApi = useRef(createAuthenticatedRequester(supabase));
+  const poSupplierName = suppliers.find(s => s.id === poSupplierId)?.name || '';
+  const poPlasticSupplier = plasticPriceSupplier(poSupplierName);
+  const poPricesReady = poPlasticPrices?.supplierId === poSupplierId;
+  const poSupplierPrices = poPricesReady ? poPlasticPrices?.data : null;
+  const poOrderCurrency = poPlasticSupplier ? 'ARS' : poCurrency;
+  const poRate = Number(poExchangeRate);
+  const hasPoRate = Number.isFinite(poRate) && poRate > 0;
+  const poUnitCost = (item: { priceUsd?: string; unitCost: number }) =>
+    item.priceUsd === undefined ? item.unitCost : moneyRound(Number(item.priceUsd) * poRate);
+
+  useEffect(() => {
+    if (!showNewPOModal || !poPlasticSupplier) return;
+    let active = true;
+    const request = receiptApi.current;
+    void request(`/api/admin/plastic-purchase-prices?supplier=${encodeURIComponent(poPlasticSupplier)}`)
+      .then((data: PlasticPurchasePrices) => { if (active) setPoPlasticPrices({ supplierId: poSupplierId, data }); })
+      .catch(() => { if (active) setPoPlasticPrices({ supplierId: poSupplierId, data: null }); });
+    return () => { active = false; };
+  }, [showNewPOModal, poPlasticSupplier, poSupplierId]);
   const receiptRequestId = useRef<string | null>(null);
   const receiptSaving = useRef(false);
   const [savingReception, setSavingReception] = useState(false);
@@ -536,8 +562,6 @@ export default function ComprasAdminPage() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Searchable PO products states
-  const [poProductSearchText, setPoProductSearchText] = useState("");
-  const [isPoProductDropdownOpen, setIsPoProductDropdownOpen] = useState(false);
 
   // Searchable Goods Reception states
   const [modalSupplierSearchText, setModalSupplierSearchText] = useState("");
@@ -701,12 +725,6 @@ export default function ComprasAdminPage() {
       setModalOCSearchText("");
     }
   }, [showNewReceptionModal]);
-
-  useEffect(() => {
-    if (!showNewPOModal) {
-      setPoProductSearchText("");
-    }
-  }, [showNewPOModal]);
 
   // States for searchable recipe components combobox
   const [componentSearchQuery, setComponentSearchQuery] = useState("");
@@ -1315,11 +1333,16 @@ export default function ComprasAdminPage() {
       return;
     }
 
+    if (poItems.some(item => item.priceUsd !== undefined && (!hasPoRate || !item.priceUsd.trim() || Number(item.priceUsd) <= 0))) {
+      alert('Completá la cotización del dólar y el precio en USD/kg de cada artículo cotizado.');
+      return;
+    }
+    if (poItems.some(item=>!Number.isFinite(item.quantityOrdered)||item.quantityOrdered<=0||!Number.isFinite(poUnitCost(item))||poUnitCost(item)<0)) { alert("Completá una cantidad mayor a cero y un costo válido para cada artículo."); return; }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const currentUserId = user?.id;
 
-      const totalAmt = poItems.reduce((acc, item) => acc + (item.quantityOrdered * item.unitCost), 0);
+      const totalAmt = poItems.reduce((acc, item) => acc + (item.quantityOrdered * poUnitCost(item)), 0);
 
       // Insert Purchase Order
       const { data: newPo, error: poErr } = await supabase
@@ -1330,7 +1353,7 @@ export default function ComprasAdminPage() {
           order_date: new Date().toISOString(),
           estimated_delivery_date: poEstimatedDeliveryDate ? new Date(poEstimatedDeliveryDate).toISOString() : null,
           payment_condition: poPaymentCondition,
-          currency:poCurrency,
+          currency:poOrderCurrency,
           payment_term_days: parseInt(poPaymentTermDays) || 0,
           notes: poNotes || null,
           total_amount: totalAmt,
@@ -1347,10 +1370,12 @@ export default function ComprasAdminPage() {
         purchase_order_id: newPo.id,
         product_id: item.productId || null,
         raw_product_name: item.rawProductName,
+        notes: [purchaseUnitNote(item.purchaseUnit || 'unit', poOrderCurrency), item.priceUsd !== undefined
+          ? `USD ${item.priceUsd}/kg × ARS ${poRate}/USD.` : ''].filter(Boolean).join(' '),
         quantity_ordered: item.quantityOrdered,
         quantity_received: 0,
-        unit_cost: item.unitCost,
-        subtotal: item.quantityOrdered * item.unitCost,
+        unit_cost: poUnitCost(item),
+        subtotal: item.quantityOrdered * poUnitCost(item),
         status: 'Pendiente'
       }));
 
@@ -4427,6 +4452,8 @@ export default function ComprasAdminPage() {
               </Button>
               <Button onClick={() => {
                 setPoSupplierId("");
+                setPoExchangeRate('');
+                setPoPlasticPrices(null);
                 const nextNum = purchaseOrders.length + 1;
                 setPoCode(`OP${String(nextNum).padStart(6, '0')}`);
                 setPoPaymentCondition("Efectivo");
@@ -5154,7 +5181,11 @@ export default function ComprasAdminPage() {
                         <button
                           type="button"
                           onClick={() => {
+                            if (poItems.length && !window.confirm('¿Quitar el proveedor y los artículos de esta orden?')) return;
                             setPoSupplierId("");
+                            setPoExchangeRate('');
+                            setPoPlasticPrices(null);
+                            setPoItems([]);
                             setPoSupplierSearchText("");
                             setIsPoSupplierDropdownOpen(false);
                           }}
@@ -5179,6 +5210,12 @@ export default function ComprasAdminPage() {
                                 key={s.id}
                                 type="button"
                                 onClick={() => {
+                                  if (s.id !== poSupplierId) {
+                                    if (poItems.length && !window.confirm('¿Cambiar de proveedor y quitar los artículos de esta orden?')) return;
+                                    setPoExchangeRate('');
+                                    setPoPlasticPrices(null);
+                                    setPoItems([]);
+                                  }
                                   setPoSupplierId(s.id);
                                   setPoSupplierSearchText(s.name);
                                   setIsPoSupplierDropdownOpen(false);
@@ -5215,7 +5252,12 @@ export default function ComprasAdminPage() {
 
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Condición de Pago</label>
-                    <label className="block text-xs">Moneda<select aria-label="Moneda de OC" required value={poCurrency} onChange={e=>setPoCurrency(e.target.value)} className="w-full border rounded p-2"><option>ARS</option><option>USD</option></select></label>
+                    <div className={poPlasticSupplier ? 'grid grid-cols-[4.5rem_1fr] gap-2' : undefined}>
+                      <label className="block text-xs">Moneda<select aria-label="Moneda de OC" required disabled={!!poPlasticSupplier} value={poOrderCurrency} onChange={e=>setPoCurrency(e.target.value)} className="w-full border rounded p-2"><option>ARS</option><option>USD</option></select></label>
+                      {poPlasticSupplier && <label className="block text-xs">Cotización (ARS por USD)
+                        <input type="number" min="0.000001" step="any" value={poExchangeRate} onChange={e => setPoExchangeRate(e.target.value)} className="block w-full min-w-0 rounded border p-2" />
+                      </label>}
+                    </div>
                     <select
                       value={poPaymentCondition}
                       onChange={e => setPoPaymentCondition(e.target.value)}
@@ -5252,144 +5294,28 @@ export default function ComprasAdminPage() {
 
                 <div className="border-t pt-4 space-y-4">
                   <h4 className="text-xs font-black text-slate-800">Cargar Artículos</h4>
+                  {poItems.some(item=>item.purchaseUnit==='kg')&&<p className="text-xs text-slate-500">Polietileno: cantidad en kg y precio por kg.</p>}
                   
-                  {/* Row to add item to PO */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <div className="md:col-span-2 space-y-1 relative">
-                      <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Producto Catalogo / Nombre Libre</label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          placeholder={poSupplierId ? "Buscar producto en catálogo..." : "Seleccioná un proveedor arriba..."}
-                          disabled={!poSupplierId}
-                          value={poProductSearchText}
-                          onFocus={() => setIsPoProductDropdownOpen(true)}
-                          onChange={e => {
-                            setPoProductSearchText(e.target.value);
-                            setIsPoProductDropdownOpen(true);
-                          }}
-                          className="w-full px-3 py-2 pr-8 rounded-xl border bg-white font-bold text-xs outline-none focus:border-brand-500 disabled:opacity-50"
-                        />
-                        {poProductSearchText && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPoProductSearchText("");
-                              setIsPoProductDropdownOpen(false);
-                            }}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      {isPoProductDropdownOpen && poSupplierId && (
-                        <>
-                          <div 
-                            className="fixed inset-0 z-10" 
-                            onClick={() => setIsPoProductDropdownOpen(false)} 
-                          />
-                          <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
-                            {(() => {
-                              const supplierProductIds = relations
-                                .filter(r => r.supplier_id === poSupplierId)
-                                .map(r => r.product_id);
-                              
-                              const filtered = products
-                                .filter(p => {
-                                  const pName = p.name || '';
-                                  const pSku = p.sku || '';
-                                  // Exclude deprecated, internal or inactive items
-                                  const anyP = p as any;
-                                  if (pName.includes('_OLD') || pSku.includes('_OLD') || pName.startsWith('[Interno]') || anyP.is_discontinued || anyP.is_active === false) {
-                                    return false;
-                                  }
-                                  // Filter by supplier products if relations exist
-                                  if (supplierProductIds.length > 0 && !supplierProductIds.includes(p.id)) return false;
-                                  // Then filter by text search query
-                                  if (poProductSearchText) {
-                                    const search = poProductSearchText.toLowerCase();
-                                    return pName.toLowerCase().includes(search) || pSku.toLowerCase().includes(search);
-                                  }
-                                  return true;
-                                });
-
-                              return (
-                                <>
-                                  {filtered.map(p => (
-                                    <button
-                                      key={p.id}
-                                      type="button"
-                                      onClick={() => {
-                                        const exists = poItems.some(i => i.productId === p.id);
-                                        if (exists) {
-                                          alert("El producto ya se encuentra cargado.");
-                                          setIsPoProductDropdownOpen(false);
-                                          return;
-                                        }
-                                        setPoItems([...poItems, {
-                                          productId: p.id,
-                                          rawProductName: p.name,
-                                          quantityOrdered: 1,
-                                          unitCost: (p.cost_price && Number(p.cost_price) > 0) ? Number(p.cost_price) : (Number(p.price) || 0)
-                                        }]);
-                                        setPoProductSearchText("");
-                                        setIsPoProductDropdownOpen(false);
-                                      }}
-                                      className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
-                                    >
-                                      {p.name} {p.sku ? `(${p.sku})` : ''}
-                                    </button>
-                                  ))}
-                                  {filtered.length === 0 && (
-                                    <div className="px-3 py-2 text-xs text-slate-400 italic">
-                                      No se encontraron productos vinculados a este proveedor
-                                    </div>
-                                  )}
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </>
-                      )}
-                      
-                      <div className="pt-2 flex gap-2">
-                        <input
-                          id="manualProductName"
-                          type="text"
-                          placeholder="O escribí un artículo que no esté en catálogo..."
-                          className="w-full px-3 py-1.5 rounded-lg border bg-white text-xs font-bold"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const input = document.getElementById("manualProductName") as HTMLInputElement;
-                            if (input && input.value.trim()) {
-                              setPoItems([...poItems, {
-                                productId: null,
-                                rawProductName: input.value.trim(),
-                                quantityOrdered: 1,
-                                unitCost: 0
-                              }]);
-                              input.value = "";
-                            }
-                          }}
-                          className="bg-slate-200 text-slate-700 px-3 rounded-lg text-xs font-bold hover:bg-slate-300"
-                        >
-                          Agregar
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  {poPlasticSupplier && (!poPricesReady || !poSupplierPrices) && <p role="status" className="text-xs text-slate-500">
+                    {!poPricesReady ? 'Cargando precios…' : 'No se pudieron cargar los precios. Ingresá el valor en USD/kg.'}
+                  </p>}
+                  <fieldset disabled={!!poPlasticSupplier && !poPricesReady}>
+                    <SupplierOrderItemPicker key={poSupplierId} supplierId={poSupplierId} products={products} relations={relations} items={poItems} onAdd={item => {
+                      const matchedPrice = poSupplierPrices?.prices[plasticPriceName(item.rawProductName)];
+                      const price = typeof matchedPrice === 'number' ? matchedPrice : undefined;
+                      const purchaseUnit = price === undefined ? suggestedPurchaseUnit(poSupplierName, item.rawProductName) : 'kg';
+                      const priceUsd = poPlasticSupplier && purchaseUnit === 'kg' ? String(price ?? '') : undefined;
+                      setPoItems(current => [...current, { ...item, quantityOrdered: 0, purchaseUnit, priceUsd }]);
+                    }} />
+                  </fieldset>
 
                   <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white max-h-60 overflow-y-auto">
                     <table className="w-full text-left text-xs min-w-[540px] border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
                           <th className="p-3 whitespace-nowrap">Artículo / Detalle</th>
-                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '120px' }}>Cant. Pedida</th>
-                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '150px' }}>Costo Unitario</th>
+                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '120px' }}>Cantidad</th>
+                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '150px' }}>Precio de compra</th>
                           <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
                           <th className="p-3 text-center whitespace-nowrap" style={{ width: '60px' }}>Acciones</th>
                         </tr>
@@ -5404,36 +5330,29 @@ export default function ComprasAdminPage() {
                             <tr key={idx} className="hover:bg-slate-50/50">
                               <td className="p-3 text-slate-900">{item.rawProductName}</td>
                               <td className="p-3 text-right">
-                                <input
-                                  type="number"
-                                  min="0.001"
-                                  step="any"
-                                  required
-                                  value={item.quantityOrdered}
-                                  onChange={e => {
-                                    const updated = [...poItems];
-                                    updated[idx].quantityOrdered = parseFloat(e.target.value) || 0;
-                                    setPoItems(updated);
-                                  }}
-                                  className="w-20 px-2 py-1 border rounded-lg text-right text-xs"
-                                />
+                                <PurchaseQuantityInput name={item.rawProductName} unit={item.purchaseUnit||'unit'} quantity={item.quantityOrdered} onChange={value=>{const updated=[...poItems];updated[idx]={...item,quantityOrdered:value};setPoItems(updated);}} />
                               </td>
                               <td className="p-3 text-right">
+                                {item.purchaseUnit==='kg'&&<div className="mb-1 text-[10px] text-slate-500">{item.priceUsd !== undefined ? 'USD' : poOrderCurrency}/kg</div>}
                                 <input
                                   type="number"
                                   min="0"
                                   step="any"
                                   required
-                                  value={item.unitCost}
+                                  aria-label={(item.purchaseUnit==='kg'?'Precio por kg':'Precio por unidad')+' de '+item.rawProductName}
+                                  value={item.priceUsd ?? item.unitCost}
                                   onChange={e => {
                                     const updated = [...poItems];
-                                    updated[idx].unitCost = parseFloat(e.target.value) || 0;
+                                    updated[idx] = item.priceUsd === undefined
+                                      ? { ...item, unitCost: parseFloat(e.target.value) || 0 }
+                                      : { ...item, priceUsd: e.target.value };
                                     setPoItems(updated);
                                   }}
                                   className="w-28 px-2 py-1 border rounded-lg text-right text-xs"
                                 />
+                                {item.priceUsd && hasPoRate && <div className="mt-1 text-[10px] font-normal text-slate-500">ARS {poUnitCost(item).toLocaleString('es-AR', { maximumFractionDigits: 2 })}/kg</div>}
                               </td>
-                              <td className="p-3 text-right text-slate-900">{formatPrice(item.quantityOrdered * item.unitCost)}</td>
+                              <td className="p-3 text-right text-slate-900">{item.priceUsd !== undefined && (!item.priceUsd || !hasPoRate) ? '—' : formatPrice(item.quantityOrdered * poUnitCost(item))}</td>
                               <td className="p-3 text-center">
                                 <button
                                   type="button"
@@ -5453,7 +5372,7 @@ export default function ComprasAdminPage() {
                   <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 font-black">
                     <span className="text-slate-600 text-xs">Monto Total de Orden:</span>
                     <span className="text-slate-900 text-sm">
-                      {formatPrice(poItems.reduce((acc, i) => acc + (i.quantityOrdered * i.unitCost), 0))}
+                      {poItems.some(item => item.priceUsd !== undefined && (!item.priceUsd || !hasPoRate)) ? '—' : formatPrice(poItems.reduce((acc, item) => acc + item.quantityOrdered * poUnitCost(item), 0))}
                     </span>
                   </div>
                 </div>
