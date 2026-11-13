@@ -4,9 +4,11 @@ import { Fragment, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Maximize2, Search } from 'lucide-react';
 import { displayDate, type buildReport } from '@/lib/eerrNative/model';
 import { buildMatrix } from '@/lib/eerrNative/matrix';
+import type { Advertising } from '@/lib/eerrNative/advertising';
 
-type Report = ReturnType<typeof buildReport>;
+type Report = ReturnType<typeof buildReport> & { advertising?: Advertising };
 const currency = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+const dollars = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const money = (value: number | null) => value === null ? 'Pendiente' : currency.format(value);
 const percent = (value: number, base: number) =>
   base > 0 ? new Intl.NumberFormat('es-AR', { style: 'percent', maximumFractionDigits: 1 }).format(value / base) : '—';
@@ -17,6 +19,19 @@ const nameCell = 'sticky left-0 z-10 min-w-40 max-w-40 border-r border-slate-200
 export default function NativeEerrMatrix({ report }: { report: Report }) {
   const matrix = buildMatrix(report);
   const { totals, days, period } = report;
+  const advertising = report.advertising;
+  const metaPendingByDay = new Map(advertising?.days.map(day => [day.day, {
+    cost: Boolean(day.unvaluedUsd) || day.spendArs === null,
+    fee: Boolean(day.unvaluedUsd) || day.feeArs === null,
+  }]));
+  const metaUnavailable = Boolean(advertising?.issue && !metaPendingByDay.size);
+  const firstPendingDay = advertising?.days.find(day => {
+    const pending = metaPendingByDay.get(day.day);
+    return pending?.cost || pending?.fee;
+  })?.day;
+  const pendingUsdByDay = new Map(advertising?.days.map(day => [day.day, day.unvaluedUsd ?? 0]));
+  const rate = advertising?.arsPerUsdt ?? null;
+  const feeRate = advertising?.feeRate ?? null;
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<string[]>([]);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -71,6 +86,9 @@ export default function NativeEerrMatrix({ report }: { report: Report }) {
             }}><Maximize2 className="h-3.5 w-3.5" aria-hidden="true" /> Pantalla completa</button>
           )}
           <span className="ml-auto text-xs text-slate-500">Matriz consolidada</span>
+          {(firstPendingDay || metaUnavailable) && <span className="rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">
+            Publicidad pendiente de conciliar · Binance y recargas de Meta
+          </span>}
         </div>
         <div className="overflow-auto" tabIndex={0} aria-label="Desplazar matriz del EERR">
           <table aria-label="Matriz consolidada del EERR Sistema" className="w-full text-xs tabular-nums">
@@ -91,11 +109,39 @@ export default function NativeEerrMatrix({ report }: { report: Report }) {
                   <>
                     <td className={'whitespace-nowrap px-3 py-2.5 text-right ' + (item.total < 0 ? 'text-rose-700' : '')}>{money(item.total)}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right text-slate-600">{percent(item.total, totals.revenue)}</td>
-                    {item.values.map((value, index) => (
-                      <td key={days[index].day} className={'whitespace-nowrap px-3 py-2.5 text-right ' + (value < 0 ? 'text-rose-700' : '')}>
-                        {value === 0 ? '—' : money(value)}
-                      </td>
-                    ))}
+                    {item.values.map((value, index) => {
+                      const day = days[index].day;
+                      const meta = metaPendingByDay.get(day);
+                      const costPending = metaUnavailable || Boolean(meta?.cost);
+                      const feePending = metaUnavailable || Boolean(meta?.fee);
+                      const marketingSubtotal = item === group.subtotal && group.title.startsWith('4.');
+                      const dailyResult = group.title.startsWith('8.') && item.label === group.subtotal.label;
+                      const cumulativeResult = item.label === 'Resultado acumulado' &&
+                        (metaUnavailable || Boolean(firstPendingDay && firstPendingDay <= day));
+                      const pending = (item.label === 'Publicidad' && costPending) ||
+                        (item.label === 'Publicidad (Fee)' && feePending) ||
+                        ((marketingSubtotal || dailyResult) && (costPending || feePending)) || cumulativeResult;
+                      const pendingUsd = pendingUsdByDay.get(day) ?? 0;
+                      const estimatedCost = pendingUsd > 0 && rate !== null ? pendingUsd * rate : null;
+                      const estimatedFee = estimatedCost !== null && feeRate !== null ? estimatedCost * feeRate : null;
+                      const estimate = item.label === 'Publicidad' ? estimatedCost
+                        : item.label === 'Publicidad (Fee)' ? estimatedFee
+                        : marketingSubtotal && estimatedCost !== null && estimatedFee !== null ? estimatedCost + estimatedFee
+                        : null;
+                      return <td key={day} className={'whitespace-nowrap px-3 py-2.5 text-right ' +
+                        (pending ? 'bg-amber-100 text-amber-950' : value < 0 ? 'text-rose-700' : '')}>
+                        {value !== 0 || pending ? money(value) : '—'}
+                        {pending && <span className="block text-[11px] font-medium text-amber-800">
+                          {dailyResult || cumulativeResult ? 'Resultado parcial' : 'Identificado · pendiente'}
+                        </span>}
+                        {pending && estimate !== null && <span className="block text-[11px] font-medium text-amber-800"
+                          title="Estimado con el costo y el fee promedio del consumo de Meta valuado en el período">
+                          + {money(estimate)} estimados
+                        </span>}
+                        {pending && pendingUsd > 0 && (marketingSubtotal || item.label === 'Publicidad') &&
+                          <span className="block text-[11px] text-amber-800">USD {dollars.format(pendingUsd)} por conciliar</span>}
+                      </td>;
+                    })}
                   </>
                 );
                 return (
