@@ -29,9 +29,18 @@ export default function NativeEerrMatrix({ report }: { report: Report }) {
     const pending = metaPendingByDay.get(day.day);
     return pending?.cost || pending?.fee;
   })?.day;
-  const pendingUsdByDay = new Map(advertising?.days.map(day => [day.day, day.unvaluedUsd ?? 0]));
   const rate = advertising?.arsPerUsdt ?? null;
   const feeRate = advertising?.feeRate ?? null;
+  let runningEstimate = 0;
+  const estimates = days.map(({ day }) => {
+    const usd = advertising?.days.find(row => row.day === day)?.unvaluedUsd ?? 0;
+    const cost = usd > 0 && rate !== null ? Math.round(usd * rate * 100) / 100 : 0;
+    const fee = feeRate !== null ? Math.round(cost * feeRate * 100) / 100 : 0;
+    const total = cost + fee;
+    runningEstimate += total;
+    return { usd, cost, fee, total, running: runningEstimate };
+  });
+  const estimatedBalance = totals.identifiedBalance - runningEstimate;
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<string[]>([]);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -43,14 +52,14 @@ export default function NativeEerrMatrix({ report }: { report: Report }) {
     return rows.length ? [{ ...group, rows }] : [];
   });
 
-  const projection = days.length ? totals.identifiedBalance * period.length / days.length : null;
+  const projection = days.length ? estimatedBalance * period.length / days.length : null;
   const amount = (category: string) => report.groups.find(group => group.category === category)?.amount ?? 0;
-  const adSpend = amount('Publicidad') + amount('Publicidad (Fee)') + amount('Publicidad TikTok');
+  const adSpend = amount('Publicidad') + amount('Publicidad (Fee)') + amount('Publicidad TikTok') + runningEstimate;
   const freight = amount('Servicio de Flete');
   const indicators = [
     { label: 'Facturación total', value: totals.revenue, detail: 'Ventas por fecha de entrega' },
     { label: 'Costo Mercadería (CMV)', value: totals.cmv, detail: percent(totals.cmv, totals.revenue) + ' sobre ventas · identificado' },
-    { label: totals.result === null ? 'Resultado parcial' : 'Utilidad neta actual', value: totals.identifiedBalance, detail: 'Margen neto ' + percent(totals.identifiedBalance, totals.revenue) },
+    { label: runningEstimate ? 'Resultado estimado' : totals.result === null ? 'Resultado parcial' : 'Utilidad neta actual', value: estimatedBalance, detail: runningEstimate ? 'Incluye publicidad pendiente de conciliar' : 'Margen neto ' + percent(estimatedBalance, totals.revenue) },
     {
       label: 'Proyección fin de mes',
       value: projection,
@@ -61,7 +70,7 @@ export default function NativeEerrMatrix({ report }: { report: Report }) {
   ];
   const controls = [
     { label: 'Flete', value: freight, ratio: percent(freight, totals.revenue) },
-    { label: 'Publicidad + Fee', value: adSpend, ratio: percent(adSpend, totals.revenue) },
+    { label: runningEstimate ? 'Publicidad + Fee · estimado' : 'Publicidad + Fee', value: adSpend, ratio: percent(adSpend, totals.revenue) },
     { label: 'Sueldos al corte', value: amount('Sueldos') },
     { label: 'Costos MercadoPago', value: amount('Costos MercadoPago') },
   ];
@@ -105,45 +114,52 @@ export default function NativeEerrMatrix({ report }: { report: Report }) {
                 const open = !!search || expanded.includes(group.title);
                 const groupColor = group.title.startsWith('1.') ? 'bg-indigo-50 text-indigo-950' :
                   group.title.startsWith('8.') ? 'bg-emerald-50 text-emerald-950' : 'bg-slate-100 text-slate-900';
-                const renderValues = (item: typeof group.subtotal) => (
+                const renderValues = (item: typeof group.subtotal) => {
+                  const marketingSubtotal = item === group.subtotal && group.title.startsWith('4.');
+                  const dailyResult = group.title.startsWith('8.') && item.label === group.subtotal.label;
+                  const accumulated = item.label === 'Resultado acumulado';
+                  const adjustments = estimates.map(estimate => item.label === 'Publicidad' ? estimate.cost
+                    : item.label === 'Publicidad (Fee)' ? estimate.fee
+                    : marketingSubtotal ? estimate.total : dailyResult ? -estimate.total
+                    : accumulated ? -estimate.running : 0);
+                  const totalAdjustment = accumulated ? -runningEstimate : adjustments.reduce((sum, value) => sum + value, 0);
+                  const total = item.total + totalAdjustment;
+                  return (
                   <>
-                    <td className={'whitespace-nowrap px-3 py-2.5 text-right ' + (item.total < 0 ? 'text-rose-700' : '')}>{money(item.total)}</td>
-                    <td className="whitespace-nowrap px-3 py-2.5 text-right text-slate-600">{percent(item.total, totals.revenue)}</td>
+                    <td className={'whitespace-nowrap px-3 py-2.5 text-right ' + (totalAdjustment ? 'bg-amber-100 text-amber-950' : total < 0 ? 'text-rose-700' : '')}>
+                      {money(total)}
+                      {totalAdjustment !== 0 && <span className="block text-[11px]">Estimado</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right text-slate-600">{percent(total, totals.revenue)}</td>
                     {item.values.map((value, index) => {
                       const day = days[index].day;
                       const meta = metaPendingByDay.get(day);
                       const costPending = metaUnavailable || Boolean(meta?.cost);
                       const feePending = metaUnavailable || Boolean(meta?.fee);
-                      const marketingSubtotal = item === group.subtotal && group.title.startsWith('4.');
-                      const dailyResult = group.title.startsWith('8.') && item.label === group.subtotal.label;
-                      const cumulativeResult = item.label === 'Resultado acumulado' &&
+                      const cumulativeResult = accumulated &&
                         (metaUnavailable || Boolean(firstPendingDay && firstPendingDay <= day));
                       const pending = (item.label === 'Publicidad' && costPending) ||
                         (item.label === 'Publicidad (Fee)' && feePending) ||
                         ((marketingSubtotal || dailyResult) && (costPending || feePending)) || cumulativeResult;
-                      const pendingUsd = pendingUsdByDay.get(day) ?? 0;
-                      const estimatedCost = pendingUsd > 0 && rate !== null ? pendingUsd * rate : null;
-                      const estimatedFee = estimatedCost !== null && feeRate !== null ? estimatedCost * feeRate : null;
-                      const estimate = item.label === 'Publicidad' ? estimatedCost
-                        : item.label === 'Publicidad (Fee)' ? estimatedFee
-                        : marketingSubtotal && estimatedCost !== null && estimatedFee !== null ? estimatedCost + estimatedFee
-                        : null;
+                      const pendingUsd = estimates[index].usd;
+                      const adjustment = adjustments[index];
+                      const displayed = value + adjustment;
                       return <td key={day} className={'whitespace-nowrap px-3 py-2.5 text-right ' +
-                        (pending ? 'bg-amber-100 text-amber-950' : value < 0 ? 'text-rose-700' : '')}>
-                        {value !== 0 || pending ? money(value) : '—'}
+                        (pending ? 'bg-amber-100 text-amber-950' : displayed < 0 ? 'text-rose-700' : '')}>
+                        {displayed !== 0 || pending ? money(displayed) : '—'}
                         {pending && <span className="block text-[11px] font-medium text-amber-800">
-                          {dailyResult || cumulativeResult ? 'Resultado parcial' : 'Identificado · pendiente'}
+                          {adjustment ? 'Estimado · por conciliar' : dailyResult || cumulativeResult ? 'Resultado parcial' : 'Identificado · pendiente'}
                         </span>}
-                        {pending && estimate !== null && <span className="block text-[11px] font-medium text-amber-800"
-                          title="Estimado con el costo y el fee promedio del consumo de Meta valuado en el período">
-                          + {money(estimate)} estimados
+                        {adjustment !== 0 && <span className="block text-[11px] text-amber-800">
+                          {money(value)} identificado
                         </span>}
                         {pending && pendingUsd > 0 && (marketingSubtotal || item.label === 'Publicidad') &&
                           <span className="block text-[11px] text-amber-800">USD {dollars.format(pendingUsd)} por conciliar</span>}
                       </td>;
                     })}
                   </>
-                );
+                  );
+                };
                 return (
                   <Fragment key={group.title}>
                     <tr className={'border-t border-slate-200 font-bold ' + groupColor}>
@@ -184,7 +200,7 @@ export default function NativeEerrMatrix({ report }: { report: Report }) {
           <div key={indicator.label} className={'rounded-2xl border p-3 shadow-sm sm:p-4 ' +
             (index === 3 ? 'border-indigo-700 bg-gradient-to-br from-indigo-700 via-violet-700 to-purple-800 text-white' : 'border-slate-200 bg-white')}>
             <p className={'text-xs font-semibold uppercase tracking-wide ' + (index === 3 ? 'text-indigo-100' : 'text-slate-600')}>{indicator.label}</p>
-            <p className={'mt-2 text-lg font-bold tabular-nums sm:text-2xl ' + (index === 2 ? (totals.identifiedBalance < 0 ? 'text-rose-700' : 'text-emerald-700') : '')}>{money(indicator.value)}</p>
+            <p className={'mt-2 text-lg font-bold tabular-nums sm:text-2xl ' + (index === 2 ? (runningEstimate ? 'text-amber-800' : estimatedBalance < 0 ? 'text-rose-700' : 'text-emerald-700') : '')}>{money(indicator.value)}</p>
             <p className={'mt-1 text-xs ' + (index === 3 ? 'text-indigo-100' : 'text-slate-600')}>{indicator.detail}</p>
           </div>
         ))}
