@@ -411,7 +411,7 @@ export default function ComprasAdminPage() {
   const [poSupplierSearchText, setPoSupplierSearchText] = useState("");
   const [isPoSupplierDropdownOpen, setIsPoSupplierDropdownOpen] = useState(false);
   const [poCode, setPoCode] = useState("");
-  const formatPoAmount=(amount:number,currency?:string|null)=>`${currency||'Moneda a confirmar'} ${Number(amount||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const formatPoAmount=(amount:number,currency?:string|null)=>`${currency||'ARS'} ${Number(amount||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
   const [poCurrency,setPoCurrency]=useState("ARS");
   const [poExchangeRate, setPoExchangeRate] = useState('');
   const [poPlasticPrices, setPoPlasticPrices] = useState<{ supplierId: string; data: PlasticPurchasePrices | null } | null>(null);
@@ -428,7 +428,7 @@ export default function ComprasAdminPage() {
   const [editPoSupplierSearchText, setEditPoSupplierSearchText] = useState("");
   const [isEditPoSupplierDropdownOpen, setIsEditPoSupplierDropdownOpen] = useState(false);
   const [editPoCode, setEditPoCode] = useState("");
-  const [editPoCurrency,setEditPoCurrency]=useState("");
+  const [editPoCurrency,setEditPoCurrency]=useState("ARS");
   const [editPoPaymentCondition, setEditPoPaymentCondition] = useState("Efectivo");
   const [editPoPaymentTermDays, setEditPoPaymentTermDays] = useState("0");
   const [editPoEstimatedDeliveryDate, setEditPoEstimatedDeliveryDate] = useState("");
@@ -1191,7 +1191,7 @@ export default function ComprasAdminPage() {
       alert("Todas las Órdenes de Compra a unificar deben ser del MISMO proveedor.");
       return;
     }
-    if(new Set(selectedPOs.map((p:any)=>p.currency||'')).size>1){alert('Confirmá la misma moneda en todas las OCs antes de unificarlas.');return;}
+    if(new Set(selectedPOs.map((p:any)=>p.currency||'ARS')).size>1){alert('Las OCs deben tener la misma moneda para unificarlas.');return;}
 
     // Validate non-completed
     const hasCompleted = selectedPOs.some((p: any) => p.status === 'Cumplido' || p.status === 'Cancelado');
@@ -1408,7 +1408,7 @@ export default function ComprasAdminPage() {
     setEditPoSupplierId(po.supplier_id || "");
     setEditPoSupplierSearchText(po.supplier?.name || suppliers.find(s => s.id === po.supplier_id)?.name || "");
     setEditPoCode(po.oc_code || "");
-    setEditPoCurrency(po.currency||"");
+    setEditPoCurrency(po.currency||"ARS");
     setEditPoPaymentCondition(po.payment_condition || "Efectivo");
     setEditPoPaymentTermDays(String(po.payment_term_days ?? 0));
     setEditPoEstimatedDeliveryDate(po.estimated_delivery_date ? po.estimated_delivery_date.substring(0, 10) : "");
@@ -1588,7 +1588,7 @@ export default function ComprasAdminPage() {
           supplier_id: editPoSupplierId,
           estimated_delivery_date: editPoEstimatedDeliveryDate ? new Date(editPoEstimatedDeliveryDate).toISOString() : null,
           payment_condition: editPoPaymentCondition,
-          currency:editPoCurrency||null,
+          currency:editPoCurrency,
           payment_term_days: parseInt(editPoPaymentTermDays) || 0,
           notes: editPoNotes || null,
           total_amount: totalAmount,
@@ -4843,7 +4843,7 @@ export default function ComprasAdminPage() {
                 <div className="flex justify-between items-center gap-3 border-b pb-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-900">Orden de Compra: {selectedPO.oc_code}</h3>
-                    <p className="text-xs text-slate-400">Proveedor: {selectedPO.supplier?.name} | Moneda: {selectedPO.currency||'A confirmar'} | Fecha: {formatDateDDMMYYYY(selectedPO.order_date)}</p>
+                    <p className="text-xs text-slate-400">Proveedor: {selectedPO.supplier?.name} | Moneda: {selectedPO.currency||'ARS'} | Fecha: {formatDateDDMMYYYY(selectedPO.order_date)}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {!loadingPoDetail && (
@@ -5492,7 +5492,7 @@ export default function ComprasAdminPage() {
                   {/* Condición de Pago */}
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Condición de Pago</label>
-                    <label className="block text-xs">Moneda<select aria-label="Moneda de OC existente" value={editPoCurrency} onChange={e=>setEditPoCurrency(e.target.value)} className="w-full border rounded p-2"><option value="">No informada</option><option>ARS</option><option>USD</option></select></label>
+                    <label className="block text-xs">Moneda<select aria-label="Moneda de OC existente" value={editPoCurrency} onChange={e=>setEditPoCurrency(e.target.value)} className="w-full border rounded p-2"><option>ARS</option><option>USD</option></select></label>
                     <select
                       value={editPoPaymentCondition}
                       onChange={e => setEditPoPaymentCondition(e.target.value)}
