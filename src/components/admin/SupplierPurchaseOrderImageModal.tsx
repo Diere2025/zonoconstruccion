@@ -38,8 +38,8 @@ export default function SupplierPurchaseOrderImageModal({ isOpen, onClose, order
   const [copied, setCopied] = useState(false);
 
   if (!isOpen || !order) return null;
-  const currency=['ARS','USD'].includes(order.currency||'')?order.currency:null;
-  const price=(amount:number)=>`${currency?currency+' ':''}${Number(amount||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const currency = order.currency === 'USD' ? 'USD' : 'ARS';
+  const price=(amount:number)=>`${currency} ${Number(amount||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 
   const totalUnits = items.reduce((sum, item) => sum + (Number(item.quantity_ordered) || 0), 0);
   const totalAmount = items.reduce(
@@ -128,7 +128,7 @@ export default function SupplierPurchaseOrderImageModal({ isOpen, onClose, order
               <div className="text-right">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Número de orden</p>
                 <p className="mt-1 text-xl font-black text-blue-700">{order.oc_code || "—"}</p>
-                <p className="mt-1 text-xs text-slate-500">Fecha: {order.order_date ? formatDateDDMMYYYY(order.order_date) : "—"} · Moneda: {currency||'A confirmar'}</p>
+                <p className="mt-1 text-xs text-slate-500">Fecha: {order.order_date ? formatDateDDMMYYYY(order.order_date) : "—"} · Moneda: {currency}</p>
               </div>
             </div>
 

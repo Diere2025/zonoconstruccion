@@ -636,6 +636,7 @@ export async function contrastAndSyncPurchaseSheet(options: {
             ? `${sOC.notes} [Sincronizado Planilla]`
             : 'Sincronizado desde planilla de Órdenes de Compra',
           total_amount: headerTotal,
+          currency: 'ARS',
           // Receipt import determines fulfillment after quantities are registered.
           status: 'Pendiente',
         })
