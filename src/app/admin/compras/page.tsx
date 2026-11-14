@@ -1059,6 +1059,10 @@ export default function ComprasAdminPage() {
       });
 
       setSheetSyncSummary(data);
+      if (data.stockSync?.success) {
+        setRadarItems([]);
+        setCalcResults([]);
+      }
       await loadAllData(true);
     } catch (err: any) {
       alert("Error al sincronizar planilla: " + err.message);
@@ -5870,6 +5874,7 @@ export default function ComprasAdminPage() {
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Contrasta las hojas <span className="font-bold text-slate-700">1.OCs</span>, <span className="font-bold text-slate-700">2.DetalleOCs</span> y <span className="font-bold text-slate-700">DocumentosDeRecepción</span> contra el ERP desde el <span className="font-bold text-slate-800">{formatDateDDMMYYYY(sheetSyncSinceDate)}</span>.
+                  Al sincronizar, también actualiza el stock físico desde la planilla maestra y recalcula las reservas.
                 </p>
               </div>
               <button
@@ -5906,19 +5911,11 @@ export default function ComprasAdminPage() {
                 <Button
                   type="button"
                   onClick={() => void handleExecuteSheetSync()}
-                  disabled={
-                    sheetSyncLoading ||
-                    sheetSyncExecuting ||
-                    !sheetSyncSummary ||
-                    (sheetSyncSummary.sheetToErp?.missingOCs?.length === 0 &&
-                      sheetSyncSummary.sheetToErp?.missingReceptions?.length === 0 &&
-                      sheetSyncSummary.erpToSheet?.missingOCs?.length === 0 &&
-                      sheetSyncSummary.erpToSheet?.missingReceptionLines?.length === 0)
-                  }
+                  disabled={sheetSyncLoading || sheetSyncExecuting || !sheetSyncSummary}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl py-2 px-4 gap-1.5 shadow-sm disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${sheetSyncExecuting ? 'animate-spin' : ''}`} />
-                  {sheetSyncExecuting ? "Sincronizando..." : "Sincronizar Faltantes Ahora"}
+                  {sheetSyncExecuting ? "Sincronizando..." : "Sincronizar OC, remitos y stock"}
                 </Button>
               </div>
             </div>
@@ -5933,9 +5930,16 @@ export default function ComprasAdminPage() {
                 {sheetSyncSummary.executed && (
                   <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold flex flex-wrap items-center justify-between gap-2">
                     <span>
-                      ✓ Sincronización completada: {sheetSyncSummary.executed.importedOCsCount} OCs y {sheetSyncSummary.executed.importedReceptionsCount} Recepciones importadas al ERP · {sheetSyncSummary.executed.pushedOCsCount} OCs y {sheetSyncSummary.executed.pushedReceptionItemsCount} líneas de recepción enviadas a Planilla.
+                      {sheetSyncSummary.executed.importedOCsCount} OC y {sheetSyncSummary.executed.importedReceptionsCount} recepciones importadas al ERP · {sheetSyncSummary.executed.pushedOCsCount} OC y {sheetSyncSummary.executed.pushedReceptionItemsCount} líneas de recepción enviadas a la planilla.
                     </span>
                   </div>
+                )}
+                {sheetSyncSummary.stockSync && (
+                  <p role="status" className={`p-3.5 rounded-2xl border text-xs font-bold ${sheetSyncSummary.stockSync.success ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-amber-50 border-amber-200 text-amber-900"}`}>
+                    {sheetSyncSummary.stockSync.success
+                      ? `Stock sincronizado. Productos actualizados: ${sheetSyncSummary.stockSync.updatedCount}.`
+                      : "No se pudo completar la actualización de stock. Volvé a sincronizar para reintentar."}
+                  </p>
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

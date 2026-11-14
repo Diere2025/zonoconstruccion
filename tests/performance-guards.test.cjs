@@ -17,7 +17,7 @@ test('high-traffic screens avoid aggressive polling in hidden tabs', () => {
 });
 
 test('stock sources overlap and historical order pages use bounded batches', () => {
-  const stock = fs.readFileSync('src/app/api/admin/sync-stock/route.ts', 'utf8');
+  const stock = fs.readFileSync('src/lib/erp/stockSheetSync.ts', 'utf8');
   const unimported = fs.readFileSync('src/lib/unimportedOrders.ts', 'utf8');
 
   assert.match(stock, /Promise\.all\(\[\s*timed\(fetchSpreadsheetCsv/);

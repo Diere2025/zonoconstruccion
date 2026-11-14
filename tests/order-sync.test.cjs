@@ -86,7 +86,7 @@ test('background import shares Central and avoids rewriting unchanged orders', (
 
 test('stock synchronization shares downloads and only writes changed stock', () => {
   const unimported = fs.readFileSync('src/lib/unimportedOrders.ts', 'utf8');
-  const stock = fs.readFileSync('src/app/api/admin/sync-stock/route.ts', 'utf8');
+  const stock = fs.readFileSync('src/lib/erp/stockSheetSync.ts', 'utf8');
 
   assert.match(unimported, /const fetchSheetOnce = oncePerKey\(fetchSpreadsheetCsv\)/);
   assert.match(stock, /const productLookup = buildProductLookup\(dbProducts\)/);

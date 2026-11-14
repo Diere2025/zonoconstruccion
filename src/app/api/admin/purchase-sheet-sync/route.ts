@@ -6,6 +6,7 @@ import {createClient} from '@supabase/supabase-js';
 import {requirePurchaseOperator} from '@/lib/purchaseAccess';
 import {isAccountDate,isUuid} from '@/lib/supplierAccount';
 import {processSupplierSheetJob,withPurchaseSheetLease} from '@/lib/supplierAccounts/sheetSync';
+import {syncStockFromSheet} from '@/lib/erp/stockSheetSync';
 import {
   contrastAndSyncPurchaseSheet,
   DEFAULT_SINCE_DATE,
@@ -53,11 +54,17 @@ export async function POST(req: NextRequest) {
 
     const sinceDate = body?.sinceDate || DEFAULT_SINCE_DATE;
     if(!isAccountDate(sinceDate))return NextResponse.json({error:'Fecha inválida.'},{status:400});
-    const summary = await withPurchaseSheetLease(db,()=>contrastAndSyncPurchaseSheet({
-      sinceDate,
-      execute: true,
-    }));
-    return NextResponse.json(summary);
+    const result = await withPurchaseSheetLease(db, async () => {
+      const summary = await contrastAndSyncPurchaseSheet({ sinceDate, execute: true });
+      try {
+        const { updatedCount } = await syncStockFromSheet();
+        return { ...summary, stockSync: { success: true, updatedCount } };
+      } catch (error) {
+        console.error('[purchase-sheet-sync][stock] Error:', error);
+        return { ...summary, stockSync: { success: false } };
+      }
+    });
+    return NextResponse.json(result);
   } catch (error: any) {
     console.error('[purchase-sheet-sync][POST] Error:', error);
     return NextResponse.json(

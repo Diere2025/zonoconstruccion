@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 test('la reserva consolidada por nombre tiene prioridad sobre un ID duplicado', () => {
-  const source = fs.readFileSync('src/app/api/admin/sync-stock/route.ts', 'utf8');
+  const source = fs.readFileSync('src/lib/erp/stockSheetSync.ts', 'utf8');
   const blocks = [...source.matchAll(/const dbCalculatedReserved =([\s\S]*?)\|\|\s*0;/g)];
   assert.ok(blocks.length >= 2);
   for (const [, block] of blocks.slice(0, 2)) {
@@ -16,7 +16,7 @@ test('la reserva consolidada por nombre tiene prioridad sobre un ID duplicado', 
 });
 
 test('la comparación devuelve una sola fila por producto emparejado', () => {
-  const source = fs.readFileSync('src/app/api/admin/sync-stock/route.ts', 'utf8');
+  const source = fs.readFileSync('src/lib/erp/stockSheetSync.ts', 'utf8');
   assert.match(source, /const comparisonByProductId = new Map<string, any>\(\)/);
   assert.match(source, /comparisonByProductId\.set\(dbProd\.id,/);
   assert.match(source, /Array\.from\(comparisonByProductId\.values\(\)\)/);
