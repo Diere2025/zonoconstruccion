@@ -282,10 +282,11 @@ export async function GET(request: Request) {
           const orderIds = (deliveries || []).map(d => d.order_id).filter(Boolean);
           const ordersMap = new Map<string, any>();
           if (orderIds.length > 0) {
-            const { data: matchedOrders } = await supabaseAdmin
+            const { data: matchedOrders, error: matchedOrdersError } = await supabaseAdmin
               .from("orders")
-              .select("id, legacy_code, customer_name, address, locality, total_amount, payment_status, status, channel, totals, payment_methods(name)")
+              .select("id, legacy_code, customer_name, address, locality, total_amount, payment_status, status, channel, totals, employee_withdrawal, payment_methods(name)")
               .in("id", orderIds);
+            if (matchedOrdersError) throw matchedOrdersError;
             (matchedOrders || []).forEach(o => ordersMap.set(o.id, o));
           }
 
@@ -349,7 +350,9 @@ export async function GET(request: Request) {
             mpPayments = data || [];
           }
 
-          routeOrders = (deliveries || []).map(d => {
+          routeOrders = (deliveries || []).filter(d =>
+            settlement.status !== "draft" || !ordersMap.get(d.order_id)?.employee_withdrawal
+          ).map(d => {
             const order = d.order_id ? ordersMap.get(d.order_id) : null;
             const priorPaymentReceipts = [...(receiptsByOrder.get(d.order_id) || [])];
             const addOrderReceipt = (receiptUrl: unknown, amount: unknown, reference: string) => {
@@ -502,6 +505,27 @@ export async function GET(request: Request) {
 async function getEntregandoPreview(source: "entregando" | "entregados" = "entregados", date = "") {
   deliveredSourceOnly(source);
   const rows = await projectCorrectedDeliveredRows(supabaseAdmin, await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, "'🔴 Entregados'!A2:CO"));
+  const datedRows = rows.map(row => ({ row, date: parseSheetDate(row[1]) }));
+  const candidateCodes = new Set<string>();
+  for (const entry of datedRows) {
+    if (!entry.date || (date && entry.date !== date)) continue;
+    const code = String(entry.row[0] || "").trim();
+    if (!code) continue;
+    candidateCodes.add(code);
+    candidateCodes.add(code.toUpperCase());
+  }
+  const withdrawalCodes = new Set<string>();
+  const codes = [...candidateCodes];
+  for (let offset = 0; offset < codes.length; offset += 200) {
+    const { data, error } = await supabaseAdmin.from("orders")
+      .select("legacy_code")
+      .eq("employee_withdrawal", true)
+      .in("legacy_code", codes.slice(offset, offset + 200));
+    if (error) throw error;
+    for (const order of data || []) {
+      if (order.legacy_code) withdrawalCodes.add(order.legacy_code.trim().toUpperCase());
+    }
+  }
   let currentHeaderCarrier = "";
   let currentHeaderRouteNumber = 1;
   const groups = new Map<string, {
@@ -536,13 +560,12 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
     }>;
   }>();
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
+  for (let i = 0; i < datedRows.length; i++) {
+    const { row, date: dateParsed } = datedRows[i];
     const orderCode = String(row[0] || "").trim();
     if (!orderCode) continue;
 
     const dateRaw = String(row[1] || "").trim();
-    const dateParsed = parseSheetDate(dateRaw);
     if (!dateParsed) {
       if (orderCode.length > 3) {
         const rMatch = orderCode.match(/\b(?:R|REC|RECORRIDO)[\s-_]*(\d+)\b/i);
@@ -633,6 +656,11 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
     .eq("is_active", true);
   if (carriersError) throw carriersError;
   groupList=mergeDeliveredGroups(groupList,name=>findCarrier(name,carriers||[])?.id||carrierIdentityKey(name),settlementOrdersTotal);
+  groupList = groupList.map(group => {
+    const orders = group.orders.filter(order => !withdrawalCodes.has(order.orderCode.toUpperCase()));
+    return { ...group, orders, totalAmount: settlementOrdersTotal(orders) };
+  }).filter(group => group.orders.length > 0);
+  if (groupList.length === 0) return [];
 
   const dates = Array.from(new Set(groupList.map(g => g.deliveryDate)));
   const { data: rawExistingSettlements, error: settlementsError } = await supabaseAdmin
@@ -865,6 +893,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
           .select("id")
           .eq("route_sheet_id", routeSheet.id)
           .eq("delivery_order", order.stopOrder)
+          .is("order_id", null)
           .maybeSingle();
         if (existingByRouteOrder) deliveryId = existingByRouteOrder.id;
       }
