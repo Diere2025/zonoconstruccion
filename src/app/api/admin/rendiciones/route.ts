@@ -875,6 +875,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
         : "entregado";
       const excluded = isExcludedDeliveryStatus(deliveryStatus);
       const storedStatus = excluded ? "fallido" : deliveryStatus;
+      const realDeliveryDate = storedStatus === "entregado" ? item.deliveryDate : null;
       const sheetCollection = { amount: Math.max(0, order.toCollectAmount ?? 0), noCollection: Boolean(order.noCollection) };
       let deliveryId: string | null = null;
 
@@ -904,6 +905,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
           order_id: orderId,
           carrier_id: matchedCarrier.id,
           delivery_date: item.deliveryDate,
+          real_delivery_date: realDeliveryDate,
           run_number: runNumber,
           delivery_order: order.stopOrder,
           status: storedStatus,
@@ -921,6 +923,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
           order_id: orderId,
           carrier_id: matchedCarrier.id,
           delivery_date: item.deliveryDate,
+          real_delivery_date: realDeliveryDate,
           run_number: runNumber,
           delivery_order: order.stopOrder,
           status: storedStatus,
