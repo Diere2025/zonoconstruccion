@@ -25,3 +25,4 @@ test('una fila parcial no reemplaza artículos ni importes de un pedido con cont
 });
 
 test('una sesión sin permisos no importa ni crea avisos',async()=>{const f=fixture();f.denyAccess();const response=await f.run();assert.equal(response.status,403);assert.equal(f.writes.length,0);assert.equal(f.alerts.length,0);});
+test('retira de la importación pedidos protegidos de empleados, también en filas agrupadas',async()=>{const f=fixture();f.order.employee_withdrawal=true;f.order.total_amount='80.00';f.row[1]='AQU123 / AQU999';const response=await f.run();assert.equal(response.status,200,JSON.stringify(response.body));assert.equal(f.writes.length,0);assert.equal(response.body.totalUpdated,0);assert.equal(response.body.warnings.length,0);assert.match(response.body.logs.join(';'),/retiro de empleado conservado/);});

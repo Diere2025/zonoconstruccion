@@ -238,10 +238,11 @@ export async function POST(request: Request) {
     let dbOrders: any[] = [];
     if (targetCodes.length > 0) {
       dbOrders = await findImportOrders(supabaseAdmin, targetCodes,
-        'id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id, client_id, channel, advertising_source_id, payment_method_id, total_amount, order_discount_type, order_discount_value, order_discount_amount, totals');
+        'id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id, client_id, channel, advertising_source_id, payment_method_id, total_amount, order_discount_type, order_discount_value, order_discount_amount, totals, employee_withdrawal');
     }
 
     // 2.5 Batch-preload Clients and Addresses for all phones in this chunk (saves ~30+ subrequests)
+    const protectedWithdrawalCodes = new Set(dbOrders.filter(order => order.employee_withdrawal).flatMap(order => splitOrderCodes(order.legacy_code)));
     const knownCodes = new Set(dbOrders.flatMap(order => splitOrderCodes(order.legacy_code)));
     const codesNeedingClient = new Set(
       dbOrders
@@ -471,6 +472,10 @@ export async function POST(request: Request) {
     for (const row of rows) {
       const orderCode = (row[1] || "").trim();
       if (!orderCode) continue;
+      if (splitOrderCodes(orderCode).some(code => protectedWithdrawalCodes.has(code))) {
+        addLog(`Pedido ${orderCode}: retiro de empleado conservado en su módulo.`);
+        continue;
+      }
 
       if (skipENC && orderCode.toUpperCase().startsWith("ENC")) {
         continue;
