@@ -602,7 +602,7 @@ export async function POST(request: Request) {
       for (let page = 0; ; page++) {
         const { data, error } = await supabaseAdmin
           .from('orders')
-          .select('id, legacy_code, status, total_amount, payment_method_id, customer_name, deliveries(real_delivery_date)')
+          .select('id, legacy_code, status, total_amount, payment_method_id, customer_name, employee_withdrawal, deliveries(real_delivery_date)')
           .not('legacy_code', 'is', null)
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (error) throw error;
@@ -667,6 +667,7 @@ export async function POST(request: Request) {
     });
 
     const dbOrdersMap = new Map<string, any>();
+    const protectedWithdrawalCodes = new Set(dbOrdersList.filter(o => o.employee_withdrawal).flatMap(o => splitOrderCodes(o.legacy_code)));
     const dbOrdersById = new Map<string, any>();
     dbOrdersList.forEach(o => {
       const deliveries = Array.isArray(o.deliveries) ? o.deliveries : o.deliveries ? [o.deliveries] : [];
@@ -873,7 +874,7 @@ export async function POST(request: Request) {
     // Keep the original identities across workers: repairing an old delivery must not shift later cursors.
     const batchOrders = selectedCodes.slice(cursor, cursor + batchSize).flatMap(code => {
       const order = selectedOrders.get(code);
-      return order ? [order] : [];
+      return order && !splitOrderCodes(order.code).some(code => protectedWithdrawalCodes.has(code)) ? [order] : [];
     });
     const nextCursor = Math.min(cursor + batchSize, selectedCodes.length);
     const done = nextCursor >= selectedCodes.length;
