@@ -3,7 +3,7 @@ const compiled=ts.transpileModule(fs.readFileSync('src/app/api/mp-webhook/route.
 function fixture(config={}){
  const calls=[],exports={};
  const db={from(table){const q={table,kind:'select',filters:[],select(){return q;},update(value){q.kind='update';q.value=value;return q;},insert(value){q.kind='insert';q.value=value;return q;},eq(...a){q.filters.push(['eq',...a]);return q;},is(...a){q.filters.push(['is',...a]);return q;},ilike(...a){q.filters.push(['ilike',...a]);return q;},gte(...a){q.filters.push(['gte',...a]);return q;},lte(...a){q.filters.push(['lte',...a]);return q;},limit(){return q;},maybeSingle(){q.exact=true;return q;},single(){return q;},then(resolve,reject){calls.push({table,kind:q.kind,value:q.value,filters:q.filters});const data=table==='mp_payments'?(q.kind==='insert'?q.value:q.kind==='update'?null:q.exact?(config.exact||null):(config.fuzzy||[])):[];const error=table==='mp_payments'?q.kind==='update'?config.updateError:q.kind==='select'?config.lookupError:null:null;return Promise.resolve({data,error}).then(resolve,reject);}};return q;}};
- vm.runInNewContext(compiled,{exports,URL,Date,Math,console:{log(){},warn(){},error(){}},process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://example.invalid',SUPABASE_SERVICE_ROLE_KEY:'service',MP_WEBHOOK_SECRET:'secret'}},require:n=>n==='next/server'?{NextResponse:{json:(body,opts)=>({body,status:opts?.status||200})}}:n==='@supabase/supabase-js'?{createClient:()=>db}:{checkMonthlyIncomeAlerts:async()=>{}}});
+ vm.runInNewContext(compiled,{exports,URL,Date,Math,console:{log(){},warn(){},error(){}},process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://example.invalid',SUPABASE_SERVICE_ROLE_KEY:'service',MP_WEBHOOK_SECRET:'secret'}},require:n=>n==='next/server'?{NextResponse:{json:(body,opts)=>({body,status:opts?.status||200})}}:n==='@supabase/supabase-js'?{createClient:()=>db}:n==='@/lib/mpTelegramAlert'?{dispatchBankingMonitorAlert:async(account)=>{calls.push({kind:'banking_alert',account});return {ok:true};}}:{checkMonthlyIncomeAlerts:async()=>{}}});
  const send=(override={},token='secret')=>exports.POST(new Request('https://example.invalid/api/mp-webhook',{method:'POST',headers:{'content-type':'application/json','x-webhook-token':token},body:JSON.stringify({title:'Mercado Pago',text:'Recibiste $ 245.000 de Cliente Ejemplo desde su cuenta',id:'mp_dom_test',received_at:'2026-10-08T11:36:49Z',operation_id:'183071760172',account:'diegozono.mp',...override})}));return {calls,send};
 }
 test('a new incoming payment preserves cents, account and operation without order writes',async()=>{const f=fixture(),r=await f.send({text:'Recibiste $ 245.000,25 de Cliente Ejemplo desde su cuenta'});assert.equal(r.status,200);const row=f.calls.find(c=>c.kind==='insert').value;assert.equal(row.amount,245000.25);assert.equal(row.account_id,'diegozono_mp');assert.equal(row.mp_operation_id,'183071760172');assert.equal(row.is_verified,true);assert.equal(row.order_id,undefined);assert.equal(f.calls.filter(c=>c.kind==='insert').length,1);});
@@ -14,3 +14,28 @@ test('lookup and operation update failures permit retry without duplicate insert
 test('legacy callers still work without an operation; untrusted operation is ignored',async()=>{for(const override of [{operation_id:null},{}]){const f=fixture(),r=await f.send(override,'wrong');assert.equal(r.status,200);assert.equal(f.calls.find(c=>c.kind==='insert').value.mp_operation_id,undefined);}});
 test('outgoing services never become collections',async()=>{const f=fixture(),r=await f.send({text:'Pagaste $ 245.000 por pago de servicios'});assert.equal(r.body.isIncoming,false);assert.equal(f.calls.length,0);});
 test('MP4 and MP5 keep separate identities',async()=>{for(const [account,id] of [['pagoszono.26','pagoszono_26'],['cobroszono','cesara_daiana_010_mp']]){const f=fixture();await f.send({account});const row=f.calls.find(c=>c.kind==='insert').value;assert.equal(row.account_id,id);assert.ok(row.id.startsWith(id+'_'));}});
+
+test('Page reports allow legacy auto-recovery without overwriting shared account health or sending Telegram', async () => {
+  const f = fixture();
+  for (const errorType of ['PAGE_CRASH', 'WRONG_PAGE']) {
+    const response = await f.send({ type: 'ALERT_PAGE_ERROR', errorType });
+    assert.equal(response.body.type, 'ALERT_PAGE_ERROR_ACK');
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('Banking reports are routed independently and only trusted heartbeats update the shared signal', async () => {
+  const f = fixture();
+  const banking = await f.send({ type: 'ALERT_PAGE_ERROR', errorType: 'BANKING_STALLED' });
+  assert.equal(banking.body.success, true);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].kind, 'banking_alert');
+  assert.equal((await f.send({ type: 'HEARTBEAT' }, 'wrong')).status, 401);
+  assert.equal((await f.send({ type: 'ALERT_PAGE_ERROR', errorType: 'BANKING_STALLED' }, 'wrong')).status, 401);
+  assert.equal(f.calls.length, 1);
+  const response = await f.send({ type: 'HEARTBEAT' });
+  assert.equal(response.body.type, 'HEARTBEAT_ACK');
+  assert.equal(f.calls[1].table, 'mp_accounts');
+  assert.equal(f.calls[1].value.status, 'online');
+  assert.equal(f.calls[1].value.last_seen_at, response.body.serverTime);
+});
