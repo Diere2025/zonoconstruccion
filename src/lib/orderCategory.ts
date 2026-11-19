@@ -64,6 +64,14 @@ export function detectOrderCategory(orderItems: CategoryOrderItem[]): string {
   const priority = detectVolumeOrderCategory(orderItems);
   if (priority) return priority;
 
+  const products = orderItems
+    .filter(item => item.quantity > 0)
+    .map(item => (item.name || item.product_name || item.sku || "").toLowerCase())
+    .filter(name => !/^\s*(?:descuentos?|bonificaci[oó]n)\b/.test(name));
+  const miami = (name: string) => /\bgarden\s*life\b.*\b(?:miami|puket)\b|\bf(?:78500(?:0|1e)|43500(?:0|1e))\b/i.test(name);
+  const countryAccessory = (name: string) => /\bcountry\b/.test(name) && /\b(?:mesa|posapi[eé]s)\b/.test(name);
+  if (products.some(miami) && products.every(name => miami(name) || countryAccessory(name))) return "MIAMI GL";
+
   let termotanqueCount = 0;
   let tanquesCount = 0;
   let biofortCount = 0;

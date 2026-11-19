@@ -6406,6 +6406,7 @@ export default function PedidosPage() {
                     <option value="MEP">MEP</option>
                     <option value="ESCALERAS">ESCALERAS</option>
                     <option value="COLOMBRARO">COLOMBRARO</option>
+                    <option value="MIAMI GL">MIAMI GL</option>
                     <option value="HERRAMIENTAS ELÉCTRICAS">HERRAMIENTAS ELÉCTRICAS</option>
                     <option value="INSTALACIÓN BIOFORT">INSTALACIÓN BIOFORT</option>
                     <option value="OTRO">OTRO</option>
