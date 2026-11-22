@@ -23,7 +23,9 @@ test('stock sources overlap and historical order pages use bounded batches', () 
   assert.match(stock, /Promise\.all\(\[\s*timed\(fetchSpreadsheetCsv/);
   assert.match(stock, /sourcesMs/);
   assert.match(unimported, /mapWithConcurrency\(SELLER_SHEETS, 4/);
-  assert.match(unimported, /const pages = \[page, page \+ 1\]/);
+  assert.match(unimported, /fetchMatchingDbLegacyCodes\(\[\.\.\.candidateCodes\]\)/);
+  assert.match(unimported, /rpc\('find_sheet_order_codes_in_erp'/);
+  assert.doesNotMatch(unimported, /fetchAllDbLegacyCodes/);
   assert.doesNotMatch(unimported, /count: 'exact'/);
 });
 

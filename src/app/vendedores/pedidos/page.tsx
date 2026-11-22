@@ -66,6 +66,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
+import { orderHistoryField, orderHistoryKey } from "@/lib/orderHistory";
 import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
 import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import { Product, OrderDiscountItem } from "@/types";
@@ -701,6 +702,8 @@ export default function PedidosPage() {
     return getCurrentMonthRange().today;
   });
   const [showDateDropdown, setShowDateDropdown] = useState<boolean>(false);
+  const [historicalOnly, setHistoricalOnly] = useState(false);
+  const operationalFiltersRef = useRef<{ dateFrom: string; dateTo: string; statuses: string[]; listType: typeof listType } | null>(null);
   const isInitialMount = useRef(true);
 
   const isRestrictedSeller = useMemo(() => {
@@ -821,7 +824,7 @@ export default function PedidosPage() {
       isInitialMount.current = false;
       return;
     }
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || historicalOnly) return;
 
     const params = new URLSearchParams(window.location.search);
 
@@ -883,11 +886,12 @@ export default function PedidosPage() {
       : window.location.pathname;
 
     window.history.replaceState(null, "", newPath);
-  }, [activeTab, selectedStatuses, selectedChannels, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
+  }, [activeTab, selectedStatuses, selectedChannels, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo, historicalOnly]);
 
   // Support browser back/forward buttons (popstate) and sidebar navigation (zono_nav_pedidos)
   useEffect(() => {
     const handlePopState = () => {
+      setHistoricalOnly(false);
       const params = new URLSearchParams(window.location.search);
       const urlTab = params.get("tab");
       if (urlTab === 'form' || urlTab === 'nuevo') {
@@ -932,6 +936,7 @@ export default function PedidosPage() {
     const handleCustomNav = (e: any) => {
       const url = e?.detail?.href;
       if (!url) return;
+      setHistoricalOnly(false);
       const search = url.includes('?') ? url.split('?')[1] : '';
       const params = new URLSearchParams(search);
       const urlTab = params.get("tab");
@@ -1004,6 +1009,7 @@ export default function PedidosPage() {
   };
 
   const applyCustomView = (view: CustomView) => {
+    setHistoricalOnly(false);
     if (view.filters.selectedStatuses && view.filters.selectedStatuses.length > 0) {
       setSelectedStatuses(view.filters.selectedStatuses);
     } else if (view.filters.statusFilter) {
@@ -1039,6 +1045,7 @@ export default function PedidosPage() {
   };
 
   const resetAllFilters = () => {
+    setHistoricalOnly(false);
     setSelectedStatuses(['Pendientes']);
     setSelectedChannels(['minoristas', 'mayoristas']);
     setSelectedProducts([]);
@@ -1048,6 +1055,28 @@ export default function PedidosPage() {
     setDateFrom(firstDay);
     setDateTo(today);
     setShowCustomViewsDropdown(false);
+  };
+
+  const toggleHistoricalOrders = () => {
+    if (historicalOnly) {
+      const filters = operationalFiltersRef.current;
+      if (filters) {
+        setDateFrom(filters.dateFrom);
+        setDateTo(filters.dateTo);
+        setSelectedStatuses(filters.statuses);
+        setListType(filters.listType);
+      }
+      operationalFiltersRef.current = null;
+    } else {
+      operationalFiltersRef.current = { dateFrom, dateTo, statuses: selectedStatuses, listType };
+      setDateFrom('');
+      setDateTo('');
+      setSelectedStatuses(['Pendientes', 'En Revisión', 'Entregados', 'Anulados']);
+      if (role === 'admin') setListType('todos');
+    }
+    setOrders([]);
+    setLoadingOrders(true);
+    setHistoricalOnly(!historicalOnly);
   };
 
   const currentActiveViewName = useMemo(() => {
@@ -3232,6 +3261,7 @@ export default function PedidosPage() {
             )
             .order('order_date', { ascending: false })
             .order('created_at', { ascending: false });
+          query = historicalOnly ? query.not(orderHistoryField, 'is', null) : query.is(orderHistoryField, null);
 
           const facundoIds = ['3820a0fe-bb0a-4a84-ad85-79e49868cad7', '54b9ce55-7354-4b39-9886-314aa79f6aa6'];
           const ludmilaIds = ['54b2d319-8f6f-47ff-b794-b7731978410a', '8207801b-b6cb-48cc-af0f-d2f9f2c98032'];
@@ -3340,8 +3370,11 @@ export default function PedidosPage() {
                 .order('order_date', { ascending: false })
                 .order('created_at', { ascending: false })
                 .limit(500)
-            : Promise.resolve({ data: [], error: null });
-          const [listResult, codeResult] = await Promise.all([query, codeQuery]);
+            : null;
+          const scopedCodeQuery = historicalOnly
+            ? codeQuery?.not(orderHistoryField, 'is', null)
+            : codeQuery?.is(orderHistoryField, null);
+          const [listResult, codeResult] = await Promise.all([query, scopedCodeQuery ?? { data: [], error: null }]);
           const error = listResult.error || codeResult.error;
           if (isCancelled) return;
           if (error) {
@@ -3370,7 +3403,7 @@ export default function PedidosPage() {
     return () => {
       isCancelled = true;
     };
-  }, [activeTab, listType, role, sellerFilter, debouncedOrderSearch, selectedStatuses, selectedProducts, expandedSelectedProductIds, products, selectedChannels, dateFrom, dateTo, refreshTrigger]);
+  }, [activeTab, listType, role, sellerFilter, debouncedOrderSearch, selectedStatuses, selectedProducts, expandedSelectedProductIds, products, selectedChannels, dateFrom, dateTo, historicalOnly, refreshTrigger]);
 
   // Fetch recent orders for the "Cargar desde BD" modal
   const fetchOrdersForModal = async () => {
@@ -3387,6 +3420,7 @@ export default function PedidosPage() {
       let q = supabase
         .from('orders')
         .select('*, order_items(product_name, quantity, unit_price), sellers(full_name)')
+        .is(orderHistoryField, null)
         .order('created_at', { ascending: false })
         .limit(40);
 
@@ -4995,6 +5029,7 @@ export default function PedidosPage() {
 
 
   const filteredOrders = sortedOrders.filter(p => {
+    if ((p.totals?.[orderHistoryKey] !== undefined) !== historicalOnly) return false;
     // Code matches were fetched independently of the view filters, with RLS.
     const codeSearch = debouncedOrderSearch.trim().toLowerCase();
     if (codeSearch && String(p.legacy_code || '').toLowerCase().includes(codeSearch)) return true;
@@ -9246,6 +9281,14 @@ export default function PedidosPage() {
                 )}
               </div>
 
+              <button
+                type="button"
+                aria-pressed={historicalOnly}
+                onClick={toggleHistoricalOrders}
+                className={`px-3.5 py-1.5 rounded-lg border text-xs font-semibold shrink-0 cursor-pointer ${historicalOnly ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
+              >
+                {historicalOnly ? 'Volver a pedidos operativos' : 'Traer histórico'}
+              </button>
               <button
                 type="button"
                 onClick={handleStartNewOrder}

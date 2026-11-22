@@ -54,6 +54,7 @@ export interface TodayDeliveryItem {
 import { dashboardChannelLabels, dashboardChannelSummary, dashboardOrderKey, dashboardRelatedOrder, matchesDashboardChannel, pagedDashboardQuery, retailOrderChannels, uniqueDashboardOrders, type DashboardChannel } from '@/lib/dashboardScope';
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { orderHistoryField } from "@/lib/orderHistory";
 import CategorySalesChart, { CategoryData } from "@/components/dashboard/CategorySalesChart";
 import OrderStatusChart, { OrderStatusData } from "@/components/dashboard/OrderStatusChart";
 import SalesTrendChart, { DailyTrendPoint } from "@/components/dashboard/SalesTrendChart";
@@ -80,6 +81,8 @@ export default function AdminDashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
   const loadAbortControllerRef = useRef<AbortController | null>(null);
+  const sheetOrdersAbortRef = useRef<AbortController | null>(null);
+  const [includeHistoricalOrders, setIncludeHistoricalOrders] = useState(false);
   const loadRequestIdRef = useRef(0);
   const [productSortKey, setProductSortKey] = useState<'billing' | 'qty'>('billing');
   const [productSearchTerm, setProductSearchTerm] = useState('');
@@ -490,7 +493,34 @@ export default function AdminDashboard() {
     }
   };
 
-  const loadData = async (start: string, end: string, sellerId: string = selectedSellerId, channel: DashboardChannel = selectedChannel) => {
+  const loadSheetOrders = async () => {
+    sheetOrdersAbortRef.current?.abort();
+    const controller = new AbortController();
+    sheetOrdersAbortRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await fetch('/api/admin/unimported-orders', { signal: controller.signal });
+      if (!response.ok) return;
+      const result = await response.json();
+      if (controller.signal.aborted || !result?.success) return;
+      setUnimportedSellerData({
+        totalCount: result.totalUnimportedCount || 0,
+        totalAmount: result.unimportedOrders?.reduce((total: number, order: { totalAmount?: number }) => total + (order.totalAmount || 0), 0) || 0,
+        todayOrdersCount: result.todayStats?.ordersCount || 0,
+        todayAmount: result.todayStats?.totalAmount || 0,
+        todayUnits: result.todayStats?.totalUnits || 0,
+        orders: result.unimportedOrders || []
+      });
+    } catch (error) {
+      if (!controller.signal.aborted) console.warn("No se pudo cargar pedidos sin importar:", error);
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (sheetOrdersAbortRef.current === controller) sheetOrdersAbortRef.current = null;
+    }
+  };
+
+  const loadData = async (start: string, end: string, sellerId: string = selectedSellerId, channel: DashboardChannel = selectedChannel, includeHistory = includeHistoricalOrders) => {
     loadAbortControllerRef.current?.abort();
     const controller = new AbortController();
     const requestId = ++loadRequestIdRef.current;
@@ -504,6 +534,7 @@ export default function AdminDashboard() {
       setLoading(true);
       setIsRefreshing(true);
       setLoadError('');
+      void loadSheetOrders();
 
       const withSignal = <T extends { abortSignal: (signal: AbortSignal) => T }>(query: T) =>
         query.abortSignal(controller.signal);
@@ -574,6 +605,17 @@ export default function AdminDashboard() {
       itemsQuery = itemsQuery.eq('orders.employee_withdrawal', false);
       datedDeliveriesQuery = datedDeliveriesQuery.eq('orders.employee_withdrawal', false);
 
+      if (!includeHistory) {
+        recentQuery = recentQuery.is(orderHistoryField, null);
+        rangeQuery = rangeQuery.is(orderHistoryField, null);
+        prevRangeQuery = prevRangeQuery.is(orderHistoryField, null);
+        todayOrdersQuery = todayOrdersQuery.is(orderHistoryField, null);
+        monthOrdersQuery = monthOrdersQuery.is(orderHistoryField, null);
+        weeklyOrdersQuery = weeklyOrdersQuery.is(orderHistoryField, null);
+        itemsQuery = itemsQuery.is(`orders.${orderHistoryField}`, null);
+        datedDeliveriesQuery = datedDeliveriesQuery.is(`orders.${orderHistoryField}`, null);
+      }
+
       if (channel === 'mayorista') recentQuery = recentQuery.eq('channel', 'mayorista');
       if (channel === 'minorista') recentQuery = recentQuery.in('channel', retailOrderChannels);
       if (channel === 'unclassified') recentQuery = recentQuery.or(`channel.is.null,channel.not.in.(${['mayorista', ...retailOrderChannels].join(',')})`);
@@ -619,18 +661,10 @@ export default function AdminDashboard() {
       if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
 
       const [
-        unimportedRes,
         todayOrdersRes,
         monthOrdersRes,
         datedDeliveriesRes
       ] = await Promise.all([
-        fetch('/api/admin/unimported-orders', { signal: controller.signal })
-          .then(response => response.ok ? response.json() : null)
-          .catch(error => {
-            if (controller.signal.aborted) throw error;
-            console.warn("No se pudo cargar pedidos sin importar:", error);
-            return null;
-        }),
         pagedDashboardQuery(withSignal(todayOrdersQuery.order("id", { ascending: true }))),
         pagedDashboardQuery(withSignal(monthOrdersQuery.order("id", { ascending: true }))),
         pagedDashboardQuery(withSignal(datedDeliveriesQuery.order("id", { ascending: true })))
@@ -660,17 +694,6 @@ export default function AdminDashboard() {
       // The operational routing list remains on its own screen; the chart
       // above uses only completed delivery dates and order amounts.
       const todayDeliveriesRes = { data: [] as never[] };
-
-      if (unimportedRes && unimportedRes.success) {
-        setUnimportedSellerData({
-          totalCount: unimportedRes.totalUnimportedCount || 0,
-          totalAmount: unimportedRes.unimportedOrders?.reduce((acc: number, o: any) => acc + (o.totalAmount || 0), 0) || 0,
-          todayOrdersCount: unimportedRes.todayStats?.ordersCount || 0,
-          todayAmount: unimportedRes.todayStats?.totalAmount || 0,
-          todayUnits: unimportedRes.todayStats?.totalUnits || 0,
-          orders: unimportedRes.unimportedOrders || []
-        });
-      }
 
       setChannelSummary(dashboardChannelSummary(uniqueDashboardOrders(ordersInRangeRes.data || [])));
       ordersInRangeRes.data = ordersInRangeRes.data.filter(order => matchesDashboardChannel(order, channel));
@@ -1278,6 +1301,7 @@ export default function AdminDashboard() {
 
     return () => {
       loadAbortControllerRef.current?.abort();
+      sheetOrdersAbortRef.current?.abort();
     };
   }, []);
 
@@ -1400,6 +1424,14 @@ export default function AdminDashboard() {
           </button>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <label className="flex shrink-0 items-center gap-2 px-2 py-1.5 text-xs font-semibold text-slate-700">
+              <input type="checkbox" checked={includeHistoricalOrders} onChange={event => {
+                const includeHistory = event.target.checked;
+                setIncludeHistoricalOrders(includeHistory);
+                loadData(startDate, endDate, selectedSellerId, selectedChannel, includeHistory);
+              }} />
+              Incluir histórico
+            </label>
             <div className="min-w-[150px]">
               <label htmlFor="dashboard-channel" className="sr-only">Canal del dashboard</label>
               <select id="dashboard-channel" value={selectedChannel} onChange={event => {

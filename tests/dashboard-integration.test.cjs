@@ -13,16 +13,20 @@ function evaluate(file, imports, globals = {}) {
   return exports;
 }
 const scope = evaluate('src/lib/dashboardScope.ts', {});
+const history = evaluate('src/lib/orderHistory.ts', {});
 const today = new Date();
 const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 const source = fs.readFileSync('src/app/admin/dashboard/page.tsx', 'utf8');
 const names = [...source.matchAll(/const \[(\w+),[^\]]*\]\s*=\s*useState/g)].map(match => match[1]);
 
-async function dashboard(channel) {
+async function dashboard(channel, fetchSheetOrders = async () => ({
+  ok: true,
+  json: async () => ({ success: true, totalUnimportedCount: 1, unimportedOrders: [{ totalAmount: 999 }] })
+}), includeHistoricalOrders = false) {
   let cursor = 0;
   const state = new Map();
   const effects = [];
-  const overrides = { selectedChannel: channel };
+  const overrides = { selectedChannel: channel, includeHistoricalOrders };
   const hooks = { ...React, useState: initial => {
     const name = names[cursor++];
     state.set(name, name in overrides ? overrides[name] : typeof initial === 'function' ? initial() : initial);
@@ -33,24 +37,26 @@ async function dashboard(channel) {
     { id: 'b', legacy_code: 'SHARED', seller_id: 's1', channel: 'mayorista', status: 'Confirmado', total_amount: 200 },
     { id: 'c', legacy_code: 'RETAIL', seller_id: 's2', channel: 'web_organica', status: 'Anulado', total_amount: 90 },
     { id: 'd', legacy_code: 'UNKNOWN', seller_id: 's2', channel: null, status: 'Pendiente', total_amount: 50 }
-  ].map(order => ({ ...order, order_date: date, created_at: `${date}T12:00:00`, customer_name: order.id, locality: 'Buenos Aires' }));
+  ].map(order => ({ ...order, order_date: date, created_at: `${date}T12:00:00`, customer_name: order.id, locality: 'Buenos Aires', employee_withdrawal: false }));
   // A true duplicate must contribute neither order billing nor product billing twice.
   orders.push({ ...orders[0], id: 'e' });
   const oldOrder = { ...orders[1], id: 'old', legacy_code: 'OLD', order_date: '2020-01-01', total_amount: 70, status: 'Entregado' };
+  const historicalOrder = { ...orders[0], id: 'historical', legacy_code: 'HISTORICAL', total_amount: 900, totals: { importacion_historica: {} } };
   const tables = {
-    orders: [...orders, oldOrder], clients: [{ id: 'client' }], products: [{ id: 'product' }],
+    orders: [...orders, oldOrder, historicalOrder], clients: [{ id: 'client' }], products: [{ id: 'product' }],
     sellers: [{ id: 's1', full_name: 'Uno' }, { id: 's2', full_name: 'Dos' }],
-    order_items: orders.map(order => ({ id: `item-${order.id}`, product_name: `Producto ${order.channel || 'sin canal'}`, quantity: 1, unit_price: order.total_amount, products: { sku: 'P', category: 'Otros' }, orders: order })),
-    deliveries: [orders[0], oldOrder].map(order => ({ id: `delivery-${order.id}`, order_id: order.id, real_delivery_date: date, status: 'entregado', orders: order }))
+    order_items: [...orders, historicalOrder].map(order => ({ id: `item-${order.id}`, product_name: `Producto ${order.channel || 'sin canal'}`, quantity: 1, unit_price: order.total_amount, products: { sku: 'P', category: 'Otros' }, orders: order })),
+    deliveries: [orders[0], oldOrder, historicalOrder].map(order => ({ id: `delivery-${order.id}`, order_id: order.id, real_delivery_date: date, status: 'entregado', orders: order }))
   };
   const queries = [];
-  const field = (row, path) => path.split('.').reduce((value, key) => value?.[key], row);
+  const field = (row, path) => path.split(/\.|->/).reduce((value, key) => value?.[key], row);
   const supabase = { from: table => {
     const filters = [];
     let limit = Infinity, start = 0, end = Infinity, counting = false, sortField, signal;
     const query = {
       select(_projection, options) { counting = options?.head; return query; },
       eq(key, value) { filters.push(row => field(row, key) === value); return query; },
+      is(key, value) { filters.push(row => (field(row, key) ?? null) === value); return query; },
       gte(key, value) { filters.push(row => field(row, key) >= value); return query; },
       lte(key, value) { filters.push(row => field(row, key) <= value); return query; },
       in(key, values) { filters.push(row => values.includes(field(row, key))); return query; },
@@ -72,10 +78,10 @@ async function dashboard(channel) {
   } };
   const charts = Object.fromEntries(['CategorySalesChart', 'OrderStatusChart', 'SalesTrendChart', 'WeeklyComparisonChart'].map(name => [`@/components/dashboard/${name}`, { default: () => null }]));
   const app = evaluate('src/app/admin/dashboard/page.tsx', {
-    react: hooks, '@/lib/dashboardScope': scope, '@/lib/supabase': { supabase }, '@/lib/utils': { formatPrice: String },
+    react: hooks, '@/lib/dashboardScope': scope, '@/lib/orderHistory': history, '@/lib/supabase': { supabase }, '@/lib/utils': { formatPrice: String },
     '@/components/ui/Badge': { OrderStatusBadge: () => null }, ...charts
   }, { AbortController, window: { setTimeout, clearTimeout }, console: { error: (...args) => { throw Error(args[1]); }, warn() {} },
-    fetch: async () => ({ ok: true, json: async () => ({ success: true, totalUnimportedCount: 1, unimportedOrders: [{ totalAmount: 999 }] }) })
+    fetch: fetchSheetOrders
   });
   app.default();
   const cleanup = effects.find(fn => fn.toString().includes('loadData'))();
@@ -110,4 +116,27 @@ test('every channel applies to current, fixed, product, recent and delivery bloc
     assert.ok(state.get('recentOrders').every(order => scope.matchesDashboardChannel(order, channel)), channel);
     assert.equal(state.get('dailyTrendData').reduce((sum, day) => sum + day.deliveredSales, 0), delivered, channel);
   }
+});
+
+test('consolidated metrics load while the seller sheet request is pending', async () => {
+  let sheetSignal;
+  const { state } = await dashboard('all', (_url, { signal }) => {
+    sheetSignal = signal;
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
+    });
+  });
+  assert.equal(state.get('stats').monthlySales, 350);
+  assert.equal(state.get('unimportedSellerData'), null);
+  assert.equal(sheetSignal.aborted, true);
+});
+
+test('imported historical orders appear in the dashboard only when explicitly included', async () => {
+  const { state } = await dashboard('all', undefined, true);
+  assert.equal(state.get('stats').monthlySales, 1250);
+  assert.equal(state.get('stats').totalOrdersCount, 5);
+  assert.equal(state.get('todayStats').sales, 1250);
+  assert.equal(state.get('monthStats').sales, 1250);
+  assert.equal(state.get('productsSold').reduce((sum, product) => sum + product.total, 0), 1250);
+  assert.equal(state.get('dailyTrendData').reduce((sum, day) => sum + day.deliveredSales, 0), 1070);
 });

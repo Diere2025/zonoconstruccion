@@ -289,8 +289,7 @@ export async function getUnimportedSellerOrders(options: { forceRefresh?: boolea
     return cachedResult;
   }
 
-  // Start the independent Google Sheets and database reads together. Four sheet
-  // workers plus the two DB reads stay within Cloudflare's six-connection limit.
+  // Load the product catalog while the sheet workers fetch the order codes.
   const fetchSheetOnce = oncePerKey(fetchSpreadsheetCsv);
   const measure = async <T,>(promise: Promise<T>) => {
     const startedAt = Date.now();
@@ -306,14 +305,33 @@ export async function getUnimportedSellerOrders(options: { forceRefresh?: boolea
     }
   }));
 
-  const [legacyCodesLoad, productsLoad, sheetsLoad] = await Promise.all([
-    measure(fetchAllDbLegacyCodes()),
+  const [productsLoad, sheetsLoad] = await Promise.all([
     measure(fetchDbProducts()),
     sheetResultsPromise
   ]);
-  const dbLegacyCodesSet = legacyCodesLoad.value;
   const dbProducts = productsLoad.value;
-  const sheetResults = sheetsLoad.value;
+  const parsedSheets = sheetsLoad.value.flatMap(result => {
+    if (result.status !== 'fulfilled' || !result.value.csvText) return [];
+
+    const { sheet, csvText } = result.value;
+    const orders = mergeContiguousSheetRows(parseCSV(csvText)).slice(1).flatMap(row => {
+      const rawCode = (row[1] || '').trim().toUpperCase();
+      if (!rawCode || ['N° PEDIDO', 'NRO', 'PEDIDO', 'CODIGO'].includes(rawCode) || rawCode.startsWith('ENC')) return [];
+
+      const codeParts = rawCode.split(/[\/,]/).map(part => part.trim()).filter(Boolean);
+      return [{ row, rawCode, codeParts }];
+    });
+    return [{ sheet, orders }];
+  });
+  const candidateCodes = new Set<string>();
+  for (const { orders } of parsedSheets) {
+    for (const { rawCode, codeParts } of orders) {
+      candidateCodes.add(rawCode);
+      codeParts.forEach(code => candidateCodes.add(code));
+    }
+  }
+  const legacyCodesLoad = await measure(fetchMatchingDbLegacyCodes([...candidateCodes]));
+  const dbLegacyCodesSet = legacyCodesLoad.value;
 
   // Build product lookup maps
   const cleanToProdMap = new Map<string, any>();
@@ -366,25 +384,9 @@ export async function getUnimportedSellerOrders(options: { forceRefresh?: boolea
 
   const seenUnimportedCodes = new Set<string>();
 
-  // Process each sheet
-  for (const res of sheetResults) {
-    if (res.status !== 'fulfilled' || !res.value.csvText) continue;
-
-    const { sheet, csvText } = res.value;
-    const rawRows = parseCSV(csvText);
-    const rows = mergeContiguousSheetRows(rawRows);
-
-    for (let rIdx = 1; rIdx < rows.length; rIdx++) {
-      const row = rows[rIdx];
-      const rawCode = (row[1] || "").trim().toUpperCase();
-      if (!rawCode) continue;
-
-      // Skip header repetitions or invalid codes
-      if (rawCode === "N° PEDIDO" || rawCode === "NRO" || rawCode === "PEDIDO" || rawCode === "CODIGO") continue;
-      if (rawCode.startsWith("ENC")) continue;
-
+  for (const { sheet, orders } of parsedSheets) {
+    for (const { row, rawCode, codeParts } of orders) {
       // Logical detection: check if order code or any sub-part exists in DB
-      const codeParts = rawCode.split(/[\/,]/).map(p => p.trim()).filter(Boolean);
       const existsInDb = codeParts.some(part => dbLegacyCodesSet.has(part)) || dbLegacyCodesSet.has(rawCode);
 
       if (existsInDb) {
@@ -564,56 +566,12 @@ export async function getUnimportedSellerOrders(options: { forceRefresh?: boolea
   return cachedResult;
 }
 
-async function fetchAllDbLegacyCodes(): Promise<Set<string>> {
-  const codesSet = new Set<string>();
-  const pageSize = 1000;
+async function fetchMatchingDbLegacyCodes(codes: string[]): Promise<Set<string>> {
+  if (codes.length === 0) return new Set();
 
-  const addCodes = (rows: Array<{ legacy_code?: string | null }>) => {
-    rows.forEach((o) => {
-      if (!o.legacy_code) return;
-      const raw = o.legacy_code.toString().trim().toUpperCase();
-      codesSet.add(raw);
-      if (raw.startsWith('ORIG-')) codesSet.add(raw.replace(/^ORIG-/, ''));
-      raw.split(/[\/,]/).map(part => part.trim()).filter(Boolean).forEach((part) => {
-        codesSet.add(part);
-        if (part.startsWith('ORIG-')) codesSet.add(part.replace(/^ORIG-/, ''));
-      });
-    });
-  };
-
-  const firstPage = await supabaseAdmin
-    .from('orders')
-    .select('legacy_code')
-    .not('legacy_code', 'is', null)
-    .order('id')
-    .range(0, pageSize - 1);
-
-  if (firstPage.error || !firstPage.data) return codesSet;
-  addCodes(firstPage.data);
-
-  // Fetch two subsequent pages per round. This avoids the cost of an exact
-  // database count and halves the sequential network waits.
-  let page = 1;
-  let previousLength = firstPage.data.length;
-  while (previousLength === pageSize) {
-    const pages = [page, page + 1];
-    const results = await Promise.all(pages.map(async (pageNumber) => {
-      const { data, error } = await supabaseAdmin
-        .from('orders')
-        .select('legacy_code')
-        .not('legacy_code', 'is', null)
-        .order('id')
-        .range(pageNumber * pageSize, (pageNumber + 1) * pageSize - 1);
-      return { data: data || [], error };
-    }));
-
-    if (results.some(result => result.error)) break;
-    results.forEach(result => addCodes(result.data));
-    previousLength = results[results.length - 1].data.length;
-    page += pages.length;
-  }
-
-  return codesSet;
+  const { data, error } = await supabaseAdmin.rpc('find_sheet_order_codes_in_erp', { p_codes: codes });
+  if (error) throw new Error(`No se pudieron cruzar los códigos de las planillas con el ERP: ${error.message}`);
+  return new Set<string>(data || []);
 }
 
 async function fetchDbProducts(): Promise<any[]> {
