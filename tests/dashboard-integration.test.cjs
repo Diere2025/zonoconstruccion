@@ -33,9 +33,9 @@ async function dashboard(channel, fetchSheetOrders = async () => ({
     return [state.get(name), next => state.set(name, typeof next === 'function' ? next(state.get(name)) : next)];
   }, useRef: value => ({ current: value }), useEffect: fn => effects.push(fn) };
   const orders = [
-    { id: 'a', legacy_code: 'SHARED', seller_id: 's1', channel: 'minorista', status: 'Entregado', total_amount: 100 },
-    { id: 'b', legacy_code: 'SHARED', seller_id: 's1', channel: 'mayorista', status: 'Confirmado', total_amount: 200 },
-    { id: 'c', legacy_code: 'RETAIL', seller_id: 's2', channel: 'web_organica', status: 'Anulado', total_amount: 90 },
+    { id: 'a', client_id: 'client-new', legacy_code: 'SHARED', seller_id: 's1', channel: 'minorista', status: 'Entregado', total_amount: 100 },
+    { id: 'b', client_id: 'client-repeat', legacy_code: 'SHARED', seller_id: 's1', channel: 'mayorista', status: 'Confirmado', total_amount: 200 },
+    { id: 'c', client_id: 'client-cancelled', legacy_code: 'RETAIL', seller_id: 's2', channel: 'web_organica', status: 'Anulado', total_amount: 90 },
     { id: 'd', legacy_code: 'UNKNOWN', seller_id: 's2', channel: null, status: 'Pendiente', total_amount: 50 }
   ].map(order => ({ ...order, order_date: date, created_at: `${date}T12:00:00`, customer_name: order.id, locality: 'Buenos Aires', employee_withdrawal: false }));
   // A true duplicate must contribute neither order billing nor product billing twice.
@@ -50,7 +50,11 @@ async function dashboard(channel, fetchSheetOrders = async () => ({
   };
   const queries = [];
   const field = (row, path) => path.split(/\.|->/).reduce((value, key) => value?.[key], row);
-  const supabase = { from: table => {
+  const supabase = { rpc: (name, { p_clients }) => {
+    assert.equal(name, 'dashboard_customer_first_sale');
+    assert.ok(!p_clients.includes('client-cancelled'));
+    return { abortSignal: async () => ({ data: { 'client-new': date, 'client-repeat': '2020-01-09' }, error: null }) };
+  }, from: table => {
     const filters = [];
     let limit = Infinity, start = 0, end = Infinity, counting = false, sortField, signal;
     const query = {
@@ -79,6 +83,7 @@ async function dashboard(channel, fetchSheetOrders = async () => ({
   const charts = Object.fromEntries(['CategorySalesChart', 'OrderStatusChart', 'SalesTrendChart', 'WeeklyComparisonChart'].map(name => [`@/components/dashboard/${name}`, { default: () => null }]));
   const app = evaluate('src/app/admin/dashboard/page.tsx', {
     react: hooks, '@/lib/dashboardScope': scope, '@/lib/orderHistory': history, '@/lib/supabase': { supabase }, '@/lib/utils': { formatPrice: String },
+    '@/components/dashboard/CustomerSalesMix': { default: () => null, CustomerSalesMixAmounts: () => null },
     '@/components/ui/Badge': { OrderStatusBadge: () => null }, ...charts
   }, { AbortController, window: { setTimeout, clearTimeout }, console: { error: (...args) => { throw Error(args[1]); }, warn() {} },
     fetch: fetchSheetOrders
@@ -98,6 +103,10 @@ test('general dashboard reconciles KPIs, products, channel totals and delivery d
   assert.equal(state.get('stats').totalOrdersCount, 4);
   assert.equal(state.get('todayStats').sales, 350);
   assert.equal(state.get('monthStats').sales, 350);
+  const breakdown = state.get('salesMix');
+  for (const mix of [breakdown.today, breakdown.month, breakdown.range, breakdown.byDay[date]]) {
+    assert.deepEqual({ ...mix }, { first: 100, repeat: 200, unknown: 50 });
+  }
   assert.equal(state.get('productsSold').reduce((sum, product) => sum + product.total, 0), 350);
   assert.equal(Object.values(state.get('channelSummary')).reduce((sum, group) => sum + group.sales, 0), 350);
   assert.equal(state.get('unimportedSellerData').totalAmount, 999);
@@ -112,6 +121,7 @@ test('every channel applies to current, fixed, product, recent and delivery bloc
     assert.equal(state.get('stats').totalOrdersCount, count, channel);
     assert.equal(state.get('todayStats').sales, sales, channel);
     assert.equal(state.get('monthStats').sales, sales, channel);
+    assert.equal(Object.values(state.get('salesMix').range).reduce((sum, value) => sum + value, 0), sales, channel);
     assert.equal(state.get('productsSold').reduce((sum, product) => sum + product.total, 0), sales, channel);
     assert.ok(state.get('recentOrders').every(order => scope.matchesDashboardChannel(order, channel)), channel);
     assert.equal(state.get('dailyTrendData').reduce((sum, day) => sum + day.deliveredSales, 0), delivered, channel);

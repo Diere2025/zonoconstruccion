@@ -14,6 +14,27 @@ export function matchesDashboardChannel(order: { channel?: string | null } | nul
   return channel === 'all' || classifyDashboardChannel(order?.channel) === channel;
 }
 
+export type DashboardSalesMix = { first: number; repeat: number; unknown: number };
+export type DashboardMixOrder = { client_id?: string | null; order_date?: string | null; created_at?: string | null; total_amount?: unknown };
+export const emptyDashboardSalesMix = (): DashboardSalesMix => ({ first: 0, repeat: 0, unknown: 0 });
+export const dashboardSaleDay = (row: DashboardMixOrder) => (row.order_date || row.created_at || '').slice(0, 10);
+
+export function dashboardSalesMix(orders: DashboardMixOrder[], firstSales: Record<string, string>) {
+  const totals = emptyDashboardSalesMix();
+  const byDay: Record<string, DashboardSalesMix> = {};
+  for (const row of orders) {
+    const day = dashboardSaleDay(row);
+    const firstSale = row.client_id ? firstSales[row.client_id] : undefined;
+    const bucket = !firstSale || !day || firstSale > day ? 'unknown' : firstSale < day ? 'repeat' : 'first';
+    const amount = Number(row.total_amount) || 0;
+    totals[bucket] += amount;
+    if (!day) continue;
+    byDay[day] ??= emptyDashboardSalesMix();
+    byDay[day][bucket] += amount;
+  }
+  return { totals, byDay };
+}
+
 // A legacy code may be reused by a different seller or channel. Preserve that distinction.
 export function dashboardOrderKey(order: { id: string; legacy_code?: string | null; seller_id?: string | null; channel?: string | null }) {
   const code = order.legacy_code?.trim();

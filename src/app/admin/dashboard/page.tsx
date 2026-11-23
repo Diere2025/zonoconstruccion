@@ -51,7 +51,7 @@ export interface TodayDeliveryItem {
   seller_id?: string;
   freight_type?: string;
 }
-import { dashboardChannelLabels, dashboardChannelSummary, dashboardOrderKey, dashboardRelatedOrder, matchesDashboardChannel, pagedDashboardQuery, retailOrderChannels, uniqueDashboardOrders, type DashboardChannel } from '@/lib/dashboardScope';
+import { dashboardChannelLabels, dashboardChannelSummary, dashboardOrderKey, dashboardRelatedOrder, dashboardSalesMix, matchesDashboardChannel, pagedDashboardQuery, retailOrderChannels, uniqueDashboardOrders, type DashboardChannel, type DashboardMixOrder, type DashboardSalesMix } from '@/lib/dashboardScope';
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { orderHistoryField } from "@/lib/orderHistory";
@@ -59,6 +59,7 @@ import CategorySalesChart, { CategoryData } from "@/components/dashboard/Categor
 import OrderStatusChart, { OrderStatusData } from "@/components/dashboard/OrderStatusChart";
 import SalesTrendChart, { DailyTrendPoint } from "@/components/dashboard/SalesTrendChart";
 import WeeklyComparisonChart from "@/components/dashboard/WeeklyComparisonChart";
+import CustomerSalesMix, { CustomerSalesMixAmounts } from '@/components/dashboard/CustomerSalesMix';
 import { OrderStatusBadge } from "@/components/ui/Badge";
 
 export interface TopCustomer {
@@ -76,12 +77,22 @@ export interface LocalityRank {
 const isCancelledStatus = (status: string | null | undefined) =>
   status === "Cancelado" || status === "Anulado";
 
+type SalesMixReport = {
+  today: DashboardSalesMix;
+  month: DashboardSalesMix;
+  range: DashboardSalesMix;
+  byDay: Record<string, DashboardSalesMix>;
+};
+
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
   const loadAbortControllerRef = useRef<AbortController | null>(null);
   const sheetOrdersAbortRef = useRef<AbortController | null>(null);
+  const salesMixAbortRef = useRef<AbortController | null>(null);
+  const [salesMix, setSalesMix] = useState<SalesMixReport | null>(null);
+  const [salesMixFailed, setSalesMixFailed] = useState(false);
   const [includeHistoricalOrders, setIncludeHistoricalOrders] = useState(false);
   const loadRequestIdRef = useRef(0);
   const [productSortKey, setProductSortKey] = useState<'billing' | 'qty'>('billing');
@@ -520,8 +531,45 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadSalesMix = async (today: DashboardMixOrder[], month: DashboardMixOrder[], range: DashboardMixOrder[]) => {
+    const controller = new AbortController();
+    salesMixAbortRef.current = controller;
+    const timeoutId = window.setTimeout(() => {
+      if (salesMixAbortRef.current === controller) setSalesMixFailed(true);
+      controller.abort();
+    }, 25000);
+    try {
+      const clientIds = new Set<string>();
+      for (const orders of [today, month, range]) {
+        for (const order of orders) if (order.client_id) clientIds.add(order.client_id);
+      }
+      let firstSales: Record<string, string> = {};
+      if (clientIds.size) {
+        const { data, error } = await supabase.rpc('dashboard_customer_first_sale', { p_clients: [...clientIds] }).abortSignal(controller.signal);
+        if (error) throw error;
+        firstSales = data ?? {};
+      }
+      if (controller.signal.aborted || salesMixAbortRef.current !== controller) return;
+      const selected = dashboardSalesMix(range, firstSales);
+      setSalesMix({
+        today: dashboardSalesMix(today, firstSales).totals,
+        month: dashboardSalesMix(month, firstSales).totals,
+        range: selected.totals, byDay: selected.byDay,
+      });
+    } catch {
+      if (salesMixAbortRef.current === controller) setSalesMixFailed(true);
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (salesMixAbortRef.current === controller) salesMixAbortRef.current = null;
+    }
+  };
+
   const loadData = async (start: string, end: string, sellerId: string = selectedSellerId, channel: DashboardChannel = selectedChannel, includeHistory = includeHistoricalOrders) => {
     loadAbortControllerRef.current?.abort();
+    salesMixAbortRef.current?.abort();
+    salesMixAbortRef.current = null;
+    setSalesMix(null);
+    setSalesMixFailed(false);
     const controller = new AbortController();
     const requestId = ++loadRequestIdRef.current;
     loadAbortControllerRef.current = controller;
@@ -551,7 +599,7 @@ export default function AdminDashboard() {
         .limit(6);
 
       let rangeQuery = supabase.from("orders")
-        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
+        .select("id, client_id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
         .gte("order_date", start)
         .lte("order_date", end);
 
@@ -561,11 +609,11 @@ export default function AdminDashboard() {
         .lte("order_date", prevEndStr);
 
       let todayOrdersQuery = supabase.from("orders")
-        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
+        .select("id, client_id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
         .eq("order_date", todayStr);
 
       let monthOrdersQuery = supabase.from("orders")
-        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
+        .select("id, client_id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
         .gte("order_date", startOfMonthStr)
         .lte("order_date", todayStr);
 
@@ -1278,6 +1326,7 @@ export default function AdminDashboard() {
       });
 
       setDailyTrendData(dailyTrendList);
+      void loadSalesMix(todayActiveOrders, monthActiveOrders, activeOrdersList);
       setLastRefreshedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 
     } catch (err) {
@@ -1302,6 +1351,8 @@ export default function AdminDashboard() {
     return () => {
       loadAbortControllerRef.current?.abort();
       sheetOrdersAbortRef.current?.abort();
+      salesMixAbortRef.current?.abort();
+      salesMixAbortRef.current = null;
     };
   }, []);
 
@@ -1792,6 +1843,7 @@ export default function AdminDashboard() {
               <span className="text-blue-700 font-semibold tabular-nums">{formatPrice(todayStats.pendingBilling)}</span>
             </div>
           </div>
+          <CustomerSalesMixAmounts mix={salesMix?.today} failed={salesMixFailed} />
         </div>
 
         {/* KPI 2: Facturación del Mes */}
@@ -1844,6 +1896,7 @@ export default function AdminDashboard() {
               </span>
             </div>
           </div>
+          <CustomerSalesMixAmounts mix={presetRange === "mes" ? salesMix?.month : salesMix?.range} failed={salesMixFailed} />
         </div>
 
         {/* KPI 3: Pedidos Totales */}
@@ -2239,6 +2292,7 @@ export default function AdminDashboard() {
 
       {/* Interactive Sales Trend Chart (Evolución Diaria) */}
       <SalesTrendChart data={dailyTrendData} />
+      <CustomerSalesMix byDay={salesMix?.byDay} failed={salesMixFailed} />
 
       {/* Weekly Evolution & WoW Performance Comparison */}
       <WeeklyComparisonChart orders={allPeriodOrders} />
