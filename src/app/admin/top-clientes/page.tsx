@@ -1,10 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { BarChart3, ChevronRight, Loader2, Phone, Users, X } from 'lucide-react';
 import ReportDateRangePicker, { displayReportDate } from '@/components/ui/ReportDateRangePicker';
 import { supabase } from '@/lib/supabase';
 import { treasuryToday } from '@/lib/treasuryTransactionTime';
+
+const CustomerAnalysisDialog = dynamic(() => import('./CustomerAnalysisDialog'), { ssr: false });
 
 type Status = 'pendiente' | 'contactado' | 'sin_respuesta' | 'cerrado';
 type Person = { id: string; name: string | null };
@@ -61,6 +64,7 @@ export default function TopClientesPage() {
   const [saving, setSaving] = useState(false);
   const [reload, setReload] = useState(0);
   const [search, setSearch] = useState('');
+  const [analysisCustomer, setAnalysisCustomer] = useState<Person | null>(null);
   const profilePanel = useRef<HTMLElement>(null);
 
   const minDays = view === 'recontact' ? days : 0;
@@ -278,6 +282,10 @@ export default function TopClientesPage() {
           {profile && <>
             <h2 className="text-lg font-bold">{profile.name || 'Cliente sin nombre'}</h2>
             {selectedRow && <p className="mt-1 text-sm text-slate-600">{count.format(selectedRow.days)} fechas de compra en el período · {amount.format(selectedRow.sales)}</p>}
+            <button type="button" onClick={() => setAnalysisCustomer({ id: profile.id, name: profile.name })}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+              <BarChart3 className="h-4 w-4" /> Analizar cliente
+            </button>
             <div className="my-4 space-y-1 break-words text-sm text-slate-700">
               <div className="flex items-center gap-2"><Phone className="h-4 w-4"/>{profile.phone_primary || profile.phone_secondary || 'Sin teléfono registrado'}</div>
               {profile.phone_primary && profile.phone_secondary && <p>Alternativo {profile.phone_secondary}</p>}
@@ -314,5 +322,7 @@ export default function TopClientesPage() {
           </>}
         </aside>}
       </div>}
+    {analysisCustomer && <CustomerAnalysisDialog clientId={analysisCustomer.id} name={analysisCustomer.name || 'Cliente sin nombre'}
+      includeHistory={history} onClose={() => setAnalysisCustomer(null)} />}
   </div>;
 }
