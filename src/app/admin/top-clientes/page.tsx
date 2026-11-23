@@ -35,6 +35,8 @@ const input = 'min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 
 const panel = 'rounded-2xl border border-slate-200 bg-white p-4 sm:p-5';
 const headingCell = 'px-3 py-2.5 text-left font-semibold';
 const dataCell = 'px-3 py-3';
+const historyStart = '2020-01-09';
+const historyEnd = '2025-12-31';
 
 export default function TopClientesPage() {
   const today = treasuryToday();
@@ -113,6 +115,11 @@ export default function TopClientesPage() {
     (row.name || '').toLocaleLowerCase('es-AR').includes(search.trim().toLocaleLowerCase('es-AR')),
   ) ?? [];
 
+  function applyPeriod(from: string, to: string) {
+    setPeriod({ from, to });
+    if (from <= historyEnd) setHistory(true);
+  }
+
   async function saveFollowup(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!profile || saving) return;
@@ -159,7 +166,7 @@ export default function TopClientesPage() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1 text-sm font-medium">
           <ReportDateRangePicker from={period.from} to={period.to} includeCurrentYear
-            onChange={(from, to) => setPeriod({ from, to })} />
+            fullPeriod={{ from: historyStart, to: today }} onChange={applyPeriod} />
         </div>
         <label className="space-y-1 text-sm font-medium"><span>Canal</span>
           <select className={input} value={channel} onChange={e => setChannel(e.target.value)}>
@@ -183,8 +190,8 @@ export default function TopClientesPage() {
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={history} onChange={e => setHistory(e.target.checked)} /> Incluir pedidos históricos
         </label>
-        {history && <button type="button" onClick={() => { setPeriod({ from: '2020-01-09', to: '2025-12-31' }); setSort('orders'); }}
-          className="text-sm font-semibold text-blue-700 underline">Ver del 09/01/2020 al 31/12/2025</button>}
+        {history && <button type="button" onClick={() => { applyPeriod(historyStart, historyEnd); setSort('orders'); }}
+          className="text-sm font-semibold text-blue-700 underline">Ver del {displayReportDate(historyStart)} al {displayReportDate(historyEnd)}</button>}
         {view !== 'sellers' && <label className="flex items-center gap-2 text-sm">Ordenar por
           <select className={`${input} w-auto`} value={sort} onChange={e => setSort(e.target.value)}>
             <option value="amount">Monto comprado</option><option value="orders">Pedidos</option><option value="units">Unidades</option>

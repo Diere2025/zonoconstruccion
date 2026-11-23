@@ -11,30 +11,59 @@ const presets = [
   ['mes', 'Este mes'], ['mes_pasado', 'Mes pasado'], ['año', 'Este año'], ['personalizado', 'Personalizado'],
 ] as const;
 type Preset = typeof presets[number][0];
+type Selection = Preset | 'todo' | 'year';
+type Period = { from: string; to: string };
 export const displayReportDate = (value: string) => value ? value.split('-').reverse().join('/') : '';
 const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const localDate = (value: string) => { const [y, m, d] = value.split('-').map(Number); return new Date(y, m - 1, d); };
+const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-export default function ReportDateRangePicker({ from, to, onChange, align = 'start', hideLabel=false, emptyLabel='Todas las fechas', includeCurrentYear=false }: { from: string; to: string; onChange: (from: string, to: string) => void; align?: 'start' | 'end'; hideLabel?:boolean; emptyLabel?:string; includeCurrentYear?:boolean }) {
+export default function ReportDateRangePicker({ from, to, onChange, align = 'start', hideLabel=false, emptyLabel='Todas las fechas', includeCurrentYear=false, fullPeriod }: { from: string; to: string; onChange: (from: string, to: string) => void; align?: 'start' | 'end'; hideLabel?:boolean; emptyLabel?:string; includeCurrentYear?:boolean; fullPeriod?: Period }) {
   const [open, setOpen] = useState(false);
-  const [applied, setApplied] = useState<{ id: Preset; from: string; to: string } | null>(null);
-  const [draftPreset, setDraftPreset] = useState<Preset>('personalizado'), [start, setStart] = useState(from), [end, setEnd] = useState(to);
+  const [applied, setApplied] = useState<({ id: Selection } & Period) | null>(null);
+  const [draftPreset, setDraftPreset] = useState<Selection>('personalizado'), [start, setStart] = useState(from), [end, setEnd] = useState(to);
   const [view, setView] = useState(() => localDate(from||to||today())), [hover, setHover] = useState('');
   const [inputError, setInputError] = useState('');
   const availablePresets = presets.filter(([id]) => id !== 'año' || includeCurrentYear);
-  const matches = (id: Preset) => {
+  const withinLimits = (date: string) => !fullPeriod || (date >= fullPeriod.from && date <= fullPeriod.to);
+  const bounded = (start: string, end: string) => ({
+    from: fullPeriod && start < fullPeriod.from ? fullPeriod.from : start,
+    to: fullPeriod && end > fullPeriod.to ? fullPeriod.to : end,
+  });
+  const yearPeriod = (year: number) => bounded(`${year}-01-01`, `${year}-12-31`);
+  const matches = (id: Selection) => {
+    if (id === 'todo') return from === fullPeriod?.from && to === fullPeriod?.to;
+    if (id === 'year') {
+      const range = yearPeriod(Number(from.slice(0, 4)));
+      return from === range.from && to === range.to;
+    }
     const range = financeDateRange(id);
-    return from === range.start && to === range.end;
+    const limits = bounded(range.start, range.end);
+    return from === limits.from && to === limits.to;
   };
   const shownPreset = applied && applied.from === from && applied.to === to &&
     (applied.id === 'personalizado' || matches(applied.id))
     ? applied.id
-    : (['hoy', '7dias', 'mes'] as const).find(matches) ?? 'personalizado';
-  const choosePreset = (id: Preset) => {
+    : (['todo', 'hoy', '7dias', 'mes'] as const).find(matches) ?? 'personalizado';
+  const selectionLabel = shownPreset === 'todo' ? 'Todo el período' : shownPreset === 'year'
+    ? `Año ${from.slice(0, 4)}` : presets.find(([id]) => id === shownPreset)?.[1];
+  const pickRange = (id: Selection, range: Period) => {
+    setDraftPreset(id);
+    setStart(range.from);
+    setEnd(range.to);
+    setView(localDate(range.from));
+    setHover('');
+    setInputError('');
+  };
+  const choosePreset = (id: Preset | 'todo') => {
+    if (id === 'todo') {
+      if (fullPeriod) pickRange(id, fullPeriod);
+      return;
+    }
     setDraftPreset(id); setInputError('');
     if (id === 'personalizado') return;
     const range = financeDateRange(id);
-    setStart(range.start); setEnd(range.end); setView(localDate(range.start));
+    pickRange(id, bounded(range.start, range.end));
   };
   const chooseDay = (date: string) => {
     setDraftPreset('personalizado'); setInputError('');
@@ -42,21 +71,38 @@ export default function ReportDateRangePicker({ from, to, onChange, align = 'sta
     else { setStart(date < start ? date : start); setEnd(date < start ? start : date); }
   };
   const apply = () => {
-    if (!start || !end || start > end) { setInputError('Seleccioná una fecha inicial y final válidas.'); return; }
+    if (!start || !end || start > end || !withinLimits(start) || !withinLimits(end)) { setInputError('Seleccioná una fecha inicial y final válidas.'); return; }
     onChange(start, end); setApplied({ id: draftPreset, from: start, to: end }); setOpen(false);
   };
   return <div className="relative">{!hideLabel&&<span className="block">Período</span>}
     <button type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => {
       setStart(from); setEnd(to); setDraftPreset(shownPreset); setView(localDate(from||to||today())); setInputError(''); setOpen(!open);
     }} className="flex h-10 w-full items-center gap-2 rounded border border-slate-300 bg-white p-2 text-left text-sm text-slate-900">
-      <Calendar className="h-4 w-4"/><span>{!from&&!to?emptyLabel:`${presets.find(p => p[0] === shownPreset)?.[1]} (${displayReportDate(from)} - ${displayReportDate(to)})`}</span><ChevronDown className="h-4 w-4"/>
+      <Calendar className="h-4 w-4 shrink-0"/><span>{!from&&!to?emptyLabel:`${selectionLabel} (${displayReportDate(from)} - ${displayReportDate(to)})`}</span><ChevronDown className="h-4 w-4 shrink-0"/>
     </button>
     {open && <><div className="fixed inset-0 z-40" onClick={() => setOpen(false)}/>
       <div role="dialog" aria-label="Seleccionar rango de fechas" onKeyDown={e => { if (e.key === 'Escape') setOpen(false); }} className={`absolute top-full z-50 mt-2 flex w-[650px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl md:flex-row ${align === 'end' ? 'right-0' : 'left-0'}`}>
         <div className="flex gap-1 overflow-x-auto bg-slate-50 p-3 md:w-40 md:shrink-0 md:flex-col md:border-r">
-          {availablePresets.map(([id, label]) => <button type="button" key={id} onClick={() => choosePreset(id)} aria-pressed={draftPreset === id} className={`whitespace-nowrap rounded-lg px-3 py-2 text-left text-xs ${draftPreset === id ? 'bg-blue-50 font-semibold text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}>{label}</button>)}
+          {(fullPeriod ? [['todo', 'Todo el período'] as const, ...availablePresets] : availablePresets).map(([id, label]) => <button type="button" key={id} onClick={() => choosePreset(id)} aria-pressed={draftPreset === id} className={`whitespace-nowrap rounded-lg px-3 py-2 text-left text-xs ${draftPreset === id ? 'bg-blue-50 font-semibold text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}>{label}</button>)}
         </div>
         <div className="min-w-0 flex-1 p-4">
+          {fullPeriod && <div className="mb-3 grid grid-cols-2 gap-2">
+            <label className="grid gap-1 text-xs font-semibold">Año completo
+              <select value={draftPreset === 'year' ? start.slice(0, 4) : ''} onChange={event => {
+                if (event.target.value) pickRange('year', yearPeriod(Number(event.target.value)));
+              }} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm">
+                <option value="">Elegí un año</option>
+                {Array.from({ length: Number(fullPeriod.to.slice(0, 4)) - Number(fullPeriod.from.slice(0, 4)) + 1 },
+                  (_, index) => Number(fullPeriod.to.slice(0, 4)) - index).map(year => <option key={year}>{year}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-semibold">Mes visible
+              <select value={view.getMonth()} onChange={event => setView(new Date(view.getFullYear(), Number(event.target.value), 1))}
+                className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm">
+                {months.map((month, index) => <option key={month} value={index}>{month}</option>)}
+              </select>
+            </label>
+          </div>}
           <div className="mb-3 flex items-center justify-between"><button type="button" aria-label="Mes anterior" onClick={() => setView(new Date(view.getFullYear(), view.getMonth() - 1, 1))} className="rounded border p-1"><ChevronLeft className="h-4 w-4"/></button><span className="text-xs font-bold">Seleccionar rango</span><button type="button" aria-label="Mes siguiente" onClick={() => setView(new Date(view.getFullYear(), view.getMonth() + 1, 1))} className="rounded border p-1"><ChevronRight className="h-4 w-4"/></button></div>
           <div className="flex gap-4">{[0, 1].map(offset => {
             const month = new Date(view.getFullYear(), view.getMonth() + offset, 1), blanks = (month.getDay() + 6) % 7, count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
@@ -66,7 +112,7 @@ export default function ReportDateRangePicker({ from, to, onChange, align = 'sta
               {Array.from({ length: count }, (_, i) => {
                 const date = iso(new Date(month.getFullYear(), month.getMonth(), i + 1)), boundary = date === start || date === end;
                 const last = end || hover, within = start && last && date >= (start < last ? start : last) && date <= (start > last ? start : last);
-                return <button type="button" key={date} aria-label={displayReportDate(date)} aria-pressed={Boolean(boundary || within)} onClick={() => chooseDay(date)} onMouseEnter={() => setHover(date)} onMouseLeave={() => setHover('')} className={`h-8 rounded text-xs ${boundary ? 'bg-blue-700 text-white' : within ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100'}`}>{i + 1}</button>;
+                return <button type="button" key={date} disabled={!withinLimits(date)} aria-label={displayReportDate(date)} aria-pressed={Boolean(boundary || within)} onClick={() => chooseDay(date)} onMouseEnter={() => setHover(date)} onMouseLeave={() => setHover('')} className={`h-8 rounded text-xs disabled:text-slate-300 ${boundary ? 'bg-blue-700 text-white' : within ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100'}`}>{i + 1}</button>;
               })}</div></div>;
           })}</div>
           <div className="mt-4 flex flex-wrap items-end gap-2 border-t pt-3">
