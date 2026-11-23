@@ -60,7 +60,8 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = ''
 SET work_mem = '20MB'
 SET enable_nestloop = 'off'
-SET statement_timeout = '28s'
+SET jit = 'off'
+SET statement_timeout = '45s'
 AS $$
 DECLARE
   as_of date := (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date;
@@ -110,13 +111,12 @@ BEGIN
       CASE WHEN p_category IS NULL THEN o.amount ELSE i.amount END AS sales
     FROM purchases o LEFT JOIN item_totals i ON i.order_id = o.id
     WHERE p_category IS NULL OR i.order_id IS NOT NULL
-  ), activity AS (
+  ), activity AS MATERIALIZED (
     SELECT client_id, count(*) AS orders, count(DISTINCT order_date) AS days,
-      sum(sales) AS sales, sum(units) AS units, min(order_date) AS first_in_range
+      sum(sales) AS sales, sum(units) AS units,
+      (array_agg(seller_id ORDER BY order_date DESC, id))[1] AS seller_id,
+      (array_agg(locality ORDER BY order_date DESC, id))[1] AS locality
     FROM scoped GROUP BY client_id
-  ), latest AS (
-    SELECT DISTINCT ON (o.client_id) o.client_id, o.seller_id, o.locality
-    FROM scoped o ORDER BY o.client_id, o.order_date DESC, o.id
   ), global_purchases AS MATERIALIZED (
     SELECT o.client_id, max(o.order_date) AS last_purchase
     FROM public.orders o
@@ -125,17 +125,17 @@ BEGIN
       AND (coalesce(p_history, false) OR o.totals->'importacion_historica' IS NULL)
     GROUP BY o.client_id
   ), recent_phones AS MATERIALIZED (
-    SELECT g.client_id, g.last_purchase, phones.phone,
+    SELECT g.client_id, g.last_purchase,
+      unnest(ARRAY[public.top_customer_phone(c.phone_primary), public.top_customer_phone(c.phone_secondary)]) AS phone,
       regexp_split_to_array(translate(lower(coalesce(c.business_name, '')), 'áéíóúü', 'aeiouu'), '[^[:alnum:]]+') AS name_parts
     FROM global_purchases g JOIN public.clients c ON c.id = g.client_id
-    CROSS JOIN LATERAL unnest(ARRAY[public.top_customer_phone(c.phone_primary), public.top_customer_phone(c.phone_secondary)]) phones(phone)
-    WHERE p_min_days > 0 AND g.last_purchase > as_of - p_min_days AND phones.phone IS NOT NULL
+    WHERE p_min_days > 0 AND g.last_purchase > as_of - p_min_days
   ), older_phones AS MATERIALIZED (
-    SELECT a.client_id, phones.phone,
+    SELECT a.client_id,
+      unnest(ARRAY[public.top_customer_phone(c.phone_primary), public.top_customer_phone(c.phone_secondary)]) AS phone,
       regexp_split_to_array(translate(lower(coalesce(c.business_name, '')), 'áéíóúü', 'aeiouu'), '[^[:alnum:]]+') AS name_parts
     FROM activity a JOIN public.clients c ON c.id = a.client_id JOIN global_purchases g ON g.client_id = a.client_id
-    CROSS JOIN LATERAL unnest(ARRAY[public.top_customer_phone(c.phone_primary), public.top_customer_phone(c.phone_secondary)]) phones(phone)
-    WHERE p_min_days > 0 AND g.last_purchase <= as_of - p_min_days AND phones.phone IS NOT NULL
+    WHERE p_min_days > 0 AND g.last_purchase <= as_of - p_min_days
   ), connected AS (
     SELECT a.client_id, max(r.last_purchase) AS last_purchase
     FROM older_phones a JOIN recent_phones r USING (phone)
@@ -143,15 +143,14 @@ BEGIN
            WHERE char_length(w) >= 3 AND w = ANY(a.name_parts)) >= 2
     GROUP BY a.client_id
   ), qualified AS MATERIALIZED (
-    SELECT a.*, c.business_name AS name, latest.locality, latest.seller_id, s.full_name AS seller,
+    SELECT a.*, c.business_name AS name, s.full_name AS seller,
       greatest(g.last_purchase, connected.last_purchase) AS last_purchase,
       as_of - greatest(g.last_purchase, connected.last_purchase) AS inactive_days,
       f.status AS followup, f.seller_id AS followup_seller_id
     FROM activity a JOIN public.clients c ON c.id = a.client_id
-    JOIN latest ON latest.client_id = a.client_id
     JOIN global_purchases g ON g.client_id = a.client_id
     LEFT JOIN connected ON connected.client_id = a.client_id
-    LEFT JOIN public.sellers s ON s.id = latest.seller_id
+    LEFT JOIN public.sellers s ON s.id = a.seller_id
     LEFT JOIN public.customer_recontact f ON f.client_id = a.client_id
     WHERE (p_min_days = 0 OR as_of - greatest(g.last_purchase, connected.last_purchase) >= p_min_days)
       AND (p_followup IS NULL OR coalesce(f.status, 'sin_gestion') = p_followup)
@@ -164,9 +163,12 @@ BEGIN
     FROM qualified q WHERE NOT p_sellers
     ORDER BY rank LIMIT 100
   ), ranking_units AS (
-    SELECT o.client_id, sum(i.quantity) AS units
+    SELECT o.client_id, sum(i.units) AS units
     FROM scoped o JOIN ranking r ON r.client_id = o.client_id
-    JOIN public.order_items i ON i.order_id = o.id AND i.quantity > 0
+    CROSS JOIN LATERAL (
+      SELECT sum(i.quantity) AS units
+      FROM public.order_items i WHERE i.order_id = o.id AND i.quantity > 0
+    ) i
     WHERE p_category IS NULL AND p_client IS NULL AND p_sort <> 'units'
     GROUP BY o.client_id
   ), seller_clients AS (
