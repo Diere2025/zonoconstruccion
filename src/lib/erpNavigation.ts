@@ -37,6 +37,7 @@ export const erpModules: ErpModule[] = [
   ] },
   { id: 'direccion', title: 'Dirección General', description: 'Seguimiento global, resultados y publicidad.', icon: BarChart3, links: [
     { id: "direccion-1", name: "Dashboard General", href: "/admin/dashboard", icon: BarChart3, adminOnly: true },
+    { id: "direccion-top-clientes", name: "Top clientes", href: "/admin/top-clientes", icon: Users, adminOnly: true },
     { id: "direccion-2", name: "Meta Ads", href: "/admin/meta-ads", icon: Target, adminOnly: true },
     { id: "direccion-prompts", name: "Prompts de campañas", href: "/admin/prompts-campanas", icon: FileText, ownerEmail: 'diego.boveda@gmail.com' },
     { id: "direccion-3", name: "EERR Planillas", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
