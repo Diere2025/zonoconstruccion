@@ -6,24 +6,26 @@ import { BarChart3, ChevronRight, Loader2, Phone, Users, X } from 'lucide-react'
 import ReportDateRangePicker, { displayReportDate } from '@/components/ui/ReportDateRangePicker';
 import { supabase } from '@/lib/supabase';
 import { treasuryToday } from '@/lib/treasuryTransactionTime';
+import { customerPriceIndexSource, displayPriceIndexMonth } from '@/lib/customerPriceIndex';
+import { refreshCustomerPriceIndex } from '@/lib/customerPriceIndexClient';
 
 const CustomerAnalysisDialog = dynamic(() => import('./CustomerAnalysisDialog'), { ssr: false });
 
 type Status = 'pendiente' | 'contactado' | 'sin_respuesta' | 'cerrado';
 type Person = { id: string; name: string | null };
 type RankingRow = {
-  client_id: string; name: string | null; rank: number; orders: number; units: number; sales: number;
+  client_id: string; name: string | null; rank: number; orders: number; units: number; sales: number; sales_real: number | null;
   seller: string | null; seller_id: string | null; locality: string | null; days: number;
   last_purchase: string; inactive_days: number; followup: Status | null; followup_seller_id: string | null;
 };
-type SellerRow = { seller_id: string; seller: string; clients: number; repeat_clients: number; orders: number; sales: number };
+type SellerRow = { seller_id: string; seller: string; clients: number; repeat_clients: number; orders: number; sales: number; sales_real: number | null };
 type Product = { product: string; category: string; units: number; sales: number; orders: number };
 type Profile = Person & {
   phone_primary: string | null; phone_secondary: string | null; email: string | null;
   status: Status | null; note: string | null; followup_seller_id: string | null;
   updated_at: string | null; products: Product[];
 };
-type Report = { ranking: RankingRow[]; total: number; sellers: SellerRow[]; seller_options: Person[]; categories: string[]; profile: Profile | null };
+type Report = { ranking: RankingRow[]; total: number; sellers: SellerRow[]; seller_options: Person[]; categories: string[]; profile: Profile | null; ipc_month: string | null };
 
 const statusLabels: Record<Status, string> = {
   pendiente: 'Pendiente', contactado: 'Contactado', sin_respuesta: 'Sin respuesta', cerrado: 'Cerrado',
@@ -49,6 +51,7 @@ export default function TopClientesPage() {
   const [seller, setSeller] = useState('');
   const [category, setCategory] = useState('');
   const [sort, setSort] = useState('amount');
+  const [adjusted, setAdjusted] = useState(false);
   const [view, setView] = useState<'ranking' | 'recontact' | 'sellers'>('ranking');
   const [days, setDays] = useState(90);
   const [followup, setFollowup] = useState('');
@@ -71,11 +74,12 @@ export default function TopClientesPage() {
   const followupFilter = view === 'recontact' ? followup : '';
   const responsibleFilter = view === 'recontact' ? responsible : '';
   const showSellers = view === 'sellers';
+  const requestSort = view === 'sellers' || sort === 'amount' ? (adjusted ? 'amount_real' : 'amount') : sort;
   const query = useMemo(() => ({
     p_from: period.from, p_to: period.to, p_history: history, p_channel: channel, p_seller: seller || null,
-    p_category: category || null, p_min_days: minDays, p_sort: sort, p_followup: followupFilter || null,
+    p_category: category || null, p_min_days: minDays, p_sort: requestSort, p_followup: followupFilter || null,
     p_responsible: responsibleFilter || null, p_sellers: showSellers,
-  }), [period.from, period.to, history, channel, seller, category, minDays, sort, followupFilter, responsibleFilter, showSellers]);
+  }), [period.from, period.to, history, channel, seller, category, minDays, requestSort, followupFilter, responsibleFilter, showSellers]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -83,6 +87,8 @@ export default function TopClientesPage() {
     setError('');
     setSelected('');
     void (async () => {
+      if (adjusted) await refreshCustomerPriceIndex();
+      if (controller.signal.aborted) return;
       const { data, error: failed } = await supabase.rpc('top_customer_report', query).abortSignal(controller.signal);
       if (controller.signal.aborted) return;
       setReport(failed ? null : data as Report);
@@ -90,7 +96,7 @@ export default function TopClientesPage() {
       setLoading(false);
     })();
     return () => controller.abort();
-  }, [query, reload]);
+  }, [query, adjusted, reload]);
 
   useEffect(() => {
     setProfile(null);
@@ -118,6 +124,9 @@ export default function TopClientesPage() {
   const ranking = report?.ranking.filter(row =>
     (row.name || '').toLocaleLowerCase('es-AR').includes(search.trim().toLocaleLowerCase('es-AR')),
   ) ?? [];
+  const moneyCell = (nominal: number, real: number | null) => adjusted
+    ? <>{real == null ? 'Sin IPC' : amount.format(real)}<div className="text-xs font-normal text-slate-500">{amount.format(nominal)} nominal</div></>
+    : amount.format(nominal);
 
   function applyPeriod(from: string, to: string) {
     setPeriod({ from, to });
@@ -192,13 +201,16 @@ export default function TopClientesPage() {
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
         <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={adjusted} onChange={event => setAdjusted(event.target.checked)} /> Ajustar montos por IPC
+        </label>
+        <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={history} onChange={e => setHistory(e.target.checked)} /> Incluir pedidos históricos
         </label>
         {history && <button type="button" onClick={() => { applyPeriod(historyStart, historyEnd); setSort('orders'); }}
           className="text-sm font-semibold text-blue-700 underline">Ver del {displayReportDate(historyStart)} al {displayReportDate(historyEnd)}</button>}
         {view !== 'sellers' && <label className="flex items-center gap-2 text-sm">Ordenar por
           <select className={`${input} w-auto`} value={sort} onChange={e => setSort(e.target.value)}>
-            <option value="amount">Monto comprado</option><option value="orders">Pedidos</option><option value="units">Unidades</option>
+            <option value="amount">{adjusted ? 'Monto ajustado por IPC' : 'Monto comprado'}</option><option value="orders">Pedidos</option><option value="units">Unidades</option>
           </select>
         </label>}
         {view === 'recontact' && <>
@@ -225,8 +237,14 @@ export default function TopClientesPage() {
         {category ? 'El monto por categoría suma las unidades por su precio de venta en las líneas de esa categoría.'
           : 'El ranking total usa el importe registrado de cada pedido entregado.'}
         {view === 'recontact' && ' La inactividad se mide hasta hoy, en todas las categorías y con cualquier vendedor.'}
-        {history && ' Los montos históricos están en pesos nominales. Los productos sin categoría reconocida se agrupan en «Sin categoría».'}
+        {history && !adjusted && ' Los montos históricos están en pesos nominales.'}
+        {history && ' Los productos sin categoría reconocida se agrupan en «Sin categoría».'}
       </p>
+      {adjusted && !!report?.ipc_month && <p className="mt-2 text-xs text-slate-600">
+        Pesos de {displayPriceIndexMonth(report.ipc_month)} según el IPC nacional. Las compras posteriores conservan
+        su importe nominal hasta que se publique su índice. <a href={customerPriceIndexSource} target="_blank" rel="noreferrer" className="underline">Fuente INDEC</a>
+      </p>}
+      {adjusted && !loading && report && !report.ipc_month && <p role="status" className="mt-2 text-sm text-amber-800">El ERP todavía no tiene una serie oficial del IPC disponible.</p>}
     </section>
 
     {loading ? <p role="status" className={`${panel} flex items-center gap-2 text-sm`}><Loader2 className="h-4 w-4 animate-spin"/> Cargando compras…</p>
@@ -238,11 +256,11 @@ export default function TopClientesPage() {
         <p className="mb-3 text-sm text-slate-600">Cada pedido se atribuye al vendedor de la venta. Un cliente puede comprar a más de un vendedor.</p>
         {report?.sellers.length ? <div className="overflow-x-auto">
           <table className="w-full whitespace-nowrap text-sm">
-            <thead className="bg-slate-50 text-slate-600"><tr>{['Vendedor', 'Clientes', 'Con dos o más pedidos', 'Pedidos', 'Monto comprado'].map(label => <th scope="col" key={label} className={headingCell}>{label}</th>)}</tr></thead>
+            <thead className="bg-slate-50 text-slate-600"><tr>{['Vendedor', 'Clientes', 'Con dos o más pedidos', 'Pedidos', adjusted ? 'Monto ajustado' : 'Monto comprado'].map(label => <th scope="col" key={label} className={headingCell}>{label}</th>)}</tr></thead>
             <tbody className="divide-y divide-slate-100">{report.sellers.map(row => <tr key={row.seller_id}>
               <td className={dataCell}><button className="font-semibold text-blue-700 hover:underline" onClick={() => { setSeller(row.seller_id); setView('ranking'); }}>{row.seller}</button></td>
               <td className={dataCell}>{count.format(row.clients)}</td><td className={dataCell}>{count.format(row.repeat_clients)}</td>
-              <td className={dataCell}>{count.format(row.orders)}</td><td className={dataCell}>{amount.format(row.sales)}</td>
+              <td className={dataCell}>{count.format(row.orders)}</td><td className={dataCell}>{moneyCell(row.sales, row.sales_real)}</td>
             </tr>)}</tbody>
           </table>
         </div> : <p className="text-sm text-slate-500">No hay ventas por vendedor para estos filtros.</p>}
@@ -260,13 +278,13 @@ export default function TopClientesPage() {
           </div>
           {ranking.length ? <div className="overflow-x-auto">
             <table className="w-full whitespace-nowrap text-sm">
-              <thead className="bg-slate-50 text-slate-600"><tr>{['#', 'Cliente', 'Monto', 'Pedidos', 'Unidades', 'Última compra', 'Seguimiento'].map(label => <th scope="col" key={label} className={headingCell}>{label}</th>)}</tr></thead>
+              <thead className="bg-slate-50 text-slate-600"><tr>{['#', 'Cliente', adjusted ? 'Monto ajustado' : 'Monto', 'Pedidos', 'Unidades', 'Última compra', 'Seguimiento'].map(label => <th scope="col" key={label} className={headingCell}>{label}</th>)}</tr></thead>
               <tbody className="divide-y divide-slate-100">{ranking.map(row => <tr key={row.client_id} className={selected === row.client_id ? 'bg-blue-50' : ''}>
                 <td className={`${dataCell} tabular-nums text-slate-500`}>{row.rank}</td>
                 <td className={dataCell}><button aria-expanded={selected === row.client_id} className="flex items-center gap-1 font-semibold text-blue-700 hover:underline"
                   onClick={() => setSelected(current => current === row.client_id ? '' : row.client_id)}>{row.name || 'Sin nombre'} <ChevronRight className="h-4 w-4"/></button>
                   <div className="text-xs text-slate-500">{row.seller || 'Sin vendedor'}{row.locality ? ` · ${row.locality}` : ''}</div></td>
-                <td className={`${dataCell} font-semibold tabular-nums`}>{amount.format(row.sales)}</td>
+                <td className={`${dataCell} font-semibold tabular-nums`}>{moneyCell(row.sales, row.sales_real)}</td>
                 <td className={dataCell}>{count.format(row.orders)}</td><td className={dataCell}>{count.format(row.units)}</td>
                 <td className={dataCell}>{displayReportDate(row.last_purchase)}<div className="text-xs text-slate-500">{row.inactive_days} días</div></td>
                 <td className={dataCell}>{row.followup ? statusLabels[row.followup] : 'Sin gestión'}
@@ -281,7 +299,7 @@ export default function TopClientesPage() {
           {profileError && <p role="alert" className="mb-3 text-sm text-red-700">{profileError}</p>}
           {profile && <>
             <h2 className="text-lg font-bold">{profile.name || 'Cliente sin nombre'}</h2>
-            {selectedRow && <p className="mt-1 text-sm text-slate-600">{count.format(selectedRow.days)} fechas de compra en el período · {amount.format(selectedRow.sales)}</p>}
+            {selectedRow && <div className="mt-1 text-sm text-slate-600">{count.format(selectedRow.days)} fechas de compra en el período · {moneyCell(selectedRow.sales, selectedRow.sales_real)}</div>}
             <button type="button" onClick={() => setAnalysisCustomer({ id: profile.id, name: profile.name })}
               className="mt-3 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800">
               <BarChart3 className="h-4 w-4" /> Analizar cliente
@@ -292,6 +310,7 @@ export default function TopClientesPage() {
               {profile.email && <p>{profile.email}</p>}
             </div>
             <h3 className="mb-2 font-bold">Productos comprados en el período</h3>
+            {adjusted && <p className="mb-2 text-xs text-slate-500">Importes nominales. Los montos ajustados están en Analizar cliente.</p>}
             <div className="max-h-72 overflow-auto">
               {profile.products.length ? <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-slate-50 text-slate-600"><tr>{['Producto', 'Unid.', 'Monto'].map(label => <th scope="col" className="px-2 py-2 text-left" key={label}>{label}</th>)}</tr></thead>
@@ -323,6 +342,6 @@ export default function TopClientesPage() {
         </aside>}
       </div>}
     {analysisCustomer && <CustomerAnalysisDialog clientId={analysisCustomer.id} name={analysisCustomer.name || 'Cliente sin nombre'}
-      includeHistory={history} onClose={() => setAnalysisCustomer(null)} />}
+      includeHistory={history} adjustAmounts={adjusted} onClose={() => setAnalysisCustomer(null)} />}
   </div>;
 }

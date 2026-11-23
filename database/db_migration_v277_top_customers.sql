@@ -65,6 +65,8 @@ SET statement_timeout = '45s'
 AS $$
 DECLARE
   as_of date := (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date;
+  ipc_month date;
+  ipc_value numeric;
   result jsonb;
 BEGIN
   IF NOT coalesce(public.is_admin(), false) THEN
@@ -72,11 +74,13 @@ BEGIN
   END IF;
   IF p_from IS NULL OR p_to IS NULL OR p_from > p_to OR p_from < DATE '2000-01-01'
      OR p_to > as_of OR p_min_days IS NULL OR p_min_days NOT BETWEEN 0 AND 730
-     OR coalesce(p_sort, '') NOT IN ('amount','orders','units')
+     OR coalesce(p_sort, '') NOT IN ('amount','amount_real','orders','units')
      OR coalesce(p_channel, '') NOT IN ('all','retail','wholesale')
      OR (p_followup IS NOT NULL AND p_followup NOT IN ('sin_gestion','pendiente','contactado','sin_respuesta','cerrado')) THEN
     RAISE EXCEPTION 'Revisá el período y los filtros' USING ERRCODE = '22023';
   END IF;
+  SELECT month, index_value INTO ipc_month, ipc_value FROM public.customer_price_index
+  WHERE month < date_trunc('month', as_of)::date ORDER BY month DESC LIMIT 1;
 
   WITH purchases AS MATERIALIZED (
     SELECT DISTINCT ON (o.client_id, o.channel, o.seller_id, o.order_date, coalesce(nullif(trim(o.legacy_code), ''), o.id::text))
@@ -108,12 +112,16 @@ BEGIN
     FROM lines GROUP BY order_id
   ), scoped AS MATERIALIZED (
     SELECT o.*, coalesce(i.units, 0) AS units,
-      CASE WHEN p_category IS NULL THEN o.amount ELSE i.amount END AS sales
+      CASE WHEN p_category IS NULL THEN o.amount ELSE i.amount END AS sales,
+      (CASE WHEN p_category IS NULL THEN o.amount ELSE i.amount END) *
+        CASE WHEN o.order_date >= ipc_month THEN 1 ELSE ipc_value / ipc.index_value END AS sales_real
     FROM purchases o LEFT JOIN item_totals i ON i.order_id = o.id
+    LEFT JOIN public.customer_price_index ipc ON ipc.month = date_trunc('month', o.order_date)::date
     WHERE p_category IS NULL OR i.order_id IS NOT NULL
   ), activity AS MATERIALIZED (
     SELECT client_id, count(*) AS orders, count(DISTINCT order_date) AS days,
       sum(sales) AS sales, sum(units) AS units,
+      CASE WHEN bool_and(sales_real IS NOT NULL) THEN sum(sales_real) END AS sales_real,
       (array_agg(seller_id ORDER BY order_date DESC, id))[1] AS seller_id,
       (array_agg(locality ORDER BY order_date DESC, id))[1] AS locality
     FROM scoped GROUP BY client_id
@@ -157,7 +165,7 @@ BEGIN
       AND (p_responsible IS NULL OR f.seller_id = p_responsible)
   ), ranking AS (
     SELECT q.*, row_number() OVER (
-      ORDER BY CASE p_sort WHEN 'orders' THEN q.orders WHEN 'units' THEN q.units ELSE q.sales END DESC,
+      ORDER BY CASE p_sort WHEN 'orders' THEN q.orders WHEN 'units' THEN q.units WHEN 'amount_real' THEN q.sales_real ELSE q.sales END DESC NULLS LAST,
         q.sales DESC, q.last_purchase DESC, q.client_id
     ) AS rank
     FROM qualified q WHERE NOT p_sellers
@@ -172,13 +180,15 @@ BEGIN
     WHERE p_category IS NULL AND p_client IS NULL AND p_sort <> 'units'
     GROUP BY o.client_id
   ), seller_clients AS (
-    SELECT o.seller_id, o.client_id, count(*) AS orders, sum(o.sales) AS sales
+    SELECT o.seller_id, o.client_id, count(*) AS orders, sum(o.sales) AS sales,
+      CASE WHEN bool_and(o.sales_real IS NOT NULL) THEN sum(o.sales_real) END AS sales_real
     FROM scoped o JOIN qualified q ON q.client_id = o.client_id
     WHERE p_sellers AND o.seller_id IS NOT NULL
     GROUP BY o.seller_id, o.client_id
   ), seller_totals AS (
     SELECT st.seller_id, s.full_name AS seller, count(*) AS clients, sum(st.orders) AS orders,
-      sum(st.sales) AS sales, count(*) FILTER (WHERE st.orders >= 2) AS repeat_clients
+      sum(st.sales) AS sales, CASE WHEN bool_and(st.sales_real IS NOT NULL) THEN sum(st.sales_real) END AS sales_real,
+      count(*) FILTER (WHERE st.orders >= 2) AS repeat_clients
     FROM seller_clients st JOIN public.sellers s ON s.id = st.seller_id
     GROUP BY st.seller_id, s.full_name
   ), profile_products AS (
@@ -194,10 +204,12 @@ BEGIN
     WHERE c.id = p_client
   )
   SELECT jsonb_build_object(
+    'ipc_month', ipc_month,
     'ranking', coalesce((SELECT jsonb_agg(to_jsonb(r) || jsonb_build_object('units', coalesce(u.units, r.units)) ORDER BY rank)
        FROM ranking r LEFT JOIN ranking_units u ON u.client_id = r.client_id), '[]'::jsonb),
     'total', (SELECT count(*) FROM qualified),
-    'sellers', coalesce((SELECT jsonb_agg(s ORDER BY sales DESC, seller) FROM seller_totals s), '[]'::jsonb),
+    'sellers', coalesce((SELECT jsonb_agg(s ORDER BY
+      (CASE WHEN p_sort = 'amount_real' THEN sales_real ELSE sales END) DESC NULLS LAST, seller) FROM seller_totals s), '[]'::jsonb),
     'seller_options', coalesce((SELECT jsonb_agg(jsonb_build_object('id', s.id, 'name', s.full_name) ORDER BY s.full_name) FROM public.sellers s), '[]'::jsonb),
     'categories', (SELECT jsonb_agg(category ORDER BY category) FROM (
       SELECT DISTINCT nullif(trim(pr.category), '') AS category FROM public.products pr WHERE nullif(trim(pr.category), '') IS NOT NULL

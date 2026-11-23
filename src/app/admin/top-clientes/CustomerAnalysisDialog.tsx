@@ -4,12 +4,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, CalendarDays, Loader2, X } from 'lucide-react';
 import { displayReportDate } from '@/components/ui/ReportDateRangePicker';
 import { supabase } from '@/lib/supabase';
+import { customerPriceIndexSource, displayPriceIndexMonth } from '@/lib/customerPriceIndex';
+import { refreshCustomerPriceIndex } from '@/lib/customerPriceIndexClient';
 
-type Purchase = { id: string; day: string; code: string | null; channel: string | null; seller: string | null; amount: number };
-type Category = { category: string; units: number; amount: number };
+type Values = { amount: number; amount_real: number | null };
+type Purchase = Values & { id: string; day: string; code: string | null; channel: string | null; seller: string | null };
+type Category = Values & { category: string; units: number };
 type Product = Category & { name: string };
-type Analysis = { as_of: string; orders: Purchase[]; products: Product[]; categories: Category[] };
-type Props = { clientId: string; name: string; includeHistory: boolean; onClose: () => void };
+type Analysis = { as_of: string; ipc_month: string | null; orders: Purchase[]; products: Product[]; products_real: Product[]; categories: Category[] };
+type Props = { clientId: string; name: string; includeHistory: boolean; adjustAmounts: boolean; onClose: () => void };
 
 const money = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
 const number = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 });
@@ -18,6 +21,8 @@ const weekdays = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 const dayLength = 86_400_000;
 const calendarDate = (year: number, month: number, day: number) => new Date(Date.UTC(year, month, day));
 const difference = (from: string, to: string) => (Date.parse(to) - Date.parse(from)) / dayLength;
+const displayAmount = (amount: number | null) => amount == null ? 'Sin IPC' : money.format(amount);
+const visibleAmount = (line: Values, adjusted: boolean) => adjusted ? line.amount_real : line.amount;
 const styles = {
   panel: 'min-w-0 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5',
   light: 'bg-slate-100 text-slate-600',
@@ -27,8 +32,10 @@ const styles = {
 function summarize(data: Analysis) {
   const byDay = new Map<string, Purchase[]>();
   let total = 0;
+  let totalReal: number | null = 0;
   for (const order of data.orders) {
     total += order.amount;
+    totalReal = totalReal == null || order.amount_real == null ? null : totalReal + order.amount_real;
     const list = byDay.get(order.day);
     if (list) list.push(order);
     else byDay.set(order.day, [order]);
@@ -37,7 +44,7 @@ function summarize(data: Analysis) {
   const intervals = days.slice(1).map((day, i) => difference(days[i], day)).sort((a, b) => a - b);
   const center = Math.floor(intervals.length / 2);
   const cadence = intervals.length ? (intervals[center] + intervals[Math.floor((intervals.length - 1) / 2)]) / 2 : null;
-  return { byDay, days, total, cadence, first: days[0], last: days.at(-1) };
+  return { byDay, days, total, totalReal, cadence, first: days[0], last: days.at(-1) };
 }
 
 function SummaryCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -48,17 +55,18 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
   </div>;
 }
 
-function MonthlyTrend({ year, orders, monthCount }: { year: number; orders: Purchase[]; monthCount: number }) {
+function MonthlyTrend({ year, orders, monthCount, adjusted }: { year: number; orders: Purchase[]; monthCount: number; adjusted: boolean }) {
   const [metric, setMetric] = useState<'count' | 'amount'>('count');
-  const series = months.slice(0, monthCount).map(month => ({ month, count: 0, amount: 0 }));
+  const series = months.slice(0, monthCount).map(month => ({ month, count: 0, amount: 0 as number | null }));
   for (const order of orders) {
     if (!order.day.startsWith(`${year}-`)) continue;
     const month = series[Number(order.day.slice(5, 7)) - 1];
     month.count++;
-    month.amount += order.amount;
+    const value = visibleAmount(order, adjusted);
+    month.amount = month.amount == null || value == null ? null : month.amount + value;
   }
-  const low = Math.min(0, ...series.map(item => item[metric]));
-  const high = Math.max(0, ...series.map(item => item[metric]));
+  const low = Math.min(0, ...series.map(item => item[metric] ?? 0));
+  const high = Math.max(0, ...series.map(item => item[metric] ?? 0));
   const span = high - low || 1;
   const baseline = 100 * -low / span;
   return <section className={styles.panel} aria-label="Evolución mensual">
@@ -75,8 +83,8 @@ function MonthlyTrend({ year, orders, monthCount }: { year: number; orders: Purc
     <div className="mt-4 overflow-x-auto">
       <ol className="flex min-w-[540px] gap-1" aria-label={metric === 'count' ? 'Pedidos por mes' : 'Monto por mes'}>
         {series.map(item => {
-          const value = item[metric];
-          const label = metric === 'count' ? number.format(value) : money.format(value);
+          const value = item[metric] ?? 0;
+          const label = metric === 'count' ? number.format(value) : displayAmount(item.amount);
           return <li className="min-w-0 flex-1 text-center" key={item.month} aria-label={`${item.month}, ${label}`}>
             <div className="relative mx-auto h-28 max-w-20 rounded bg-slate-50" title={`${item.month} · ${label}`}>
               <div className={`absolute inset-x-1 rounded-sm ${value < 0 ? 'bg-indigo-400' : 'bg-blue-600'}`}
@@ -134,7 +142,7 @@ function PurchaseCalendar({ year, asOf, monthCount, byDay, selected, onSelect }:
   </section>;
 }
 
-function PurchaseList({ orders, selected, year, clear }: { orders: Purchase[]; selected: string; year: number; clear: () => void }) {
+function PurchaseList({ orders, selected, year, adjusted, clear }: { orders: Purchase[]; selected: string; year: number; adjusted: boolean; clear: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded || selected ? orders : orders.slice(0, 8);
   return <section className={styles.panel} aria-label="Detalle de pedidos">
@@ -150,7 +158,9 @@ function PurchaseList({ orders, selected, year, clear }: { orders: Purchase[]; s
         <td className="whitespace-nowrap px-2.5 py-2">{displayReportDate(order.day)}</td>
         <td className="px-2.5 py-2">{order.code || 'Sin código'}</td>
         <td className="px-2.5 py-2">{order.seller || 'Sin vendedor registrado'}</td>
-        <td className="whitespace-nowrap px-2.5 py-2 font-semibold">{money.format(order.amount)}</td>
+        <td className="whitespace-nowrap px-2.5 py-2 font-semibold">{displayAmount(visibleAmount(order, adjusted))}
+          {adjusted && <div className="text-xs font-normal text-slate-500">{money.format(order.amount)} nominal</div>}
+        </td>
       </tr>)}</tbody>
     </table></div> : <p className="py-2 text-sm text-slate-500">No hay compras entregadas en el año seleccionado.</p>}
     {!selected && orders.length > 8 && <button type="button" onClick={() => setExpanded(value => !value)}
@@ -158,42 +168,46 @@ function PurchaseList({ orders, selected, year, clear }: { orders: Purchase[]; s
   </section>;
 }
 
-function ProductBreakdown({ data }: { data: Analysis }) {
-  const maxAmount = Math.max(1, ...data.categories.map(category => category.amount));
+function ProductBreakdown({ data, adjusted }: { data: Analysis; adjusted: boolean }) {
+  const categories = [...data.categories].sort((a, b) =>
+    (visibleAmount(b, adjusted) ?? -Infinity) - (visibleAmount(a, adjusted) ?? -Infinity));
+  const products = adjusted ? data.products_real ?? [] : data.products;
+  const maxAmount = Math.max(1, ...categories.map(category => visibleAmount(category, adjusted) ?? 0));
   return <div className="grid gap-4 xl:grid-cols-2">
     <section className={styles.panel}>
       <h3 className="font-bold">Compras por categoría</h3>
       <p className="mt-1 text-xs text-slate-500">Todas las compras incluidas en el análisis.</p>
-      {data.categories.length ? <ul className="mt-3 max-h-80 space-y-3 overflow-auto pr-1">{data.categories.map(category => (
+      {categories.length ? <ul className="mt-3 max-h-80 space-y-3 overflow-auto pr-1">{categories.map(category => (
         <li key={category.category}>
           <div className="mb-1 flex flex-wrap justify-between gap-x-2 text-sm">
-            <span>{category.category}</span><span className="font-semibold tabular-nums">{money.format(category.amount)}</span>
+            <span>{category.category}</span><span className="font-semibold tabular-nums">{displayAmount(visibleAmount(category, adjusted))}</span>
           </div>
-          <div className="h-1.5 rounded bg-slate-100"><div className="h-full rounded bg-blue-600" style={{ width: `${100 * Math.max(0, category.amount) / maxAmount}%` }} /></div>
+          <div className="h-1.5 rounded bg-slate-100"><div className="h-full rounded bg-blue-600" style={{ width: `${100 * Math.max(0, visibleAmount(category, adjusted) ?? 0) / maxAmount}%` }} /></div>
         </li>
       ))}</ul> : <p className="mt-3 text-sm text-slate-500">Sin líneas de producto registradas.</p>}
     </section>
     <section className={styles.panel}>
       <h3 className="font-bold">Productos con mayor monto comprado</h3>
       <p className="mt-1 text-xs text-slate-500">Hasta 12 productos, según importe de las líneas de pedido.</p>
-      {data.products.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-sm">
+      {products.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-sm">
         <thead className="bg-slate-50 text-left text-slate-600"><tr>
           {['Producto', 'Unidades', 'Monto'].map(label => <th scope="col" key={label} className="px-2.5 py-2">{label}</th>)}
         </tr></thead>
-        <tbody className="divide-y divide-slate-100">{data.products.map((product, index) => <tr key={`${product.name}-${index}`}>
+        <tbody className="divide-y divide-slate-100">{products.map((product, index) => <tr key={`${product.name}-${index}`}>
           <td className="px-2.5 py-2">{product.name}<div className="text-xs text-slate-500">{product.category}</div></td>
           <td className="px-2.5 py-2">{number.format(product.units)}</td>
-          <td className="whitespace-nowrap px-2.5 py-2 font-semibold">{money.format(product.amount)}</td>
+          <td className="whitespace-nowrap px-2.5 py-2 font-semibold">{displayAmount(visibleAmount(product, adjusted))}</td>
         </tr>)}</tbody>
       </table></div> : <p className="mt-3 text-sm text-slate-500">Sin productos para mostrar.</p>}
     </section>
   </div>;
 }
 
-export default function CustomerAnalysisDialog({ clientId, name, includeHistory, onClose }: Props) {
+export default function CustomerAnalysisDialog({ clientId, name, includeHistory, adjustAmounts = false, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const purchaseDetails = useRef<HTMLDivElement>(null);
   const [history, setHistory] = useState(includeHistory);
+  const [adjusted, setAdjusted] = useState(adjustAmounts);
   const [data, setData] = useState<Analysis | null>(null);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
@@ -213,11 +227,16 @@ export default function CustomerAnalysisDialog({ clientId, name, includeHistory,
     setSelected('');
     const load = async () => {
       try {
+        if (adjusted) await refreshCustomerPriceIndex();
+        if (controller.signal.aborted) return;
         const response = await supabase.rpc('get_customer_analysis', { p_client: clientId, p_history: history }).abortSignal(controller.signal);
         if (controller.signal.aborted) return;
         if (response.error) throw response.error;
         const result = response.data as Analysis;
-        setYear(Number((result.orders[0]?.day || result.as_of).slice(0, 4)));
+        const firstYear = Number((result.orders.at(-1)?.day || result.as_of).slice(0, 4));
+        const currentYear = Number(result.as_of.slice(0, 4));
+        setYear(year => year >= firstYear && year <= currentYear
+          ? year : Number((result.orders[0]?.day || result.as_of).slice(0, 4)));
         setData(result);
       } catch (failure) {
         if (!controller.signal.aborted) setError((failure as { message?: string })?.message || 'No se pudo cargar el análisis.');
@@ -225,7 +244,7 @@ export default function CustomerAnalysisDialog({ clientId, name, includeHistory,
     };
     void load();
     return () => controller.abort();
-  }, [clientId, history, retry]);
+  }, [clientId, history, adjusted, retry]);
 
   const fromYear = Number(stats?.first?.slice(0, 4) || year);
   const toYear = Number(data?.as_of.slice(0, 4) || year);
@@ -241,7 +260,10 @@ export default function CustomerAnalysisDialog({ clientId, name, includeHistory,
         <h2 id="customer-analysis-title" className="text-xl font-bold tracking-tight sm:text-2xl">{name}</h2>
         <p className="mt-1 text-xs text-slate-500">Compras entregadas de esta ficha, de todos los canales y vendedores.</p>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={adjusted} onChange={event => setAdjusted(event.target.checked)} /> Ajustar montos por IPC
+        </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={history} onChange={event => setHistory(event.target.checked)} /> Incluir pedidos históricos
         </label>
@@ -259,25 +281,28 @@ export default function CustomerAnalysisDialog({ clientId, name, includeHistory,
           {!history && <button type="button" onClick={() => setHistory(true)} className="mt-2 text-sm font-semibold text-blue-700 underline">Consultar también el histórico</button>}
         </div> : <>
           <section aria-label="Resumen del cliente" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryCard label="Monto comprado" value={money.format(stats.total)}
-              hint={`${number.format(data.orders.length)} pedidos · ${number.format(stats.days.length)} fechas de compra`} />
+            <SummaryCard label={adjusted ? 'Monto comprado ajustado' : 'Monto comprado'} value={displayAmount(adjusted ? stats.totalReal : stats.total)}
+              hint={`${number.format(data.orders.length)} pedidos · ${number.format(stats.days.length)} fechas de compra${adjusted ? ` · ${money.format(stats.total)} nominal` : ''}`} />
             <SummaryCard label="Primera compra" value={displayReportDate(stats.first)} />
             <SummaryCard label="Última compra" value={displayReportDate(stats.last)}
               hint={`${number.format(difference(stats.last, data.as_of))} días desde la última compra`} />
             <SummaryCard label="Frecuencia habitual" value={stats.cadence === null ? 'Sin intervalo' : `Cada ${number.format(stats.cadence)} días`}
               hint={stats.cadence === null ? 'Hay compras en una sola fecha' : 'Mediana entre fechas de compra'} />
           </section>
-          {history && <p className="text-xs text-slate-600">Los montos de distintos años se muestran en pesos nominales.</p>}
+          {adjusted ? <p className="text-xs text-slate-600">{data.ipc_month
+            ? <>Montos en pesos de {displayPriceIndexMonth(data.ipc_month)}. Los pedidos posteriores conservan su valor nominal hasta la publicación del índice. <a href={customerPriceIndexSource} target="_blank" rel="noreferrer" className="underline">Fuente INDEC</a></>
+            : 'El ERP todavía no tiene una serie oficial del IPC disponible.'}
+          </p> : history && <p className="text-xs text-slate-600">Ingresos en pesos nominales.</p>}
           <label className="inline-flex items-center gap-2 text-sm font-semibold">Año del mapa y la evolución
             <select value={year} onChange={event => { setYear(Number(event.target.value)); setSelected(''); }}
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
               {Array.from({ length: toYear - fromYear + 1 }, (_, index) => toYear - index).map(value => <option key={value}>{value}</option>)}
             </select>
           </label>
-          <MonthlyTrend year={year} orders={data.orders} monthCount={monthCount} />
+          <MonthlyTrend year={year} orders={data.orders} monthCount={monthCount} adjusted={adjusted} />
           <PurchaseCalendar year={year} asOf={data.as_of} monthCount={monthCount} byDay={stats.byDay} selected={selected} onSelect={setSelected} />
-          <div ref={purchaseDetails}><PurchaseList key={year} orders={selectedOrders} selected={selected} year={year} clear={() => setSelected('')} /></div>
-          <ProductBreakdown data={data} />
+          <div ref={purchaseDetails}><PurchaseList key={year} orders={selectedOrders} selected={selected} year={year} adjusted={adjusted} clear={() => setSelected('')} /></div>
+          <ProductBreakdown data={data} adjusted={adjusted} />
         </>}
     </div>
   </dialog>;

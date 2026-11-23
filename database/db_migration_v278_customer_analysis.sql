@@ -8,11 +8,15 @@ SET statement_timeout = '10s'
 AS $$
 DECLARE
   as_of date := (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date;
+  ipc_month date;
+  ipc_value numeric;
   result jsonb;
 BEGIN
   IF NOT coalesce(public.is_admin(), false) THEN
     RAISE EXCEPTION 'Acceso restringido a administradores' USING ERRCODE = '42501';
   END IF;
+  SELECT month, index_value INTO ipc_month, ipc_value FROM public.customer_price_index
+  WHERE month < date_trunc('month', as_of)::date ORDER BY month DESC LIMIT 1;
   IF p_client IS NULL OR NOT EXISTS (SELECT 1 FROM public.clients c WHERE c.id = p_client) THEN
     RAISE EXCEPTION 'No se encontró la ficha del cliente' USING ERRCODE = '22023';
   END IF;
@@ -20,8 +24,10 @@ BEGIN
   WITH purchases AS MATERIALIZED (
     SELECT DISTINCT ON (o.channel, o.seller_id, o.order_date, coalesce(nullif(trim(o.legacy_code), ''), o.id::text))
       o.id, o.order_date AS day, nullif(trim(o.legacy_code), '') AS code, o.seller_id, o.channel,
-      coalesce(o.total_amount, 0) AS amount
+      coalesce(o.total_amount, 0) AS amount,
+      CASE WHEN o.order_date >= ipc_month THEN 1 ELSE ipc_value / ipc.index_value END AS factor
     FROM public.orders o
+    LEFT JOIN public.customer_price_index ipc ON ipc.month = date_trunc('month', o.order_date)::date
     WHERE o.client_id = p_client AND o.status = 'Entregado'
       AND o.employee_withdrawal IS NOT TRUE
       AND o.order_date BETWEEN DATE '2000-01-01' AND as_of
@@ -31,25 +37,31 @@ BEGIN
   ), lines AS MATERIALIZED (
     SELECT i.product_id, coalesce(nullif(trim(p.name), ''), nullif(trim(i.product_name), ''), 'Producto sin identificar') AS name,
       coalesce(nullif(trim(p.category), ''), 'Sin categoría') AS category,
-      i.quantity AS units, coalesce(i.quantity * i.unit_price, 0) AS amount
+      i.quantity AS units, coalesce(i.quantity * i.unit_price, 0) AS amount,
+      coalesce(i.quantity * i.unit_price, 0) * o.factor AS amount_real
     FROM purchases o JOIN public.order_items i ON i.order_id = o.id AND i.quantity > 0
     LEFT JOIN public.products p ON p.id = i.product_id
   ), products AS (
-    SELECT name, category, sum(units) AS units, sum(amount) AS amount
+    SELECT name, category, sum(units) AS units, sum(amount) AS amount,
+      CASE WHEN bool_and(amount_real IS NOT NULL) THEN sum(amount_real) END AS amount_real
     FROM lines GROUP BY product_id, name, category
-    ORDER BY sum(amount) DESC, sum(units) DESC, name LIMIT 12
   ), categories AS (
-    SELECT category, sum(units) AS units, sum(amount) AS amount
+    SELECT category, sum(units) AS units, sum(amount) AS amount,
+      CASE WHEN bool_and(amount_real IS NOT NULL) THEN sum(amount_real) END AS amount_real
     FROM lines GROUP BY category
   )
   SELECT jsonb_build_object(
     'as_of', as_of,
+    'ipc_month', ipc_month,
     'orders', coalesce((SELECT jsonb_agg(jsonb_build_object(
       'id', o.id, 'day', o.day, 'code', o.code, 'channel', o.channel,
-      'seller', s.full_name, 'amount', o.amount
+      'seller', s.full_name, 'amount', o.amount, 'amount_real', o.amount * o.factor
     ) ORDER BY o.day DESC, o.id)
       FROM purchases o LEFT JOIN public.sellers s ON s.id = o.seller_id), '[]'::jsonb),
-    'products', coalesce((SELECT jsonb_agg(p ORDER BY p.amount DESC, p.units DESC, p.name) FROM products p), '[]'::jsonb),
+    'products', coalesce((SELECT jsonb_agg(p ORDER BY p.amount DESC, p.units DESC, p.name)
+      FROM (SELECT * FROM products ORDER BY amount DESC, units DESC, name LIMIT 12) p), '[]'::jsonb),
+    'products_real', coalesce((SELECT jsonb_agg(p ORDER BY p.amount_real DESC NULLS LAST, p.units DESC, p.name)
+      FROM (SELECT * FROM products ORDER BY amount_real DESC NULLS LAST, units DESC, name LIMIT 12) p), '[]'::jsonb),
     'categories', coalesce((SELECT jsonb_agg(c ORDER BY c.amount DESC, c.units DESC, c.category) FROM categories c), '[]'::jsonb)
   ) INTO result;
   RETURN result;
