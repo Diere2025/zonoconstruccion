@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { treasuryToday } from '@/lib/treasuryTransactionTime';
 import { customerPriceIndexSource, displayPriceIndexMonth } from '@/lib/customerPriceIndex';
 import { refreshCustomerPriceIndex } from '@/lib/customerPriceIndexClient';
+import CustomerWhaticketLink from './CustomerWhaticketLink';
 
 const CustomerAnalysisDialog = dynamic(() => import('./CustomerAnalysisDialog'), { ssr: false });
 
@@ -22,6 +23,7 @@ type SellerRow = { seller_id: string; seller: string; clients: number; repeat_cl
 type Product = { product: string; category: string; units: number; sales: number; orders: number };
 type Profile = Person & {
   phone_primary: string | null; phone_secondary: string | null; email: string | null;
+  whaticket_link: string | null;
   status: Status | null; note: string | null; followup_seller_id: string | null;
   updated_at: string | null; products: Product[];
 };
@@ -67,7 +69,7 @@ export default function TopClientesPage() {
   const [saving, setSaving] = useState(false);
   const [reload, setReload] = useState(0);
   const [search, setSearch] = useState('');
-  const [analysisCustomer, setAnalysisCustomer] = useState<Person | null>(null);
+  const [analysisCustomer, setAnalysisCustomer] = useState<Pick<Profile, 'id' | 'name' | 'whaticket_link'> | null>(null);
   const profilePanel = useRef<HTMLElement>(null);
 
   const minDays = view === 'recontact' ? days : 0;
@@ -300,7 +302,7 @@ export default function TopClientesPage() {
           {profile && <>
             <h2 className="text-lg font-bold">{profile.name || 'Cliente sin nombre'}</h2>
             {selectedRow && <div className="mt-1 text-sm text-slate-600">{count.format(selectedRow.days)} fechas de compra en el período · {moneyCell(selectedRow.sales, selectedRow.sales_real)}</div>}
-            <button type="button" onClick={() => setAnalysisCustomer({ id: profile.id, name: profile.name })}
+            <button type="button" onClick={() => setAnalysisCustomer({ id: profile.id, name: profile.name, whaticket_link: profile.whaticket_link })}
               className="mt-3 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800">
               <BarChart3 className="h-4 w-4" /> Analizar cliente
             </button>
@@ -308,6 +310,7 @@ export default function TopClientesPage() {
               <div className="flex items-center gap-2"><Phone className="h-4 w-4"/>{profile.phone_primary || profile.phone_secondary || 'Sin teléfono registrado'}</div>
               {profile.phone_primary && profile.phone_secondary && <p>Alternativo {profile.phone_secondary}</p>}
               {profile.email && <p>{profile.email}</p>}
+              {profile.whaticket_link && <div className="pt-1"><CustomerWhaticketLink href={profile.whaticket_link} /></div>}
             </div>
             <h3 className="mb-2 font-bold">Productos comprados en el período</h3>
             {adjusted && <p className="mb-2 text-xs text-slate-500">Importes nominales. Los montos ajustados están en Analizar cliente.</p>}
@@ -342,6 +345,7 @@ export default function TopClientesPage() {
         </aside>}
       </div>}
     {analysisCustomer && <CustomerAnalysisDialog clientId={analysisCustomer.id} name={analysisCustomer.name || 'Cliente sin nombre'}
-      includeHistory={history} adjustAmounts={adjusted} onClose={() => setAnalysisCustomer(null)} />}
+      includeHistory={history} adjustAmounts={adjusted} whaticketLink={analysisCustomer.whaticket_link}
+      onClose={() => setAnalysisCustomer(null)} />}
   </div>;
 }

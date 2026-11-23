@@ -6,13 +6,14 @@ import { displayReportDate } from '@/components/ui/ReportDateRangePicker';
 import { supabase } from '@/lib/supabase';
 import { customerPriceIndexSource, displayPriceIndexMonth } from '@/lib/customerPriceIndex';
 import { refreshCustomerPriceIndex } from '@/lib/customerPriceIndexClient';
+import CustomerWhaticketLink from './CustomerWhaticketLink';
 
 type Values = { amount: number; amount_real: number | null };
 type Purchase = Values & { id: string; day: string; code: string | null; channel: string | null; seller: string | null };
 type Category = Values & { category: string; units: number };
 type Product = Category & { name: string };
 type Analysis = { as_of: string; ipc_month: string | null; orders: Purchase[]; products: Product[]; products_real: Product[]; categories: Category[] };
-type Props = { clientId: string; name: string; includeHistory: boolean; adjustAmounts: boolean; onClose: () => void };
+type Props = { clientId: string; name: string; includeHistory: boolean; adjustAmounts: boolean; whaticketLink: string | null; onClose: () => void };
 
 const money = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
 const number = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 });
@@ -203,7 +204,7 @@ function ProductBreakdown({ data, adjusted }: { data: Analysis; adjusted: boolea
   </div>;
 }
 
-export default function CustomerAnalysisDialog({ clientId, name, includeHistory, adjustAmounts = false, onClose }: Props) {
+export default function CustomerAnalysisDialog({ clientId, name, includeHistory, adjustAmounts = false, whaticketLink, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const purchaseDetails = useRef<HTMLDivElement>(null);
   const [history, setHistory] = useState(includeHistory);
@@ -261,6 +262,7 @@ export default function CustomerAnalysisDialog({ clientId, name, includeHistory,
         <p className="mt-1 text-xs text-slate-500">Compras entregadas de esta ficha, de todos los canales y vendedores.</p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
+        <CustomerWhaticketLink href={whaticketLink} />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={adjusted} onChange={event => setAdjusted(event.target.checked)} /> Ajustar montos por IPC
         </label>

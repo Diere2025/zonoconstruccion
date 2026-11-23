@@ -198,6 +198,10 @@ BEGIN
     GROUP BY l.product_id, l.product, l.category ORDER BY sum(l.amount) DESC, l.product LIMIT 100
   ), profile AS (
     SELECT c.id, c.business_name AS name, c.phone_primary, c.phone_secondary, c.email,
+      (SELECT trim(o.whaticket_link) FROM public.orders o
+       WHERE o.client_id = c.id AND trim(o.whaticket_link) ~* '^https://app[.]whaticket[.]com/tickets/[^[:space:]]+$'
+       ORDER BY o.order_date DESC NULLS LAST, o.created_at DESC NULLS LAST, o.id DESC
+       LIMIT 1) AS whaticket_link,
       f.status, f.note, f.seller_id AS followup_seller_id, f.updated_at,
       coalesce((SELECT jsonb_agg(p ORDER BY sales DESC, product) FROM profile_products p), '[]'::jsonb) AS products
     FROM public.clients c LEFT JOIN public.customer_recontact f ON f.client_id = c.id
