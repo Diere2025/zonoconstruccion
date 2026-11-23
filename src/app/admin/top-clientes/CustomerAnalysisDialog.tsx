@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, CalendarDays, Loader2, X } from 'lucide-react';
+import { BarChart3, CalendarDays, ChevronRight, Loader2, X } from 'lucide-react';
 import { displayReportDate } from '@/components/ui/ReportDateRangePicker';
 import { supabase } from '@/lib/supabase';
 import { customerPriceIndexSource, displayPriceIndexMonth } from '@/lib/customerPriceIndex';
 import { refreshCustomerPriceIndex } from '@/lib/customerPriceIndexClient';
 import CustomerWhaticketLink from './CustomerWhaticketLink';
+import CustomerOrderDetailDialog from './CustomerOrderDetailDialog';
 
 type Values = { amount: number; amount_real: number | null };
 type Purchase = Values & { id: string; day: string; code: string | null; channel: string | null; seller: string | null };
@@ -143,7 +144,14 @@ function PurchaseCalendar({ year, asOf, monthCount, byDay, selected, onSelect }:
   </section>;
 }
 
-function PurchaseList({ orders, selected, year, adjusted, clear }: { orders: Purchase[]; selected: string; year: number; adjusted: boolean; clear: () => void }) {
+function PurchaseList({ orders, selected, year, adjusted, clear, openOrder }: {
+  orders: Purchase[];
+  selected: string;
+  year: number;
+  adjusted: boolean;
+  clear: () => void;
+  openOrder: (order: Purchase) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded || selected ? orders : orders.slice(0, 8);
   return <section className={styles.panel} aria-label="Detalle de pedidos">
@@ -157,7 +165,12 @@ function PurchaseList({ orders, selected, year, adjusted, clear }: { orders: Pur
       </tr></thead>
       <tbody className="divide-y divide-slate-100">{visible.map(order => <tr key={order.id}>
         <td className="whitespace-nowrap px-2.5 py-2">{displayReportDate(order.day)}</td>
-        <td className="px-2.5 py-2">{order.code || 'Sin código'}</td>
+        <td className="px-2.5 py-2">
+          <button type="button" onClick={() => openOrder(order)} aria-haspopup="dialog"
+            className="inline-flex items-center gap-1 whitespace-nowrap font-semibold text-blue-700 hover:underline">
+            {order.code || 'Ver pedido sin código'}<ChevronRight aria-hidden="true" className="size-3.5" />
+          </button>
+        </td>
         <td className="px-2.5 py-2">{order.seller || 'Sin vendedor registrado'}</td>
         <td className="whitespace-nowrap px-2.5 py-2 font-semibold">{displayAmount(visibleAmount(order, adjusted))}
           {adjusted && <div className="text-xs font-normal text-slate-500">{money.format(order.amount)} nominal</div>}
@@ -214,6 +227,7 @@ export default function CustomerAnalysisDialog({ clientId, name, includeHistory,
   const [retry, setRetry] = useState(0);
   const [year, setYear] = useState(0);
   const [selected, setSelected] = useState('');
+  const [openOrder, setOpenOrder] = useState<Purchase | null>(null);
   const stats = useMemo(() => data && summarize(data), [data]);
 
   useEffect(() => { dialog.current?.showModal(); }, []);
@@ -303,9 +317,11 @@ export default function CustomerAnalysisDialog({ clientId, name, includeHistory,
           </label>
           <MonthlyTrend year={year} orders={data.orders} monthCount={monthCount} adjusted={adjusted} />
           <PurchaseCalendar year={year} asOf={data.as_of} monthCount={monthCount} byDay={stats.byDay} selected={selected} onSelect={setSelected} />
-          <div ref={purchaseDetails}><PurchaseList key={year} orders={selectedOrders} selected={selected} year={year} adjusted={adjusted} clear={() => setSelected('')} /></div>
+          <div ref={purchaseDetails}><PurchaseList key={year} orders={selectedOrders} selected={selected} year={year} adjusted={adjusted}
+            clear={() => setSelected('')} openOrder={setOpenOrder} /></div>
           <ProductBreakdown data={data} adjusted={adjusted} />
         </>}
     </div>
+    {openOrder && <CustomerOrderDetailDialog clientId={clientId} order={openOrder} onClose={() => setOpenOrder(null)} />}
   </dialog>;
 }
