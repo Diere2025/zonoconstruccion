@@ -178,7 +178,7 @@ export default function CustomerOrderDetailDialog({ clientId, order, onClose }: 
     return () => controller.abort();
   }, [clientId, order.id, attempt]);
 
-  return <dialog ref={dialog} onClose={onClose} aria-labelledby="customer-order-title"
+  return <dialog ref={dialog} onClose={event => { event.stopPropagation(); onClose(); }} aria-labelledby="customer-order-title"
     className="fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%-1.5rem)] max-w-4xl overflow-auto rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl backdrop:bg-slate-950/55">
     <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
       <div>
