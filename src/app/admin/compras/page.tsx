@@ -1964,40 +1964,40 @@ export default function ComprasAdminPage() {
 
     const effectiveCutoffStr = startDate && startDate < defaultCutoffStr ? startDate : defaultCutoffStr;
 
-    let salesDataQuery = supabase
-      .from('order_items')
-      .select(`
-        order_id,
-        product_id,
-        product_name,
-        quantity,
-        orders!inner(status, order_date)
-      `)
-      .neq('orders.status', 'Cancelado')
-      .gte('orders.order_date', effectiveCutoffStr);
-
-    if (endDate) {
-      salesDataQuery = salesDataQuery.lte('orders.order_date', endDate);
-    }
-
-    const { data: salesData, error: salesErr } = await salesDataQuery;
-    if (salesErr) throw salesErr;
-
+    type SaleRow = {
+      item_id: string;
+      order_id: string;
+      order_date: string;
+      product_id: string | null;
+      product_name: string | null;
+      quantity: number;
+    };
     const saleRecords: RawSaleRecord[] = [];
-    salesData?.forEach((item: any, index: number) => {
-      const orderObj = Array.isArray(item.orders) ? item.orders[0] : item.orders;
-      const orderDate = orderObj?.order_date || '';
-      const qty = Number(item.quantity) || 0;
-      if (qty <= 0 || !orderDate) return;
-      saleRecords.push({
-        orderKey: item.order_id ? `db_${item.order_id}` : `db_row_${index}_${orderDate}`,
-        productId: item.product_id || null,
-        productName: (item.product_name || '').trim(),
-        quantity: qty,
-        orderDate,
-        source: 'db',
+    let cursor: SaleRow | undefined;
+    for (;;) {
+      const { data, error } = await supabase.rpc('purchase_replenishment_sales', {
+        p_from: effectiveCutoffStr,
+        p_to: endDate ?? null,
+        p_after_date: cursor?.order_date ?? null,
+        p_after_order: cursor?.order_id ?? null,
+        p_after_item: cursor?.item_id ?? null,
       });
-    });
+      if (error) throw error;
+      const rows = data as SaleRow[] | null;
+      if (!rows?.length) break;
+
+      for (const item of rows) {
+        saleRecords.push({
+          orderKey: `db_${item.order_id}`,
+          productId: item.product_id,
+          productName: (item.product_name || '').trim(),
+          quantity: Number(item.quantity),
+          orderDate: item.order_date,
+          source: 'db',
+        });
+      }
+      cursor = rows[rows.length - 1];
+    }
 
     // Fetch unimported seller orders from spreadsheets to include in sales and reserves
     const unimportedReservesMap: Record<string, number> = {};
