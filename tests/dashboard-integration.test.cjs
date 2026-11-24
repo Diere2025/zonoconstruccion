@@ -22,7 +22,7 @@ const names = [...source.matchAll(/const \[(\w+),[^\]]*\]\s*=\s*useState/g)].map
 async function dashboard(channel, fetchSheetOrders = async () => ({
   ok: true,
   json: async () => ({ success: true, totalUnimportedCount: 1, unimportedOrders: [{ totalAmount: 999 }] })
-}), includeHistoricalOrders = false) {
+}), includeHistoricalOrders = false, productError = null) {
   let cursor = 0;
   const state = new Map();
   const effects = [];
@@ -45,7 +45,7 @@ async function dashboard(channel, fetchSheetOrders = async () => ({
   const tables = {
     orders: [...orders, oldOrder, historicalOrder], clients: [{ id: 'client' }], products: [{ id: 'product' }],
     sellers: [{ id: 's1', full_name: 'Uno' }, { id: 's2', full_name: 'Dos' }],
-    order_items: [...orders, historicalOrder].map(order => ({ id: `item-${order.id}`, product_name: `Producto ${order.channel || 'sin canal'}`, quantity: 1, unit_price: order.total_amount, products: { sku: 'P', category: 'Otros' }, orders: order })),
+    order_items: [...orders, historicalOrder].map(order => ({ id: `item-${order.id}`, order_id: order.id, product_name: `Producto ${order.channel || 'sin canal'}`, quantity: 1, unit_price: order.total_amount, products: { sku: 'P', category: 'Otros' } })),
     deliveries: [orders[0], oldOrder, historicalOrder].map(order => ({ id: `delivery-${order.id}`, order_id: order.id, real_delivery_date: date, status: 'entregado', orders: order }))
   };
   const queries = [];
@@ -73,6 +73,7 @@ async function dashboard(channel, fetchSheetOrders = async () => ({
       then(resolve, reject) {
         queries.push({ table, start, end });
         if (signal?.aborted) return Promise.reject(Error('Aborted')).then(resolve, reject);
+        if (table === 'order_items' && productError) return Promise.resolve({ data: null, error: productError }).then(resolve, reject);
         let data = tables[table].filter(row => filters.every(filter => filter(row)));
         if (sortField) data = data.slice().sort((a, b) => String(a[sortField]).localeCompare(String(b[sortField])));
         return Promise.resolve({ data: counting ? null : data.slice(start, Math.min(end + 1, start + limit)), count: data.length, error: null }).then(resolve, reject);
@@ -90,7 +91,7 @@ async function dashboard(channel, fetchSheetOrders = async () => ({
   });
   app.default();
   const cleanup = effects.find(fn => fn.toString().includes('loadData'))();
-  for (let round = 0; round < 80; round++) await Promise.resolve();
+  for (let round = 0; round < 120; round++) await Promise.resolve();
   assert.equal(state.get('loading'), false);
   assert.equal(state.get('loadError'), '');
   cleanup();
@@ -149,4 +150,11 @@ test('imported historical orders appear in the dashboard only when explicitly in
   assert.equal(state.get('monthStats').sales, 1250);
   assert.equal(state.get('productsSold').reduce((sum, product) => sum + product.total, 0), 1250);
   assert.equal(state.get('dailyTrendData').reduce((sum, day) => sum + day.deliveredSales, 0), 1070);
+});
+
+test('a product query timeout leaves the dashboard totals and sales mix available', async () => {
+  const { state } = await dashboard('all', undefined, false, { code: '57014', message: 'statement timeout' });
+  assert.equal(state.get('stats').monthlySales, 350);
+  assert.equal(state.get('productReportStatus'), 'error');
+  assert.equal(state.get('salesMix').range.repeat, 200);
 });

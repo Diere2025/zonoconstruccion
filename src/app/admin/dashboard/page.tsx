@@ -91,6 +91,9 @@ export default function AdminDashboard() {
   const loadAbortControllerRef = useRef<AbortController | null>(null);
   const sheetOrdersAbortRef = useRef<AbortController | null>(null);
   const salesMixAbortRef = useRef<AbortController | null>(null);
+  const productReportAbortRef = useRef<AbortController | null>(null);
+  const productReportOrderIds = useRef<string[]>([]);
+  const [productReportStatus, setProductReportStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [salesMix, setSalesMix] = useState<SalesMixReport | null>(null);
   const [salesMixFailed, setSalesMixFailed] = useState(false);
   const [includeHistoricalOrders, setIncludeHistoricalOrders] = useState(false);
@@ -564,8 +567,252 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadProductReport = async () => {
+    productReportAbortRef.current?.abort();
+    const controller = new AbortController();
+    productReportAbortRef.current = controller;
+    setProductReportStatus('loading');
+    const timeout = window.setTimeout(() => {
+      if (productReportAbortRef.current === controller) setProductReportStatus('error');
+      controller.abort();
+    }, 30000);
+
+    try {
+      const orderIds = productReportOrderIds.current;
+      const fetchBatch = (ids: string[]) => pagedDashboardQuery(supabase.from('order_items')
+        .select('id, order_id, product_name, quantity, unit_price, products(sku, category)')
+        .in('order_id', ids)
+        .order('id', { ascending: true })
+        .abortSignal(controller.signal));
+      const batchSize = 150; // Keep the PostgREST query URL short.
+      const batchesPerWave = 4;
+      const items: Awaited<ReturnType<typeof fetchBatch>>['data'] = [];
+      for (let offset = 0; offset < orderIds.length; offset += batchSize * batchesPerWave) {
+        const batches: ReturnType<typeof fetchBatch>[] = [];
+        for (let start = offset; start < Math.min(offset + batchSize * batchesPerWave, orderIds.length); start += batchSize) {
+          batches.push(fetchBatch(orderIds.slice(start, start + batchSize)));
+        }
+        for (const result of await Promise.all(batches)) {
+          if (result.error) throw result.error;
+          items.push(...result.data);
+        }
+        if (controller.signal.aborted) return;
+      }
+      // Preserve the original line order when assigning discounts to categories.
+      items.sort((a, b) => a.id.localeCompare(b.id));
+
+      const productSales: Record<string, { name: string, sku: string, category: string, qty: number, total: number }> = {};
+
+      const getCategoryForProduct = (pNameRaw: string, dbCategoryRaw: string | undefined, orderPrimaryCategory?: string): string => {
+        const pName = (pNameRaw || '').toLowerCase();
+        let cat = dbCategoryRaw;
+        const isDiscount = pName.includes('descuento') || pName.includes('bonificaci');
+
+        if (isDiscount) {
+          if (pName.includes('mep')) return 'MEPS';
+          if (pName.includes('bomba')) return 'Bombas';
+          return orderPrimaryCategory || 'Tanques de Agua';
+        }
+
+        if (/membrana\s+techos?\b/.test(pName)) return 'MEPS';
+
+        if (pName.includes('bomba') || cat === 'Bombas') {
+          return 'Bombas';
+        } else if (pName.includes('puerta') || pName.includes('ventana') || cat === 'Aberturas') {
+          return 'Aberturas';
+        } else if (pName.includes('termotanque') || pName.includes('turboflex') || cat === 'Termotanques') {
+          return 'Termotanques';
+        } else if (
+          cat === 'Complementos para tanques' ||
+          cat === 'Tanques' ||
+          cat === 'Tanques Bicapa' ||
+          cat === 'Tanques Cisterna' ||
+          cat === 'Tanques Tricapa Beige' ||
+          cat === 'Tanques Tricapa Oferta' ||
+          pName.includes('cuatr') ||
+          pName.includes('cuatricapa') ||
+          pName.includes('aquafort') ||
+          pName.includes('tanque') ||
+          pName.includes('cisterna') ||
+          pName.includes('tricapa') ||
+          pName.includes('bicapa') ||
+          pName.includes('complemento') ||
+          pName.includes('base') ||
+          pName.includes('hierro') ||
+          pName.includes('flotante') ||
+          pName.includes('boya')
+        ) {
+          return 'Tanques de Agua';
+        } else if (
+          pName.includes('biofort') ||
+          pName.includes('biodigestor') ||
+          pName.includes('biolam') ||
+          pName.includes('awaduct') ||
+          pName.includes('desengrasadora') ||
+          pName.includes('séptica') ||
+          pName.includes('septica') ||
+          pName.includes('cámara') ||
+          pName.includes('camara') ||
+          cat === 'Biodigestores' ||
+          cat === 'Cámaras Sépticas' ||
+          cat === 'Cámaras Desengrasadoras'
+        ) {
+          return 'Biodigestores';
+        } else if (
+          pName.includes('pintura') ||
+          pName.includes('latex') ||
+          pName.includes('látex') ||
+          pName.includes('andina') ||
+          pName.includes('lavable') ||
+          pName.includes('zono') ||
+          pName.includes('pinceleta') ||
+          pName.includes('pincel') ||
+          pName.includes('lija') ||
+          pName.includes('rodillo') ||
+          pName.includes('guante') ||
+          pName.includes('fijador') ||
+          pName.includes('sellador') ||
+          pName.includes('enduido') ||
+          pName.includes('endui') ||
+          pName.includes('sintetico') ||
+          pName.includes('sintético') ||
+          cat === 'Pinturas' ||
+          cat === 'Herramientas de pintura' ||
+          cat === 'Accesorios de pintura'
+        ) {
+          return 'Pinturas';
+        } else if (
+          pName.includes('venda') ||
+          pName.includes('mep') ||
+          pName.includes('meps') ||
+          (pName.includes('rodillo') && pName.includes('meps')) ||
+          (pName.includes('guante') && pName.includes('meps')) ||
+          pName.includes('equilibrio') ||
+          cat === 'MEPS'
+        ) {
+          return 'MEPS';
+        } else if (pName.includes('escalera')) {
+          return 'Escaleras';
+        } else if (!cat || cat.trim() === '' || cat === 'otro' || cat === 'Otros' || cat === 'Interno') {
+          return 'Otros / General';
+        }
+
+        return cat;
+      };
+
+      const orderPrimaryCatMap: Record<string, string> = {};
+      items.forEach(item => {
+        const pName = item.product_name || '';
+        const isDiscount = pName.toLowerCase().includes('descuento') || pName.toLowerCase().includes('bonificaci');
+        if (!isDiscount) {
+          const orderId = item.order_id;
+          if (orderId && !orderPrimaryCatMap[orderId]) {
+            const cat = getCategoryForProduct(pName, dashboardRelatedOrder(item.products)?.category);
+            if (cat && cat !== 'Otros / General') {
+              orderPrimaryCatMap[orderId] = cat;
+            }
+          }
+        }
+      });
+
+      const catSalesMap: Record<string, {
+        category: string;
+        totalBilling: number;
+        totalQty: number;
+        productsMap: Record<string, number>;
+      }> = {};
+
+      let totalCatBillingAcc = 0;
+      let totalCatQtyAcc = 0;
+
+      items.forEach(item => {
+        const rawSku = dashboardRelatedOrder(item.products)?.sku || 'SIN SKU';
+        const normName = (item.product_name || 'DESCONOCIDO').trim();
+        const key = normName.toLowerCase();
+        const orderId = item.order_id;
+        const orderPrimaryCat = orderPrimaryCatMap[orderId] || 'Tanques de Agua';
+
+        const cat = getCategoryForProduct(normName, dashboardRelatedOrder(item.products)?.category, orderPrimaryCat);
+
+        if (!productSales[key]) {
+          productSales[key] = {
+            name: normName,
+            sku: rawSku,
+            category: cat,
+            qty: 0,
+            total: 0
+          };
+        } else if (productSales[key].sku.startsWith('AUTO-') && !rawSku.startsWith('AUTO-') && rawSku !== 'SIN SKU') {
+          productSales[key].sku = rawSku;
+        }
+
+        productSales[key].qty += Number(item.quantity) || 0;
+        productSales[key].total += (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+
+        if (!catSalesMap[cat]) {
+          catSalesMap[cat] = {
+            category: cat,
+            totalBilling: 0,
+            totalQty: 0,
+            productsMap: {}
+          };
+        }
+
+        const qty = Number(item.quantity) || 0;
+        const lineTotal = qty * (Number(item.unit_price) || 0);
+
+        catSalesMap[cat].totalBilling += lineTotal;
+        catSalesMap[cat].totalQty += qty;
+        totalCatBillingAcc += lineTotal;
+        totalCatQtyAcc += qty;
+
+        const prodName = item.product_name || 'Desconocido';
+        catSalesMap[cat].productsMap[prodName] = (catSalesMap[cat].productsMap[prodName] || 0) + lineTotal;
+      });
+
+      const sortedProductSales = Object.values(productSales);
+      setProductsSold(sortedProductSales);
+
+      const categorySalesList: CategoryData[] = Object.values(catSalesMap).map(c => {
+        let topProd = '';
+        let maxVal = -1;
+        Object.entries(c.productsMap).forEach(([pName, val]) => {
+          if (val > maxVal) {
+            maxVal = val;
+            topProd = pName;
+          }
+        });
+
+        return {
+          category: c.category,
+          totalBilling: c.totalBilling,
+          totalQty: c.totalQty,
+          pctBilling: totalCatBillingAcc > 0 ? (c.totalBilling / totalCatBillingAcc) * 100 : 0,
+          pctQty: totalCatQtyAcc > 0 ? (c.totalQty / totalCatQtyAcc) * 100 : 0,
+          topProduct: topProd
+        };
+      });
+
+      setCategorySales(categorySalesList);
+      setTotalCategoryQty(totalCatQtyAcc);
+
+      setProductReportStatus('ready');
+    } catch (error) {
+      if (controller.signal.aborted || productReportAbortRef.current !== controller) return;
+      setProductReportStatus('error');
+      console.warn('No se pudo cargar el desglose de productos:', error);
+    } finally {
+      window.clearTimeout(timeout);
+      if (productReportAbortRef.current === controller) productReportAbortRef.current = null;
+    }
+  };
+
   const loadData = async (start: string, end: string, sellerId: string = selectedSellerId, channel: DashboardChannel = selectedChannel, includeHistory = includeHistoricalOrders) => {
     loadAbortControllerRef.current?.abort();
+    productReportAbortRef.current?.abort();
+    productReportAbortRef.current = null;
+    productReportOrderIds.current = [];
+    setProductReportStatus('loading');
     salesMixAbortRef.current?.abort();
     salesMixAbortRef.current = null;
     setSalesMix(null);
@@ -592,6 +839,7 @@ export default function AdminDashboard() {
       const weeklyEnd = getSundayOfWeek(end);
       const todayStr = getTodayDate();
       const startOfMonthStr = getStartOfMonth();
+      const rangeContainsMonth = start <= startOfMonthStr && end >= todayStr;
 
       let recentQuery = supabase.from("orders")
         .select("id, legacy_code, customer_name, total_amount, status, created_at, order_date, seller_id, channel")
@@ -608,27 +856,10 @@ export default function AdminDashboard() {
         .gte("order_date", prevStartStr)
         .lte("order_date", prevEndStr);
 
-      let todayOrdersQuery = supabase.from("orders")
-        .select("id, client_id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
-        .eq("order_date", todayStr);
-
       let monthOrdersQuery = supabase.from("orders")
         .select("id, client_id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
         .gte("order_date", startOfMonthStr)
         .lte("order_date", todayStr);
-
-      let itemsQuery = supabase
-        .from("order_items")
-        .select(`
-          id, product_name,
-          quantity,
-          unit_price,
-          products(sku, category),
-          orders!inner(id, legacy_code, channel, status, order_date, created_at, seller_id)
-        `)
-        .not("orders.status", "in", '("Cancelado","Anulado")')
-        .gte("orders.order_date", start)
-        .lte("orders.order_date", end);
 
       let weeklyOrdersQuery = supabase.from("orders")
         .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
@@ -647,20 +878,16 @@ export default function AdminDashboard() {
       recentQuery = recentQuery.eq('employee_withdrawal', false);
       rangeQuery = rangeQuery.eq('employee_withdrawal', false);
       prevRangeQuery = prevRangeQuery.eq('employee_withdrawal', false);
-      todayOrdersQuery = todayOrdersQuery.eq('employee_withdrawal', false);
       monthOrdersQuery = monthOrdersQuery.eq('employee_withdrawal', false);
       weeklyOrdersQuery = weeklyOrdersQuery.eq('employee_withdrawal', false);
-      itemsQuery = itemsQuery.eq('orders.employee_withdrawal', false);
       datedDeliveriesQuery = datedDeliveriesQuery.eq('orders.employee_withdrawal', false);
 
       if (!includeHistory) {
         recentQuery = recentQuery.is(orderHistoryField, null);
         rangeQuery = rangeQuery.is(orderHistoryField, null);
         prevRangeQuery = prevRangeQuery.is(orderHistoryField, null);
-        todayOrdersQuery = todayOrdersQuery.is(orderHistoryField, null);
         monthOrdersQuery = monthOrdersQuery.is(orderHistoryField, null);
         weeklyOrdersQuery = weeklyOrdersQuery.is(orderHistoryField, null);
-        itemsQuery = itemsQuery.is(`orders.${orderHistoryField}`, null);
         datedDeliveriesQuery = datedDeliveriesQuery.is(`orders.${orderHistoryField}`, null);
       }
 
@@ -672,9 +899,7 @@ export default function AdminDashboard() {
         recentQuery = recentQuery.eq("seller_id", sellerId);
         rangeQuery = rangeQuery.eq("seller_id", sellerId);
         prevRangeQuery = prevRangeQuery.eq("seller_id", sellerId);
-        todayOrdersQuery = todayOrdersQuery.eq("seller_id", sellerId);
         monthOrdersQuery = monthOrdersQuery.eq("seller_id", sellerId);
-        itemsQuery = itemsQuery.eq("orders.seller_id", sellerId);
         weeklyOrdersQuery = weeklyOrdersQuery.eq("seller_id", sellerId);
         datedDeliveriesQuery = datedDeliveriesQuery.eq("orders.seller_id", sellerId);
       }
@@ -698,23 +923,21 @@ export default function AdminDashboard() {
       const [
         ordersInRangeRes,
         prevOrdersRes,
-        itemsRes,
         weeklyOrdersRes
       ] = await Promise.all([
         pagedDashboardQuery(withSignal(rangeQuery.order("id", { ascending: true }))),
         pagedDashboardQuery(withSignal(prevRangeQuery.order("id", { ascending: true }))),
-        pagedDashboardQuery(withSignal(itemsQuery.order("id", { ascending: true }))),
         pagedDashboardQuery(withSignal(weeklyOrdersQuery.order("id", { ascending: true })))
       ]);
       if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
 
       const [
-        todayOrdersRes,
         monthOrdersRes,
         datedDeliveriesRes
       ] = await Promise.all([
-        pagedDashboardQuery(withSignal(todayOrdersQuery.order("id", { ascending: true }))),
-        pagedDashboardQuery(withSignal(monthOrdersQuery.order("id", { ascending: true }))),
+        rangeContainsMonth
+          ? { data: ordersInRangeRes.data.filter(order => order.order_date >= startOfMonthStr && order.order_date <= todayStr), error: null }
+          : pagedDashboardQuery(withSignal(monthOrdersQuery.order("id", { ascending: true }))),
         pagedDashboardQuery(withSignal(datedDeliveriesQuery.order("id", { ascending: true })))
       ]);
       if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
@@ -726,9 +949,7 @@ export default function AdminDashboard() {
         ["recent orders", recentOrdersRes],
         ["orders in range", ordersInRangeRes],
         ["previous-period orders", prevOrdersRes],
-        ["order items", itemsRes],
         ["weekly orders", weeklyOrdersRes],
-        ["today orders", todayOrdersRes],
         ["month orders", monthOrdersRes],
         ["dated deliveries", datedDeliveriesRes]
       ] as const;
@@ -746,8 +967,8 @@ export default function AdminDashboard() {
       setChannelSummary(dashboardChannelSummary(uniqueDashboardOrders(ordersInRangeRes.data || [])));
       ordersInRangeRes.data = ordersInRangeRes.data.filter(order => matchesDashboardChannel(order, channel));
       prevOrdersRes.data = prevOrdersRes.data.filter(order => matchesDashboardChannel(order, channel));
-      todayOrdersRes.data = todayOrdersRes.data.filter(order => matchesDashboardChannel(order, channel));
       monthOrdersRes.data = monthOrdersRes.data.filter(order => matchesDashboardChannel(order, channel));
+      const todayOrdersRes = { data: monthOrdersRes.data.filter(order => order.order_date === todayStr) };
       weeklyOrdersRes.data = weeklyOrdersRes.data.filter(order => matchesDashboardChannel(order, channel));
       datedDeliveriesRes.data = datedDeliveriesRes.data.filter(delivery => matchesDashboardChannel(dashboardRelatedOrder(delivery.orders), channel));
 
@@ -1065,206 +1286,6 @@ export default function AdminDashboard() {
       });
       setRecentOrders(formattedRecent);
 
-      const includedOrderIds = new Set(ordersInRange.map(order => order.id));
-      const items = itemsRes.data.filter(item => {
-        const order = dashboardRelatedOrder(item.orders);
-        return order && includedOrderIds.has(order.id);
-      });
-      const productSales: Record<string, { name: string, sku: string, category: string, qty: number, total: number }> = {};
-
-      const getCategoryForProduct = (pNameRaw: string, dbCategoryRaw: string | undefined, orderPrimaryCategory?: string): string => {
-        const pName = (pNameRaw || '').toLowerCase();
-        let cat = dbCategoryRaw;
-        const isDiscount = pName.includes('descuento') || pName.includes('bonificaci');
-
-        if (isDiscount) {
-          if (pName.includes('mep')) return 'MEPS';
-          if (pName.includes('bomba')) return 'Bombas';
-          return orderPrimaryCategory || 'Tanques de Agua';
-        }
-
-        if (/membrana\s+techos?\b/.test(pName)) return 'MEPS';
-
-        if (pName.includes('bomba') || cat === 'Bombas') {
-          return 'Bombas';
-        } else if (pName.includes('puerta') || pName.includes('ventana') || cat === 'Aberturas') {
-          return 'Aberturas';
-        } else if (pName.includes('termotanque') || pName.includes('turboflex') || cat === 'Termotanques') {
-          return 'Termotanques';
-        } else if (
-          cat === 'Complementos para tanques' ||
-          cat === 'Tanques' ||
-          cat === 'Tanques Bicapa' ||
-          cat === 'Tanques Cisterna' ||
-          cat === 'Tanques Tricapa Beige' ||
-          cat === 'Tanques Tricapa Oferta' ||
-          pName.includes('cuatr') ||
-          pName.includes('cuatricapa') ||
-          pName.includes('aquafort') ||
-          pName.includes('tanque') ||
-          pName.includes('cisterna') ||
-          pName.includes('tricapa') ||
-          pName.includes('bicapa') ||
-          pName.includes('complemento') ||
-          pName.includes('base') ||
-          pName.includes('hierro') ||
-          pName.includes('flotante') ||
-          pName.includes('boya')
-        ) {
-          return 'Tanques de Agua';
-        } else if (
-          pName.includes('biofort') ||
-          pName.includes('biodigestor') ||
-          pName.includes('biolam') ||
-          pName.includes('awaduct') ||
-          pName.includes('desengrasadora') ||
-          pName.includes('séptica') ||
-          pName.includes('septica') ||
-          pName.includes('cámara') ||
-          pName.includes('camara') ||
-          cat === 'Biodigestores' ||
-          cat === 'Cámaras Sépticas' ||
-          cat === 'Cámaras Desengrasadoras'
-        ) {
-          return 'Biodigestores';
-        } else if (
-          pName.includes('pintura') ||
-          pName.includes('latex') ||
-          pName.includes('látex') ||
-          pName.includes('andina') ||
-          pName.includes('lavable') ||
-          pName.includes('zono') ||
-          pName.includes('pinceleta') ||
-          pName.includes('pincel') ||
-          pName.includes('lija') ||
-          pName.includes('rodillo') ||
-          pName.includes('guante') ||
-          pName.includes('fijador') ||
-          pName.includes('sellador') ||
-          pName.includes('enduido') ||
-          pName.includes('endui') ||
-          pName.includes('sintetico') ||
-          pName.includes('sintético') ||
-          cat === 'Pinturas' ||
-          cat === 'Herramientas de pintura' ||
-          cat === 'Accesorios de pintura'
-        ) {
-          return 'Pinturas';
-        } else if (
-          pName.includes('venda') ||
-          pName.includes('mep') ||
-          pName.includes('meps') ||
-          (pName.includes('rodillo') && pName.includes('meps')) ||
-          (pName.includes('guante') && pName.includes('meps')) ||
-          pName.includes('equilibrio') ||
-          cat === 'MEPS'
-        ) {
-          return 'MEPS';
-        } else if (pName.includes('escalera')) {
-          return 'Escaleras';
-        } else if (!cat || cat.trim() === '' || cat === 'otro' || cat === 'Otros' || cat === 'Interno') {
-          return 'Otros / General';
-        }
-
-        return cat;
-      };
-
-      const orderPrimaryCatMap: Record<string, string> = {};
-      items.forEach(item => {
-        const pName = item.product_name || '';
-        const isDiscount = pName.toLowerCase().includes('descuento') || pName.toLowerCase().includes('bonificaci');
-        if (!isDiscount) {
-          const orderId = (item as any).orders?.id || (item as any).order_id;
-          if (orderId && !orderPrimaryCatMap[orderId]) {
-            const cat = getCategoryForProduct(pName, (item as any).products?.category);
-            if (cat && cat !== 'Otros / General') {
-              orderPrimaryCatMap[orderId] = cat;
-            }
-          }
-        }
-      });
-
-      const catSalesMap: Record<string, {
-        category: string;
-        totalBilling: number;
-        totalQty: number;
-        productsMap: Record<string, number>;
-      }> = {};
-
-      let totalCatBillingAcc = 0;
-      let totalCatQtyAcc = 0;
-
-      items.forEach(item => {
-        const rawSku = (item as any).products?.sku || 'SIN SKU';
-        const normName = (item.product_name || 'DESCONOCIDO').trim();
-        const key = normName.toLowerCase();
-        const orderId = (item as any).orders?.id || (item as any).order_id;
-        const orderPrimaryCat = orderPrimaryCatMap[orderId] || 'Tanques de Agua';
-
-        const cat = getCategoryForProduct(normName, (item as any).products?.category, orderPrimaryCat);
-
-        if (!productSales[key]) {
-          productSales[key] = {
-            name: normName,
-            sku: rawSku,
-            category: cat,
-            qty: 0,
-            total: 0
-          };
-        } else if (productSales[key].sku.startsWith('AUTO-') && !rawSku.startsWith('AUTO-') && rawSku !== 'SIN SKU') {
-          productSales[key].sku = rawSku;
-        }
-
-        productSales[key].qty += Number(item.quantity) || 0;
-        productSales[key].total += (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-
-        if (!catSalesMap[cat]) {
-          catSalesMap[cat] = {
-            category: cat,
-            totalBilling: 0,
-            totalQty: 0,
-            productsMap: {}
-          };
-        }
-
-        const qty = Number(item.quantity) || 0;
-        const lineTotal = qty * (Number(item.unit_price) || 0);
-
-        catSalesMap[cat].totalBilling += lineTotal;
-        catSalesMap[cat].totalQty += qty;
-        totalCatBillingAcc += lineTotal;
-        totalCatQtyAcc += qty;
-
-        const prodName = item.product_name || 'Desconocido';
-        catSalesMap[cat].productsMap[prodName] = (catSalesMap[cat].productsMap[prodName] || 0) + lineTotal;
-      });
-
-      const sortedProductSales = Object.values(productSales);
-      setProductsSold(sortedProductSales);
-
-      const categorySalesList: CategoryData[] = Object.values(catSalesMap).map(c => {
-        let topProd = '';
-        let maxVal = -1;
-        Object.entries(c.productsMap).forEach(([pName, val]) => {
-          if (val > maxVal) {
-            maxVal = val;
-            topProd = pName;
-          }
-        });
-
-        return {
-          category: c.category,
-          totalBilling: c.totalBilling,
-          totalQty: c.totalQty,
-          pctBilling: totalCatBillingAcc > 0 ? (c.totalBilling / totalCatBillingAcc) * 100 : 0,
-          pctQty: totalCatQtyAcc > 0 ? (c.totalQty / totalCatQtyAcc) * 100 : 0,
-          topProduct: topProd
-        };
-      });
-
-      setCategorySales(categorySalesList);
-      setTotalCategoryQty(totalCatQtyAcc);
-
       const generateDateRange = (startDateStr: string, endDateStr: string) => {
         const dates: string[] = [];
         try {
@@ -1326,6 +1347,8 @@ export default function AdminDashboard() {
       });
 
       setDailyTrendData(dailyTrendList);
+      productReportOrderIds.current = activeOrdersList.filter(order => order.status != null).map(order => order.id);
+      void loadProductReport();
       void loadSalesMix(todayActiveOrders, monthActiveOrders, activeOrdersList);
       setLastRefreshedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 
@@ -1353,6 +1376,7 @@ export default function AdminDashboard() {
       sheetOrdersAbortRef.current?.abort();
       salesMixAbortRef.current?.abort();
       salesMixAbortRef.current = null;
+      productReportAbortRef.current?.abort();
     };
   }, []);
 
@@ -2484,6 +2508,14 @@ export default function AdminDashboard() {
       </>}
 
       {/* Category Sales & Donut Chart */}
+      {productReportStatus === 'loading' && <p role="status" className="card-enterprise p-5 text-sm text-slate-600">
+        Cargando ventas por producto y categoría…
+      </p>}
+      {productReportStatus === 'error' && <div role="alert" className="card-enterprise p-5 text-sm text-slate-700">
+        <p>No pudimos cargar las ventas por producto y categoría.</p>
+        <button type="button" onClick={() => void loadProductReport()} className="mt-2 font-semibold text-brand-700 underline">Reintentar desglose</button>
+      </div>}
+      {productReportStatus === 'ready' && <>
       <CategorySalesChart
         categories={categorySales}
         totalBillingAll={stats.deliveredBilling + stats.pendingBilling}
@@ -2716,6 +2748,8 @@ export default function AdminDashboard() {
           </div>
         )}
       </div>
+
+      </>}
 
       <OrderStatusChart statuses={orderStatusData} />
     </div>
