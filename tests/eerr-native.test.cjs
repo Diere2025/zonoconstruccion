@@ -109,3 +109,26 @@ test('Meta advertising replaces wallet funding and precargas without duplicating
  assert.equal(incomplete.totals.expenses,0);
  assert.equal(incomplete.totals.result,null);
 });
+test('ARS Meta accounts 1-ZONO and 2-ZONO impute directly in pesos without USD conversion or fee',()=>{
+ const expenses=[
+  movement({category:'Publicidad',concept:'Pago Meta 1-Zono',amount:200000}),
+ ];
+ const ads={
+  account:'S731.04',issue:null,purchaseReferences:['PAG-BIN'],
+  days:[{day:'2026-10-01',usd:10,spendArs:15000,feeArs:750},{day:'2026-10-02',usd:0,spendArs:0,feeArs:0}],
+  arsAccounts:[
+   {id:'act_2361501517627802',account:'1-ZONO',availableArs:200000,checkedAt:'2026-10-03T10:00:00Z',days:[{day:'2026-10-01',spendArs:50000},{day:'2026-10-02',spendArs:40000}],issue:null},
+   {id:'act_942497128185607',account:'2-ZONO',availableArs:549999.14,checkedAt:'2026-10-03T10:00:00Z',days:[{day:'2026-10-02',spendArs:25000}],issue:null},
+  ],
+ };
+ const r=buildReport('2026-10',[],expenses,{},'2026-10-31',undefined,new Map(),ads);
+ assert.equal(r.groups.find(g=>g.category==='Publicidad').amount,130000);
+ assert.equal(r.groups.find(g=>g.category==='Publicidad (Fee)').amount,750);
+ assert.equal(r.totals.expenses,130750);
+ assert.equal(r.days.find(d=>d.day==='2026-10-02').expenses,65000);
+ assert.equal(r.excludedMovements.length,1);
+ assert.equal(r.issues.length,0);
+ const withIssue=buildReport('2026-10',[],[],{},'2026-10-31',undefined,new Map(),{...ads,arsAccounts:[{...ads.arsAccounts[0],days:[],issue:'No se pudo leer 1-ZONO'}]});
+ assert.equal(withIssue.totals.result,null);
+ assert.ok(withIssue.issues.some(i=>i.reference==='Publicidad Meta (1-ZONO)'));
+});

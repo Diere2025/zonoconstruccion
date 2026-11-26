@@ -61,6 +61,55 @@ export default function NativeEerrAdvertising({ data }: {data?: Advertising}) {
       </table>
     </div>}
     <p className="text-xs text-slate-600">Las recargas conservan el costo de los USDT al transferir. Meta imputa el costo y el fee de las recargas más antiguas según el consumo diario.</p>
+    {!!data.arsAccounts?.length && (
+      <div className="space-y-4 border-t border-slate-200 pt-4">
+        {data.arsAccounts.map(acc => {
+          const totalArs = acc.days.reduce((sum, day) => sum + day.spendArs, 0);
+          const activeDays = acc.days.filter(day => day.spendArs > 0);
+          return (
+            <section key={acc.id} className="space-y-3 rounded-lg border border-slate-200 p-4">
+              <div>
+                <h3 className="font-semibold">Publicidad · {acc.account} · ARS</h3>
+                {acc.checkedAt && <p className="text-xs text-slate-600">Disponible actual consultado el {dateTime.format(new Date(acc.checkedAt))}. Consumo directo en pesos, sin conversión USD ni fee de recarga.</p>}
+              </div>
+              <dl className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <dt className="text-xs text-slate-600">Disponible hasta el límite de Meta</dt>
+                  <dd className="mt-1 font-semibold tabular-nums">{acc.availableArs === null ? 'No disponible' : ars.format(acc.availableArs)}</dd>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <dt className="text-xs text-slate-600">Consumo de Meta al corte (ARS)</dt>
+                  <dd className="mt-1 font-semibold tabular-nums">{acc.days.length ? ars.format(totalArs) : 'No disponible'}</dd>
+                </div>
+              </dl>
+              {acc.issue && <p role="status" className="text-sm text-amber-800">{acc.issue}</p>}
+              {activeDays.length > 0 ? (
+                <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
+                  <table className="w-full text-sm tabular-nums">
+                    <thead className="sticky top-0 bg-slate-50 text-slate-700">
+                      <tr className="text-right">
+                        <th scope="col" className="p-2 text-left">Fecha</th>
+                        <th scope="col" className="p-2">Consumo ARS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...activeDays].reverse().map(day => (
+                        <tr key={day.day} className="border-t border-slate-100 text-right">
+                          <td className="p-2 text-left">{displayDate(day.day)}</td>
+                          <td className="p-2 font-medium">{ars.format(day.spendArs)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : !acc.issue && (
+                <p className="text-xs text-slate-500">Sin consumo registrado en el período seleccionado.</p>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    )}
     {!!data.transfers?.length && <details>
       <summary className="cursor-pointer text-sm font-semibold">Costo de las cargas y transferencias</summary>
       <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200">

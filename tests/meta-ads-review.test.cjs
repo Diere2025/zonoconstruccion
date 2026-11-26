@@ -11,7 +11,8 @@ test('frequency alone is not fatigue',()=>assert.equal(lib.diagnose(p(m(10,10,2)
 test('targets change diagnosis and scale requires history',()=>{assert.equal(lib.diagnose(p(m(20,12))).label,'Dentro del objetivo');assert.equal(lib.diagnose(p(m(20,12),m(20,12),m(100,60))).label,'Candidata a evaluar aumento');assert.equal(lib.diagnose(p(m(10,5)),1).severity,'warning');});
 test('Argentina date boundary excludes today from seven full days',()=>{const d=lib.reportingDates(new Date('2026-09-15T02:00:00Z'),'America/Argentina/Buenos_Aires');assert.equal(d.today,'2026-09-14');assert.equal(d.yesterday,'2026-09-13');assert.equal(d.weekStart,'2026-09-07');});
 function setup(){let calls=0,fail=false;const fetch=async input=>{calls++;if(fail)return {ok:false,status:400,json:async()=>({error:{code:190}})};const u=new URL(input);let body;const row={campaign_id:'c',campaign_name:'(MEPS)',ad_id:'a',ad_name:'A',spend:'12',frequency:'1.3',actions:[{action_type:'onsite_conversion.messaging_conversation_started_7d',value:'3'}]};if(u.pathname.endsWith('/insights'))body={data:[row]};else if(u.pathname.endsWith('/activities'))body={data:[{event_type:'update_campaign_budget',event_time:'2026-09-15T10:00:00Z'}]};else if(u.pathname.endsWith('/ads'))body=u.searchParams.has('after')?{data:[{id:'b',name:'Paused',effective_status:'PAUSED',campaign:{id:'c',name:'(MEPS)',effective_status:'ACTIVE'}}]}:{data:[{id:'a',name:'A',effective_status:'ACTIVE',campaign:{id:'c',name:'(MEPS)',effective_status:'ACTIVE',daily_budget:'2500'}}],paging:{next:'https://graph.facebook.com/v21.0/act_test/ads?after=2'}};else body={name:'Test',currency:'USD',timezone_name:'America/Argentina/Buenos_Aires',account_status:1,spend_cap:'10000',amount_spent:'5000'};return {ok:true,json:async()=>body};};let current=Date.now();class FakeDate extends Date{constructor(...args){super(...(args.length?args:[current]));}static now(){return current;}}
-const route=compile('src/app/api/admin/meta-ads-live/route.ts',{Date:FakeDate,fetch,process:{env:{META_ACCESS_TOKEN:'test',META_AD_ACCOUNT_ID:'act_test'}},require(name){if(name==='next/server')return {NextResponse:{json:(body,options)=>({body,options})}};if(name==='@/lib/meta-ads-review')return lib;throw Error(name);}});return {get:(q='')=>route.GET({url:'https://local/api?'+q}),calls:()=>calls,fail:()=>{fail=true;current+=190000;}};}
+const zonoBalance=require('../src/lib/metaZonoBalance.mjs');
+const route=compile('src/app/api/admin/meta-ads-live/route.ts',{Date:FakeDate,fetch,process:{env:{META_ACCESS_TOKEN:'test',META_AD_ACCOUNT_ID:'act_test'}},require(name){if(name==='next/server')return {NextResponse:{json:(body,options)=>({body,options})}};if(name==='@/lib/meta-ads-review')return lib;if(name==='@/lib/metaZonoBalance.mjs')return zonoBalance;throw Error(name);}});return {get:(q='')=>route.GET({url:'https://local/api?'+q}),calls:()=>calls,fail:()=>{fail=true;current+=190000;}};}
 test('complete pages and campaign frequency; cache avoids duplicate reads',async()=>{const s=setup();const r=await s.get();assert.equal(r.body.campaigns[0].frequency,1.3);assert.equal(r.body.campaigns[0].periods.week.messages,3);assert.equal(r.body.account.remaining,50);assert.equal(r.body.activities.length,1);assert.equal(s.calls(),10);await s.get();assert.equal(s.calls(),10);});
 test('expired cache failure is explicitly stale, preserves original timestamp',async()=>{const s=setup();const first=await s.get();s.fail();const r=await s.get();assert.equal(r.body.stale,true);assert.match(r.body.apiError,/190/);assert.equal(r.body.updatedAt,first.body.updatedAt);});
 test('exchange rate cache isolation and invalid values',async()=>{const s=setup();await s.get();const r=await s.get('exchangeRate=1000');assert.equal(r.body.summary.totalSpendArs,12000);assert.equal(s.calls(),20);assert.equal((await s.get('exchangeRate=-1')).options.status,400);});
@@ -45,4 +46,50 @@ test('non-JSON errors and incomplete successful payloads are explicit',async()=>
 test('history errors retain the server diagnosis and reject incomplete data', async () => {
  await assert.rejects(lib.readHistoryResponse({ok:false,status:500,json:async()=>({error:'Google Sheets API error: 403 acceso denegado'})}), /403 acceso denegado/);
  await assert.rejects(lib.readHistoryResponse({ok:true,status:200,json:async()=>({summary:{},records:[]})}), /incompleta/);
+});
+
+test('multi-account live read combines USD S731.04 with ARS 1-ZONO and 2-ZONO without converting ARS by exchange rate', async () => {
+ const zonoBalance=require('../src/lib/metaZonoBalance.mjs');
+ const fetch=async input=>{
+  const u=new URL(input);
+  const p=u.pathname;
+  if(p.includes('/act_test')){
+   if(p.endsWith('/insights'))return {ok:true,json:async()=>({data:[{campaign_id:'c_usd',campaign_name:'(MEPS)',ad_id:'a_usd',ad_name:'Ad USD',spend:'10',frequency:'1.1',actions:[{action_type:'onsite_conversion.messaging_conversation_started_7d',value:'2'}]}]})};
+   if(p.endsWith('/ads'))return {ok:true,json:async()=>({data:[{id:'a_usd',name:'Ad USD',effective_status:'ACTIVE',campaign:{id:'c_usd',name:'(MEPS)',effective_status:'ACTIVE',daily_budget:'5000'}}]})};
+   if(p.endsWith('/activities'))return {ok:true,json:async()=>({data:[]})};
+   return {ok:true,json:async()=>({name:'S731.04',currency:'USD',timezone_name:'America/Argentina/Buenos_Aires',account_status:1,spend_cap:'100000',amount_spent:'20000'})};
+  }
+  if(p.includes('/act_2361501517627802')){
+   assert.equal(u.searchParams.get('access_token'),'zono-token');
+   if(p.endsWith('/insights'))return {ok:true,json:async()=>({data:[{campaign_id:'c_ars1',campaign_name:'(Tanques)',ad_id:'a_ars1',ad_name:'Ad ARS 1',spend:'30000',frequency:'1.2',actions:[{action_type:'onsite_conversion.messaging_conversation_started_7d',value:'5'}]}]})};
+   if(p.endsWith('/ads'))return {ok:true,json:async()=>({data:[{id:'a_ars1',name:'Ad ARS 1',effective_status:'ACTIVE',campaign:{id:'c_ars1',name:'(Tanques)',effective_status:'ACTIVE',daily_budget:'5000000'}}]})};
+   if(p.endsWith('/activities'))return {ok:true,json:async()=>({data:[]})};
+   return {ok:true,json:async()=>({name:'1-ZONO',currency:'ARS',timezone_name:'America/Argentina/Buenos_Aires',account_status:1,spend_cap:'40519027',amount_spent:'20519027'})};
+  }
+  if(p.includes('/act_942497128185607')){
+   assert.equal(u.searchParams.get('access_token'),'zono-token');
+   if(p.endsWith('/insights'))return {ok:true,json:async()=>({data:[{campaign_id:'c_ars2',campaign_name:'(Bio)',ad_id:'a_ars2',ad_name:'Ad ARS 2',spend:'20000',frequency:'1.0',actions:[{action_type:'onsite_conversion.messaging_conversation_started_7d',value:'4'}]}]})};
+   if(p.endsWith('/ads'))return {ok:true,json:async()=>({data:[{id:'a_ars2',name:'Ad ARS 2',effective_status:'ACTIVE',campaign:{id:'c_ars2',name:'(Bio)',effective_status:'ACTIVE',daily_budget:'4000000'}}]})};
+   if(p.endsWith('/activities'))return {ok:true,json:async()=>({data:[]})};
+   return {ok:true,json:async()=>({name:'2-ZONO',currency:'ARS',timezone_name:'America/Argentina/Buenos_Aires',account_status:1,spend_cap:'710608901',amount_spent:'655608987'})};
+  }
+  throw new Error('Unexpected URL ' + input);
+ };
+ const route=compile('src/app/api/admin/meta-ads-live/route.ts',{fetch,process:{env:{META_ACCESS_TOKEN:'usd-token',META_AD_ACCOUNT_ID:'act_test',META_ZONO_ACCESS_TOKEN:'zono-token'}},require(name){if(name==='next/server')return {NextResponse:{json:(body,options)=>({body,options})}};if(name==='@/lib/meta-ads-review')return lib;if(name==='@/lib/metaZonoBalance.mjs')return zonoBalance;throw Error(name);}});
+ const r=await route.GET({url:'https://local/api?exchangeRate=1500'});
+ assert.equal(r.body.accounts.length,3);
+ // USD: 10 * 1500 = 15000 ARS; 1-ZONO: 30000 ARS; 2-ZONO: 20000 ARS -> Total 65000 ARS
+ assert.equal(r.body.summary.totalSpendArs,65000);
+ assert.equal(r.body.summary.totalSpendUsdNative,10);
+ assert.equal(r.body.summary.totalSpendArsNative,50000);
+ assert.equal(r.body.summary.totalMessages,11);
+ const zono1=r.body.campaigns.find(c=>c.accountName==='1-ZONO');
+ assert.equal(zono1.currency,'ARS');
+ assert.equal(zono1.spendArs,30000);
+ assert.equal(zono1.budgetArs,50000);
+ assert.equal(zono1.cprArs,6000);
+ const React=require('react');const {renderToStaticMarkup}=require('react-dom/server');
+ const Component=compile('src/components/admin/MetaReview.tsx',{require(name){return name==='@/lib/meta-ads-review'?lib:require(name);}}).default;
+ const html=renderToStaticMarkup(React.createElement(Component,{campaigns:r.body.campaigns,data:r.body,targets:{},setTarget(){},fresh:true,detailsOpen:false,onDetailsOpenChange(){}}));
+ assert.match(html,/S731\.04/);assert.match(html,/1-ZONO/);assert.match(html,/2-ZONO/);
 });

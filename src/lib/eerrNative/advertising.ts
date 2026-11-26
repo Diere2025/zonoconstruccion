@@ -8,6 +8,20 @@ export type AdvertisingDay = {
   unvaluedUsd?: number;
 };
 
+export type ArsAdvertisingDay = {
+  day: string;
+  spendArs: number;
+};
+
+export type ArsAdvertisingAccount = {
+  id: string;
+  account: string;
+  availableArs: number | null;
+  checkedAt: string | null;
+  days: ArsAdvertisingDay[];
+  issue: string | null;
+};
+
 export type RedotCharge = {
   day: string;
   reference: string;
@@ -33,6 +47,7 @@ export type Advertising = {
   arsPerUsdt: number | null;
   feeRate: number | null;
   issue: string | null;
+  arsAccounts?: ArsAdvertisingAccount[];
   redot?: RedotCharge[];
   transfers?: ValuedTransfer[];
   purchaseReferences?: string[];

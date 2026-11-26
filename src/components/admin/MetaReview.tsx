@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { cpr, diagnose, type Periods } from '@/lib/meta-ads-review';
 
-const money = (value: number | null) => value === null ? '—' : `US$ ${value.toFixed(2)}`;
+const arsFormat = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+const money = (value: number | null, currency = 'USD') => {
+  if (value === null) return '—';
+  if (currency === 'ARS') return arsFormat.format(value);
+  return `US$ ${value.toFixed(2)}`;
+};
 const severityRank = { danger: 3, warning: 2, success: 1, neutral: 0 } as const;
 
 function formatMetaAmount(value: unknown, currency = 'USD') {
@@ -24,7 +29,7 @@ function describeActivityChange(event: any) {
     return { summary: 'Meta no envió un detalle legible para este cambio.', raw: event.extra_data };
   }
 
-  const currency = detail?.currency || detail?.old_value?.currency || detail?.new_value?.currency || 'USD';
+  const currency = detail?.currency || detail?.old_value?.currency || detail?.new_value?.currency || event.accountCurrency || 'USD';
   if (detail?.type === 'payment_amount') {
     const before = formatMetaAmount(detail.old_value, currency);
     const after = formatMetaAmount(detail.new_value, currency);
@@ -105,7 +110,29 @@ export default function MetaReview({ campaigns, data, targets, setTarget, fresh,
     </div>
 
     <div role="status" className={`rounded-xl p-3 text-sm ${fresh ? 'bg-blue-50' : 'bg-amber-50 text-amber-900'}`}><strong>{fresh ? 'Meta conectada' : 'Recomendaciones suspendidas'}</strong> · Fuente: {data?.source === 'meta_api_direct' ? 'API de Meta' : data?.source === 'sheet' ? 'Planilla de respaldo' : 'Sin fuente confirmada'}<br />Última lectura: {data?.updatedAt ? new Date(data.updatedAt).toLocaleString('es-AR', { timeZone: data.account?.timezone || 'America/Argentina/Buenos_Aires' }) : 'No disponible'} · {data?.account?.timezone || 'Zona horaria no confirmada'}{!fresh && <p>Datos no vigentes: no se evalúan anuncios hasta actualizar.</p>}{data?.error && <p>{data.error}</p>}{data?.apiError && <p>{data.apiError}</p>}</div>
-    {data?.account && <div className="grid gap-2 text-sm sm:grid-cols-3"><p>Cuenta: <strong>{data.account.status === 1 ? 'Activa' : `Revisar estado (${data.account.status})`}</strong></p><p>Límite: <strong>{data.account.spendCap === null ? 'No disponible' : data.account.spendCap === 0 ? 'Sin límite configurado' : money(data.account.spendCap)}</strong></p><p>Margen hasta el límite: <strong>{money(data.account.remaining)}</strong></p></div>}
+    {Array.isArray(data?.accounts) && data.accounts.length > 1 ? (
+      <div className="grid gap-3 sm:grid-cols-3">
+        {data.accounts.map((acc: any) => (
+          <div key={acc.id || acc.name} className={`rounded-2xl border p-3 text-xs space-y-1 ${acc.error ? 'border-amber-200 bg-amber-50/60' : 'border-slate-200 bg-slate-50/70'}`}>
+            <div className="flex items-center justify-between gap-2">
+              <strong className="text-sm text-slate-900">{acc.name}</strong>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${acc.currency === 'ARS' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>{acc.currency}</span>
+            </div>
+            {acc.error ? (
+              <p className="text-amber-800">{acc.error}</p>
+            ) : (
+              <>
+                <p>Estado: <strong>{acc.status === 1 ? 'Activa' : `Revisar (${acc.status})`}</strong></p>
+                <p>Límite: <strong>{acc.spendCap === null ? 'No disponible' : acc.spendCap === 0 ? 'Sin límite configurado' : money(acc.spendCap, acc.currency)}</strong></p>
+                <p>Margen: <strong>{money(acc.remaining, acc.currency)}</strong></p>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    ) : data?.account && (
+      <div className="grid gap-2 text-sm sm:grid-cols-3"><p>Cuenta: <strong>{data.account.status === 1 ? 'Activa' : `Revisar estado (${data.account.status})`}</strong></p><p>Límite: <strong>{data.account.spendCap === null ? 'No disponible' : data.account.spendCap === 0 ? 'Sin límite configurado' : money(data.account.spendCap, data.account.currency)}</strong></p><p>Margen hasta el límite: <strong>{money(data.account.remaining, data.account.currency)}</strong></p></div>
+    )}
 
     <div className="flex flex-wrap items-center gap-3 border-y border-slate-100 py-3"><p className="text-sm font-semibold text-slate-800">{activeObservations ? `${activeObservations} observación${activeObservations === 1 ? '' : 'es'} activa${activeObservations === 1 ? '' : 's'} en ${priorityGroups.length} campaña${priorityGroups.length === 1 ? '' : 's'}` : 'Sin observaciones activas'}</p><label className="ml-auto inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={includePaused} onChange={event => setIncludePaused(event.target.checked)} />Incluir pausados como historial</label></div>
 
@@ -115,15 +142,15 @@ export default function MetaReview({ campaigns, data, targets, setTarget, fresh,
       const diagnosis = group.worst.d;
       return <article key={group.id} className="overflow-hidden rounded-2xl border border-slate-200">
         <button type="button" onClick={() => toggleCampaign(group.id)} className="flex w-full flex-col gap-2 bg-slate-50 px-4 py-3 text-left hover:bg-slate-100 sm:flex-row sm:items-center sm:justify-between" aria-expanded={open}>
-          <span><strong className="block text-sm text-slate-900">{group.campaign.commercialOffer}</strong><span className="text-xs text-slate-500">{group.campaign.product} · {group.rows.filter(row => row.a.effectiveStatus === 'ACTIVE').length} anuncios activos</span></span>
+          <span><strong className="block text-sm text-slate-900">{group.campaign.commercialOffer}</strong><span className="text-xs text-slate-500">{group.campaign.accountName ? `${group.campaign.accountName} · ` : ''}{group.campaign.product} · {group.rows.filter(row => row.a.effectiveStatus === 'ACTIVE').length} anuncios activos</span></span>
           <span className="flex items-center gap-3"><span className={`text-xs font-bold ${diagnosis.severity === 'danger' ? 'text-red-700' : diagnosis.severity === 'warning' ? 'text-amber-700' : diagnosis.severity === 'success' ? 'text-emerald-700' : 'text-slate-700'}`}>{group.priority.length ? `${group.priority.length} observación${group.priority.length === 1 ? '' : 'es'}` : group.opportunities.length ? `${group.opportunities.length} oportunidad${group.opportunities.length === 1 ? '' : 'es'}` : 'Sin alertas'}</span><span className="text-xs font-bold text-slate-600">{open ? '⌃ Contraer' : '⌄ Ver anuncios'}</span></span>
         </button>
         {!open && group.priority.length > 0 && <div className="border-t border-slate-100 px-4 py-3 text-sm"><strong className={diagnosis.severity === 'danger' ? 'text-red-700' : 'text-amber-700'}>{diagnosis.label}</strong><span className="ml-2 text-slate-600">{diagnosis.reason}</span></div>}
-        {open && <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-y bg-white text-left"><th className="p-3">Anuncio</th><th className="p-3">Hoy</th><th className="p-3">Ayer</th><th className="p-3">7 días</th><th className="min-w-64 p-3">Diagnóstico</th></tr></thead><tbody>{group.rows.map(({ a, d }) => <tr key={a.id} className="border-b align-top"><td className="p-3"><strong>{a.name}</strong><p className="text-xs text-slate-500">{a.effectiveStatus === 'ACTIVE' ? 'Activo' : 'Pausado · solo historial'}</p></td>{(['today', 'yesterday', 'week'] as (keyof Periods)[]).map(period => <td key={period} className="whitespace-nowrap p-3">{money(cpr(a.periods[period]))}<p className="text-xs text-slate-500">{a.periods[period].messages} conv.</p></td>)}<td className="p-3"><strong className={d.severity === 'danger' ? 'text-red-700' : d.severity === 'warning' ? 'text-amber-700' : d.severity === 'success' ? 'text-emerald-700' : 'text-slate-700'}>{d.label}</strong><p className="mt-1 text-xs">{d.reason}</p><p className="mt-1 text-xs text-slate-600">{d.action}</p></td></tr>)}</tbody></table></div>}
+        {open && <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-y bg-white text-left"><th className="p-3">Anuncio</th><th className="p-3">Hoy</th><th className="p-3">Ayer</th><th className="p-3">7 días</th><th className="min-w-64 p-3">Diagnóstico</th></tr></thead><tbody>{group.rows.map(({ a, d }) => <tr key={a.id} className="border-b align-top"><td className="p-3"><strong>{a.name}</strong><p className="text-xs text-slate-500">{a.effectiveStatus === 'ACTIVE' ? 'Activo' : 'Pausado · solo historial'}</p></td>{(['today', 'yesterday', 'week'] as (keyof Periods)[]).map(period => { const m = a.periods[period]; const isArs = group.campaign.currency === 'ARS' && typeof m.spendArs === 'number'; const cellCpr = isArs ? (m.messages > 0 ? m.spendArs / m.messages : null) : cpr(m); return <td key={period} className="whitespace-nowrap p-3">{money(cellCpr, isArs ? 'ARS' : 'USD')}<p className="text-xs text-slate-500">{m.messages} conv.</p></td>; })}<td className="p-3"><strong className={d.severity === 'danger' ? 'text-red-700' : d.severity === 'warning' ? 'text-amber-700' : d.severity === 'success' ? 'text-emerald-700' : 'text-slate-700'}>{d.label}</strong><p className="mt-1 text-xs">{d.reason}</p><p className="mt-1 text-xs text-slate-600">{d.action}</p></td></tr>)}</tbody></table></div>}
       </article>;
     })}</div>
 
     <details><summary className="cursor-pointer font-semibold">Objetivos por oferta (USD por conversación)</summary><p className="my-2 text-xs text-slate-500">Valor inicial: US$ 3,50. Se guarda en este navegador y no modifica presupuestos en Meta.</p><div className="flex flex-wrap gap-3">{Array.from(new Set(campaigns.map(c => c.commercialOffer))).map(offer => <label key={offer} className="text-sm">{offer}<input aria-label={`Objetivo ${offer}`} type="number" min="0.1" step="0.1" className="ml-2 w-24 rounded border p-2" value={targets[offer] || 3.5} onChange={event => { const value = Number(event.target.value); if (Number.isFinite(value) && value > 0) setTarget(offer, value); }} /></label>)}</div></details>
-    <details><summary className="cursor-pointer font-semibold">Registro de cambios en Meta · últimos siete días</summary><p className="my-2 text-xs text-slate-500">{data?.activitiesError || 'Incluye cambios de presupuesto, estado y creativos. Revisá cambios recientes antes de interpretar el rendimiento.'}</p>{!data?.activitiesError && !data?.activities?.length && <p className="text-sm">Sin cambios disponibles en esta consulta.</p>}<div className="max-h-80 overflow-y-auto">{data?.activities?.map((event: any, index: number) => { const change = describeActivityChange(event); return <div key={index} className="border-b py-2 text-sm"><strong>{event.translated_event_type || event.event_type}</strong> · {event.object_name || event.object_id}<p className="text-xs text-slate-500">{formatActivityTime(event.event_time, data?.account?.timezone)}</p>{event.extra_data && <><p className="mt-1 text-xs text-slate-700">{change.summary}</p><details><summary className="cursor-pointer text-xs text-slate-500">Ver datos técnicos</summary><pre className="break-all whitespace-pre-wrap text-xs">{typeof event.extra_data === 'string' ? event.extra_data : JSON.stringify(change.raw, null, 2)}</pre></details></>}</div>; })}</div></details>
+    <details><summary className="cursor-pointer font-semibold">Registro de cambios en Meta · últimos siete días</summary><p className="my-2 text-xs text-slate-500">{data?.activitiesError || 'Incluye cambios de presupuesto, estado y creativos. Revisá cambios recientes antes de interpretar el rendimiento.'}</p>{!data?.activitiesError && !data?.activities?.length && <p className="text-sm">Sin cambios disponibles en esta consulta.</p>}<div className="max-h-80 overflow-y-auto">{data?.activities?.map((event: any, index: number) => { const change = describeActivityChange(event); return <div key={index} className="border-b py-2 text-sm"><strong>{event.translated_event_type || event.event_type}</strong> · {event.object_name || event.object_id}{event.accountName ? <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">{event.accountName}</span> : null}<p className="text-xs text-slate-500">{formatActivityTime(event.event_time, data?.account?.timezone)}</p>{event.extra_data && <><p className="mt-1 text-xs text-slate-700">{change.summary}</p><details><summary className="cursor-pointer text-xs text-slate-500">Ver datos técnicos</summary><pre className="break-all whitespace-pre-wrap text-xs">{typeof event.extra_data === 'string' ? event.extra_data : JSON.stringify(change.raw, null, 2)}</pre></details></>}</div>; })}</div></details>
   </section>;
 }

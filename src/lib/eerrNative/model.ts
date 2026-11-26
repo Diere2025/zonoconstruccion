@@ -85,6 +85,16 @@ export function buildReport(month:string,sales:Sale[],movements:Movement[],provi
     source:'Consumo diario de Meta',note:category==='Publicidad'?'Costo de los fondos consumidos':'Fee imputado al saldo consumido'});
   }
  }
+ for(const acc of advertising?.arsAccounts??[]){
+  if(acc.issue)issues.push({reference:`Publicidad Meta (${acc.account})`,reason:acc.issue});
+  for(const row of acc.days){
+   const day=daily.get(row.day);
+   if(!day||row.spendArs===0)continue;
+   day.expenses+=cents(row.spendArs);
+   entries.push({day:row.day,kind:'expense',category:'Publicidad',amount:row.spendArs,reference:acc.account,
+    source:'Consumo diario de Meta',note:'Consumo directo en pesos (ARS)'});
+  }
+ }
  const purchaseReferences = new Set(advertising?.purchaseReferences ?? []);
  for(const original of movements){
   // Hipergas is the GLP supplier. Only ordinary supplier payments are mapped;
@@ -106,7 +116,7 @@ export function buildReport(month:string,sales:Sale[],movements:Movement[],provi
   }
   const legacyMpInterest = isMpInterest && m.category === 'Intereses ganados' && m.businessUnit === 'Mov. Financiero';
   if(m.businessUnit&&m.businessUnit.toUpperCase()!=='ZONO'&&!legacyMpInterest){skip('Otra unidad de negocio');continue;}
-  if(metaCategory(m.category) && (!advertising?.purchaseReferences || /\b(meta|facebook|merco)\b/i.test(m.concept))){
+  if(metaCategory(m.category) && (!advertising?.purchaseReferences || /\b(meta|facebook|facebk|merco|1-zono|2-zono)\b/i.test(m.concept))){
    if(m.currency==='ARS'&&['ingreso','egreso'].includes(m.type)){
     const signed=(m.type==='egreso'?1:-1)*(cents(m.amount)-cents(m.personal));
     excludedExpenseByProvision[m.category]=(excludedExpenseByProvision[m.category]||0)+signed;

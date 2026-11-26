@@ -55,6 +55,9 @@ interface LiveAd {
   name: string;
   status: string;
   effectiveStatus: string;
+  accountId?: string;
+  accountName?: string;
+  currency?: string;
   adsetId?: string;
   adsetName?: string;
   thumbnailUrl?: string | null;
@@ -76,7 +79,9 @@ interface LiveAd {
 interface LiveCampaign {
   periods?: Periods;
   status: string;
+  accountId?: string;
   accountName: string;
+  currency?: string;
   campaignName: string;
   campaignId: string;
   messages: number;
@@ -264,6 +269,7 @@ export default function MetaAdsPage() {
   const [liveSummary, setLiveSummary] = useState<any>(null);
   const [rawLiveCampaigns, setLiveCampaigns] = useState<LiveCampaign[]>([]);
   const [liveSearchQuery, setLiveSearchQuery] = useState("");
+  const [liveAccountFilter, setLiveAccountFilter] = useState("all");
   const [liveLineFilter, setLiveLineFilter] = useState("all");
   const [liveStatusFilter, setLiveStatusFilter] = useState<string>("all");
   const [liveSortField, setLiveSortField] = useState<'cpr' | 'spend' | 'messages' | 'budget' | 'consumption'>('cpr');
@@ -652,8 +658,10 @@ export default function MetaAdsPage() {
       const matchesSearch = !liveSearchQuery || 
         c.campaignName.toLowerCase().includes(liveSearchQuery.toLowerCase()) ||
         c.commercialOffer.toLowerCase().includes(liveSearchQuery.toLowerCase()) ||
-        c.product.toLowerCase().includes(liveSearchQuery.toLowerCase());
+        c.product.toLowerCase().includes(liveSearchQuery.toLowerCase()) ||
+        (c.accountName || '').toLowerCase().includes(liveSearchQuery.toLowerCase());
 
+      const matchesAccount = liveAccountFilter === 'all' || c.accountName === liveAccountFilter;
       const matchesLine = liveLineFilter === 'all' || c.phoneLine === liveLineFilter;
 
       const isActiva = c.status.toUpperCase() === 'ACTIVE' || c.status.toUpperCase() === 'ACTIVA' || c.status.toUpperCase() === 'ON';
@@ -666,7 +674,7 @@ export default function MetaAdsPage() {
       const hasAlert = (campaignAlertsMap[c.campaignId] || []).length > 0;
       const matchesAlert = liveAlertFilter === 'all' || (liveAlertFilter === 'with_alerts' && hasAlert);
 
-      return matchesSearch && matchesLine && matchesStatus && matchesAlert;
+      return matchesSearch && matchesAccount && matchesLine && matchesStatus && matchesAlert;
     });
 
     return [...list].sort((a, b) => {
@@ -688,7 +696,7 @@ export default function MetaAdsPage() {
 
       return liveSortOrder === 'desc' ? comparison : -comparison;
     });
-  }, [liveCampaigns, liveSearchQuery, liveLineFilter, liveStatusFilter, liveSortField, liveSortOrder]);
+  }, [liveCampaigns, liveSearchQuery, liveAccountFilter, liveLineFilter, liveStatusFilter, liveAlertFilter, campaignAlertsMap, liveSortField, liveSortOrder]);
 
   const handleLiveSort = (field: 'cpr' | 'spend' | 'messages' | 'budget' | 'consumption') => {
     if (liveSortField === field) {
@@ -743,6 +751,18 @@ export default function MetaAdsPage() {
     const max = Math.max(...values);
     return max > 0 ? max : 100;
   }, [filteredTimeline, chartMetric]);
+
+  // Distinct accounts for filter
+  const distinctLiveAccounts = useMemo(() => {
+    const accounts = new Set<string>();
+    (liveData?.accounts || []).forEach((a: any) => {
+      if (a?.name) accounts.add(a.name);
+    });
+    liveCampaigns.forEach(c => {
+      if (c.accountName) accounts.add(c.accountName);
+    });
+    return Array.from(accounts);
+  }, [liveCampaigns, liveData?.accounts]);
 
   // Distinct phone lines for filter
   const distinctLiveLines = useMemo(() => {
@@ -1374,7 +1394,9 @@ export default function MetaAdsPage() {
                       {formatPrice(liveSummary?.totalSpendArs || 0)}
                     </div>
                     <p className="text-[11px] text-slate-500 font-semibold font-mono">
-                      US$ {(liveSummary?.totalSpendUsd || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      {liveSummary?.totalSpendArsNative > 0
+                        ? `US$ ${(liveSummary?.totalSpendUsdNative || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })} + ${formatPrice(liveSummary.totalSpendArsNative)} ARS`
+                        : `US$ ${(liveSummary?.totalSpendUsd || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                     </p>
                   </div>
 
@@ -1686,6 +1708,23 @@ export default function MetaAdsPage() {
                       />
                     </div>
 
+                    {distinctLiveAccounts.length > 1 && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Layers className="w-4 h-4 text-slate-400 shrink-0" />
+                        <select
+                          aria-label="Filtrar por cuenta publicitaria"
+                          value={liveAccountFilter}
+                          onChange={e => setLiveAccountFilter(e.target.value)}
+                          className="py-2 px-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none w-full sm:w-auto"
+                        >
+                          <option value="all">Todas las Cuentas</option>
+                          {distinctLiveAccounts.map(acc => (
+                            <option key={acc} value={acc}>{acc}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
                     {distinctLiveLines.length > 0 && (
                       <div className="flex items-center gap-2 shrink-0">
                         <PhoneCall className="w-4 h-4 text-slate-400 shrink-0" />
@@ -1913,7 +1952,7 @@ export default function MetaAdsPage() {
                           // Filtrar anuncios: mostrar solo activos o pausados que tuvieron consumo hoy
                           const visibleAds = (c.ads || []).filter(ad => {
                             const isAdActive = ad.effectiveStatus === 'ACTIVE' || ad.status === 'ACTIVE';
-                            return isAdActive || ad.spendUsd > 0;
+                            return isAdActive || ad.spendArs > 0 || ad.spendUsd > 0;
                           });
 
                           return (
@@ -1952,7 +1991,16 @@ export default function MetaAdsPage() {
                                       <div className="font-bold text-slate-900 text-xs truncate" title={c.campaignName}>
                                         {c.campaignName}
                                       </div>
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        {c.accountName && (
+                                          <span className={`px-1.5 py-0.5 rounded-md text-[9.5px] font-black border ${
+                                            c.currency === 'ARS'
+                                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                              : 'bg-slate-100 text-slate-600 border-slate-200'
+                                          }`}>
+                                            {c.accountName}{c.currency ? ` · ${c.currency}` : ''}
+                                          </span>
+                                        )}
                                         {c.commercialOffer && (
                                           <span className="text-[11px] text-indigo-600 font-bold">
                                             {c.commercialOffer}
@@ -2001,7 +2049,9 @@ export default function MetaAdsPage() {
                                   )}
                                 </td>
                                 <td className="p-4 text-right font-mono text-slate-600">
-                                  US$ {c.spendUsd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                  {c.currency === 'ARS'
+                                    ? <span className="text-[11px] text-slate-400">En ARS</span>
+                                    : `US$ ${c.spendUsd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                                 </td>
                                 <td className="p-4 text-right font-mono text-slate-900 font-bold">
                                   {formatPrice(c.spendArs)}
@@ -2202,7 +2252,9 @@ export default function MetaAdsPage() {
                                                     {ad.messages}
                                                   </td>
                                                   <td className="py-2.5 px-3 text-right font-mono text-slate-600">
-                                                    US$ {ad.spendUsd.toFixed(2)}
+                                                    {c.currency === 'ARS'
+                                                      ? <span className="text-[10.5px] text-slate-400">En ARS</span>
+                                                      : `US$ ${ad.spendUsd.toFixed(2)}`}
                                                   </td>
                                                   <td className="py-2.5 px-3 text-right font-mono text-slate-900">
                                                     {formatPrice(ad.spendArs)}
@@ -2214,7 +2266,7 @@ export default function MetaAdsPage() {
                                                         isAdHighCpr ? 'bg-rose-50 text-rose-700 border border-rose-200' :
                                                         'bg-amber-50 text-amber-700 border border-amber-200'
                                                       }`}>
-                                                        US$ {ad.costPerActionUsd.toFixed(2)}
+                                                        {c.currency === 'ARS' ? formatPrice(ad.cprArs) : `US$ ${ad.costPerActionUsd.toFixed(2)}`}
                                                       </span>
                                                     ) : (
                                                       <span className="text-slate-400 font-mono text-[11px]">-</span>
@@ -2596,16 +2648,29 @@ export default function MetaAdsPage() {
                 </div>
                 <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
                   <span className="text-[10px] font-bold text-slate-400 block">Gasto Hoy</span>
-                  <strong className="text-slate-900 text-sm font-mono font-bold">US$ {previewAd.spendUsd.toFixed(2)}</strong>
-                  <span className="text-[9.5px] text-slate-400 block font-mono">{formatPrice(previewAd.spendArs)}</span>
+                  {previewAd.currency === 'ARS' ? (
+                    <>
+                      <strong className="text-slate-900 text-sm font-mono font-bold">{formatPrice(previewAd.spendArs)}</strong>
+                      <span className="text-[9.5px] text-slate-400 block font-mono">Cuenta en ARS</span>
+                    </>
+                  ) : (
+                    <>
+                      <strong className="text-slate-900 text-sm font-mono font-bold">US$ {previewAd.spendUsd.toFixed(2)}</strong>
+                      <span className="text-[9.5px] text-slate-400 block font-mono">{formatPrice(previewAd.spendArs)}</span>
+                    </>
+                  )}
                 </div>
                 <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
                   <span className="text-[10px] font-bold text-slate-400 block">CPR Hoy</span>
                   <strong className="text-emerald-600 text-sm font-mono font-bold">
-                    {previewAd.messages > 0 ? `US$ ${previewAd.costPerActionUsd.toFixed(2)}` : '-'}
+                    {previewAd.messages > 0
+                      ? (previewAd.currency === 'ARS' ? formatPrice(previewAd.cprArs) : `US$ ${previewAd.costPerActionUsd.toFixed(2)}`)
+                      : '-'}
                   </strong>
                   <span className="text-[9.5px] text-slate-400 block font-mono">
-                    {previewAd.messages > 0 ? formatPrice(previewAd.cprArs) : '-'}
+                    {previewAd.messages > 0
+                      ? (previewAd.currency === 'ARS' ? `~US$ ${previewAd.costPerActionUsd.toFixed(2)}` : formatPrice(previewAd.cprArs))
+                      : '-'}
                   </span>
                 </div>
               </div>

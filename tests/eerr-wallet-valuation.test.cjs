@@ -66,3 +66,72 @@ test('a confirmed cashback credits Meta at zero additional cost and preserves th
   assert.equal(result.days[1].feeArs, 0);
   assert.equal(result.days[1].unvaluedUsd, 0);
 });
+
+test('readAdvertising fetches 1-ZONO and 2-ZONO daily ARS spend alongside S731.04', async () => {
+  const zonoBalance = require('../src/lib/metaZonoBalance.mjs');
+  const serverExports = {};
+  const serverSource = fs.readFileSync('src/lib/eerrNative/advertisingServer.ts', 'utf8');
+  const mockFetch = async (url, options) => {
+    const u = new URL(url);
+    const p = u.pathname;
+    if (p.includes('/act_1077861488005193')) {
+      assert.equal(options.headers.Authorization, 'Bearer usd-token');
+      if (p.endsWith('/insights')) return { ok: true, json: async () => ({ data: [{ date_start: '2026-10-01', spend: '10' }] }) };
+      return { ok: true, json: async () => ({ id: 'act_1077861488005193', name: 'S731.04', currency: 'USD', timezone_name: 'America/Argentina/Buenos_Aires', spend_cap: '100000', amount_spent: '20000' }) };
+    }
+    if (p.includes('/act_2361501517627802')) {
+      assert.equal(options.headers.Authorization, 'Bearer zono-token');
+      if (p.endsWith('/insights')) return { ok: true, json: async () => ({ data: [{ date_start: '2026-10-01', spend: '45000.50' }] }) };
+      return { ok: true, json: async () => ({ id: 'act_2361501517627802', name: '1-ZONO', currency: 'ARS', timezone_name: 'America/Argentina/Buenos_Aires', spend_cap: '40519027', amount_spent: '20519027' }) };
+    }
+    if (p.includes('/act_942497128185607')) {
+      assert.equal(options.headers.Authorization, 'Bearer zono-token');
+      if (p.endsWith('/insights')) return { ok: true, json: async () => ({ data: [{ date_start: '2026-10-02', spend: '30000' }] }) };
+      return { ok: true, json: async () => ({ id: 'act_942497128185607', name: '2-ZONO', currency: 'ARS', timezone_name: 'America/Argentina/Buenos_Aires', spend_cap: '710608901', amount_spent: '655608987' }) };
+    }
+    throw new Error('Unexpected URL ' + url);
+  };
+  vm.runInNewContext(ts.transpileModule(serverSource, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, {
+    exports: serverExports,
+    fetch: mockFetch,
+    URL,
+    Date,
+    Map,
+    Number,
+    Math,
+    Promise,
+    AbortSignal,
+    process: { env: { META_ACCESS_TOKEN: 'usd-token', META_ZONO_ACCESS_TOKEN: 'zono-token' } },
+    require: name => {
+      if (name === './advertising') return exportsModel;
+      if (name === '@/lib/metaZonoBalance.mjs') return zonoBalance;
+      throw new Error(name);
+    },
+  });
+  const db = {
+    auth: { getUser: async () => ({ data: { user: { id: 'actor' } }, error: null }) },
+    rpc: async () => ({
+      data: {
+        entries: [
+          { ...movement('2026-10-01', 'p2p', 100, { bank_amount: '150000', bank_matches: true }), void_reason: null },
+          { ...movement('2026-10-01', 'ad_funding', 100, { credited: '100' }), void_reason: null },
+        ],
+      },
+      error: null,
+    }),
+  };
+  const req = new Request('https://erp.test/api/admin/finanzas/eerr-native', { headers: { authorization: 'Bearer sess' } });
+  const adv = await serverExports.readAdvertising(db, req, ['2026-10-01', '2026-10-02']);
+  assert.equal(adv.account, 'S731.04');
+  assert.equal(adv.arsAccounts.length, 2);
+  assert.equal(adv.arsAccounts[0].account, '1-ZONO');
+  assert.equal(adv.arsAccounts[0].availableArs, 200000);
+  assert.equal(adv.arsAccounts[0].days[0].spendArs, 45000.5);
+  assert.equal(adv.arsAccounts[0].days[1].spendArs, 0);
+  assert.equal(adv.arsAccounts[1].account, '2-ZONO');
+  assert.equal(adv.arsAccounts[1].availableArs, 549999.14);
+  assert.equal(adv.arsAccounts[1].days[0].spendArs, 0);
+  assert.equal(adv.arsAccounts[1].days[1].spendArs, 30000);
+});
