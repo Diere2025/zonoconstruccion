@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
 const { formatMessage, latestSpendLimitIncrease } = require('../scripts/send-meta-balance-alert.cjs');
+const zonoBalance = require('../src/lib/metaZonoBalance.mjs');
 
 const source = fs.readFileSync('src/app/api/telegram/meta-balance-webhook/route.ts', 'utf8');
 const compiled = ts.transpileModule(source + '\nexport { latestSpendLimitIncrease };', {
@@ -16,7 +17,10 @@ function loadWebhook(context = {}) {
   vm.runInNewContext(compiled, {
     exports, Date, Intl, Number, URL, AbortSignal,
     console: { log() {}, error() {} },
-    require: () => ({ NextResponse: { json: (body, options) => Response.json(body, options) }, captureSupportTelegramGroup: async () => false }),
+    require: module => module === '@/lib/metaZonoBalance.mjs' ? zonoBalance : ({
+      NextResponse: { json: (body, options) => Response.json(body, options) },
+      captureSupportTelegramGroup: async () => false,
+    }),
     ...context
   });
   return exports;
@@ -61,15 +65,32 @@ test('Telegram /cargas replies with up to ten recent increases in the configured
     activity(`2026-10-${String(index + 10).padStart(2, '0')}T02:00:00+0000`, 10000, 20000 + index * 100));
   const messages = [];
   let metaQueries = 0;
+  let zonoAccount = { id: 'act_2361501517627802', currency: 'ARS', is_prepay_account: true,
+    balance: '0', amount_spent: '20519027', spend_cap: '40519027', activities: { data: [
+      { event_type: 'funding_event_failed', event_time: '2026-11-25T01:00:00Z', extra_data: '{"amount":5000000,"currency":"ARS"}' },
+      { event_type: 'funding_event_successful', event_time: '2026-11-25T00:08:45+0000', extra_data: '{"amount":20000000,"currency":"ARS"}' }
+    ] } };
+  const secondZonoAccount = { id: 'act_942497128185607', currency: 'ARS', is_prepay_account: true,
+    balance: '0', spend_cap: '710608901', amount_spent: '655608987', activities: { data: [
+      { event_type: 'funding_event_successful', event_time: '2026-11-25T02:00:00Z', extra_data: '{"amount":54949400,"currency":"ARS"}' }
+    ] } };
   const { POST } = loadWebhook({
     process: { env: {
-      META_ACCESS_TOKEN: 'meta-token', LOGISTICS_TELEGRAM_BOT_TOKEN: 'bot-token',
+      META_ACCESS_TOKEN: 'meta-token', META_ZONO_ACCESS_TOKEN: 'zono-token', LOGISTICS_TELEGRAM_BOT_TOKEN: 'bot-token',
       META_BALANCE_TELEGRAM_CHAT_ID: chatId, META_BALANCE_WEBHOOK_SECRET: 'secret',
       TELEGRAM_EXISTING_WEBHOOK_URL: 'https://example.invalid/forward'
     } },
     fetch: async (url, options) => {
       if (new URL(url).hostname === 'graph.facebook.com') {
         metaQueries++;
+        if (new URL(url).pathname.endsWith('/act_2361501517627802')) {
+          assert.equal(options.headers.Authorization, 'Bearer zono-token');
+          return zonoAccount ? Response.json(zonoAccount) : Response.json({ error: { code: 190 } }, { status: 401 });
+        }
+        if (new URL(url).pathname.endsWith('/act_942497128185607')) {
+          assert.equal(options.headers.Authorization, 'Bearer zono-token');
+          return Response.json(secondZonoAccount);
+        }
         return Response.json({ id: 'act_1077861488005193', name: 'S731.04', currency: 'USD',
           spend_cap: '4366909', amount_spent: '4232119', is_prepay_account: false,
           activities: { data: [activity('2026-10-23T00:00:00Z', 20000, 10000), ...increases] } });
@@ -89,12 +110,31 @@ test('Telegram /cargas replies with up to ten recent increases in the configured
   assert.equal(messages.length, 0);
   assert.equal((await send('/cargas@ModificacionesZono_Bot')).status, 200);
   assert.equal(messages[0].reply_to_message_id, 45);
-  const rows = messages[0].text.split('\n').filter(line => line.startsWith('•'));
+  const rows = messages[0].text.split('Cuenta Meta 1-ZONO')[0].split('\n').filter(line => line.startsWith('•'));
   assert.equal(rows.length, 10);
   assert.match(rows[0], /20\/10\/2026, 23:00.*111,00/);
   assert.match(rows[9], /11\/10\/2026, 23:00.*102,00/);
+  assert.equal(metaQueries, 3);
+  assert.match(messages[0].text, /Pagos acreditados recientes\n• 24\/11\/2026, 21:08.*ARS\s+200\.000,00/);
+  assert.match(messages[0].text, /2-ZONO · ARS\nPagos acreditados recientes\n• 24\/11\/2026, 23:00.*ARS\s+549\.494,00/);
+  assert.doesNotMatch(messages[0].text, /50\.000,00/);
 
   assert.equal((await send('/saldo')).status, 200);
   assert.match(messages[1].text, /1\.347,90/);
   assert.match(messages[1].text, /Historial reciente con \/cargas/);
+  assert.match(messages[1].text, /1-ZONO · ARS/);
+  assert.match(messages[1].text, /Disponible hasta el límite de gasto: ARS\s+200\.000,00/);
+  assert.match(messages[1].text, /Último pago acreditado: 24\/11\/2026, 21:08.*ARS\s+200\.000,00/);
+  assert.match(messages[1].text, /2-ZONO · ARS\nDisponible hasta el límite de gasto: ARS\s+549\.999,14/);
+
+  zonoAccount = { ...zonoAccount, is_prepay_account: true, spend_cap: '0' };
+  assert.equal((await send('/saldo')).status, 200);
+  assert.match(messages[2].text, /Saldo sin confirmar/);
+  assert.doesNotMatch(messages[2].text, /Importe pendiente de pago/);
+
+  zonoAccount = null;
+  assert.equal((await send('/saldo')).status, 200);
+  assert.match(messages[3].text, /1\.347,90/);
+  assert.match(messages[3].text, /1-ZONO · ARS\nSaldo sin confirmar/);
+  assert.match(messages[3].text, /2-ZONO · ARS\nDisponible hasta el límite de gasto: ARS\s+549\.999,14/);
 });
