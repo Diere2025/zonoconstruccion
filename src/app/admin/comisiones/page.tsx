@@ -192,13 +192,24 @@ export default function SellerCommissionsPage() {
         setConfig(configData.rules);
       }
 
-      // Fetch all delivered orders; the effective delivery date determines the period below.
-      let allDeliveredOrders: any[] = [];
-      let from = 0;
-      const step = 1000;
-      let hasMore = true;
+      // Fetch only delivered orders whose effective delivery date falls in the selected month.
+      const startDateStr = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-01`;
+      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
+      const endDateStr = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-      while (hasMore) {
+      const { data: idRows, error: idErr } = await supabase.rpc("get_commission_order_ids", {
+        p_from: startDateStr,
+        p_to: endDateStr,
+      });
+      if (idErr) throw idErr;
+
+      const orderIds: string[] = (idRows || []).map((r: any) => r.order_id).filter(Boolean);
+      const allDeliveredOrders: any[] = [];
+      const batchSize = 150;
+      const step = 1000;
+
+      for (let i = 0; i < orderIds.length; i += batchSize) {
+        const batchIds = orderIds.slice(i, i + batchSize);
         const { data: pageData, error: pageErr } = await supabase
           .from("orders")
           .select(`
@@ -217,18 +228,11 @@ export default function SellerCommissionsPage() {
             order_items ( id, product_id, product_name, quantity, unit_price, subtotal ),
             deliveries ( delivery_date, real_delivery_date, status, route_sheets ( id, delivery_date, status ) )
           `)
-          .eq("status", "Entregado")
-          .eq("employee_withdrawal", false)
-          .order("id")
-          .range(from, from + step - 1);
+          .in("id", batchIds);
 
         if (pageErr) throw pageErr;
         if (pageData && pageData.length > 0) {
-          allDeliveredOrders = allDeliveredOrders.concat(pageData);
-          from += step;
-          if (pageData.length < step) hasMore = false;
-        } else {
-          hasMore = false;
+          allDeliveredOrders.push(...pageData);
         }
       }
 

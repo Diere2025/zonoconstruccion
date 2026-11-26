@@ -155,45 +155,37 @@ export default function CapitalEstancadoPage() {
       const fetchedProducts: Product[] = productsRes.data || [];
       setProducts(fetchedProducts);
 
-      // Paginated query for order_items
-      let fetchedOrderItems: OrderItem[] = [];
-      let page = 0;
-      const pageSize = 1000;
+      // Cursor-paged query reading orders by date first
+      const fetchedOrderItems: OrderItem[] = [];
+      let afterDate: string | null = null;
+      let afterOrder: string | null = null;
+      let afterItem: string | null = null;
       let hasMore = true;
 
       while (hasMore) {
-        const itemsRes = await supabase
-          .from("order_items")
-          .select(`
-            id,
-            order_id,
-            product_id,
-            product_name,
-            quantity,
-            unit_price,
-            subtotal,
-            orders!inner (
-              id,
-              order_date,
-              status
-            )
-          `)
-          .neq("orders.status", "Cancelado")
-          .gte("orders.order_date", cutoffStr)
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-
+        const itemsRes = await supabase.rpc("get_capital_estancado_sales", {
+          p_from: cutoffStr,
+          p_after_date: afterDate,
+          p_after_order: afterOrder,
+          p_after_item: afterItem,
+        });
         if (itemsRes.error) throw itemsRes.error;
-
-        const batch = (itemsRes.data || []) as unknown as OrderItem[];
-        fetchedOrderItems = [...fetchedOrderItems, ...batch];
-
-        if (batch.length < pageSize) {
-          hasMore = false;
-        } else {
-          page++;
+        const rows = (itemsRes.data || []) as Array<{
+          id: string; order_id: string; product_id: string | null; product_name: string;
+          quantity: number; unit_price: number; subtotal: number; order_date: string; order_status: string;
+        }>;
+        for (const r of rows) {
+          fetchedOrderItems.push({
+            id: r.id, order_id: r.order_id, product_id: r.product_id, product_name: r.product_name,
+            quantity: Number(r.quantity) || 0, unit_price: Number(r.unit_price) || 0, subtotal: Number(r.subtotal) || 0,
+            orders: { id: r.order_id, order_date: r.order_date, status: r.order_status },
+          } as unknown as OrderItem);
+        }
+        if (rows.length < 1000) { hasMore = false; } else {
+          const last = rows[rows.length - 1];
+          afterDate = last.order_date; afterOrder = last.order_id; afterItem = last.id;
         }
       }
-
       setOrderItems(fetchedOrderItems);
     } catch (err: any) {
       console.error("Error fetching capital estancado data:", err);

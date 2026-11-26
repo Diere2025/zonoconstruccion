@@ -340,51 +340,28 @@ export async function GET(request: Request) {
       // Sort chronological descending
       parsedHistory.sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''));
 
-      // Query ERP Orders for the EXACT date range with full pagination
-      let erpOrders: any[] = [];
-      let page = 0;
-      const pageSize = 1000;
-      let hasMore = true;
+      // Query daily ERP Order totals for the EXACT date range via SQL RPC
+      const erpDayMap: Record<string, { revenue: number; count: number }> = {};
 
       try {
-        while (hasMore) {
-          const { data, error } = await supabaseAdmin
-            .from('orders')
-            .select('order_date, total_amount, status')
-            .gte('order_date', dateFrom)
-            .lte('order_date', dateTo)
-            .neq('status', 'Cancelado')
-            .range(page * pageSize, (page + 1) * pageSize - 1);
-
-          if (error) {
-            console.error('Error fetching ERP orders for ROAS:', error);
-            break;
-          }
-
-          if (data && data.length > 0) {
-            erpOrders = [...erpOrders, ...data];
-            if (data.length < pageSize) {
-              hasMore = false;
-            } else {
-              page++;
-            }
-          } else {
-            hasMore = false;
+        const { data, error } = await supabaseAdmin.rpc('get_daily_orders_totals', {
+          p_from: dateFrom,
+          p_to: dateTo,
+        });
+        if (error) {
+          console.error('Error fetching ERP orders for ROAS:', error);
+        } else {
+          for (const row of (data || []) as Array<{ order_date: string; revenue: number | string; orders_count: number }>) {
+            if (!row.order_date) continue;
+            erpDayMap[row.order_date] = {
+              revenue: Number(row.revenue) || 0,
+              count: Number(row.orders_count) || 0,
+            };
           }
         }
       } catch (err) {
         console.error('Error fetching ERP orders for ROAS:', err);
       }
-
-      // Group ERP orders by day
-      const erpDayMap: Record<string, { revenue: number; count: number }> = {};
-      erpOrders.forEach(o => {
-        if (!erpDayMap[o.order_date]) {
-          erpDayMap[o.order_date] = { revenue: 0, count: 0 };
-        }
-        erpDayMap[o.order_date].revenue += (Number(o.total_amount) || 0);
-        erpDayMap[o.order_date].count++;
-      });
 
       // Build daily timeline list
       const dailyTimeline = Object.keys(dailyMap).sort().map(isoDate => {
@@ -409,8 +386,9 @@ export async function GET(request: Request) {
         };
       });
 
-      const erpOrdersCount = erpOrders.length;
-      const erpRevenueArs = erpOrders.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+      const erpDayValues = Object.values(erpDayMap);
+      const erpOrdersCount = erpDayValues.reduce((acc, d) => acc + d.count, 0);
+      const erpRevenueArs = erpDayValues.reduce((acc, d) => acc + d.revenue, 0);
 
       const totalInvestmentArs = totalSpendArs + totalFeeArs;
       const roas = totalInvestmentArs > 0 ? (erpRevenueArs / totalInvestmentArs) : 0;

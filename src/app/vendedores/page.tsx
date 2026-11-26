@@ -108,21 +108,28 @@ export default function VendedoresDashboard() {
       const startOfMonthStr = `${currentYear}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
       const startOfMonthDate = new Date(currentYear, now.getMonth(), 1, 0, 0, 0, 0);
 
-      // Consultar pedidos del vendedor
-      const { data: orders, error: ordersErr } = await supabase
-        .from("orders")
-        .select("id, legacy_code, customer_name, locality, address, total_amount, status, channel, order_date, created_at, seller_id")
-        .in("seller_id", sellerIds)
-        .order("created_at", { ascending: false });
-
-      if (ordersErr) {
-        console.warn("Error cargando pedidos del vendedor:", ordersErr);
+      // Consultar en paralelo: últimos 8 pedidos y pedidos del mes en curso
+      const [recentRes, monthRes] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("id, legacy_code, customer_name, locality, address, total_amount, status, channel, order_date, created_at, seller_id")
+          .in("seller_id", sellerIds)
+          .is("totals->importacion_historica", null)
+          .order("created_at", { ascending: false })
+          .limit(8),
+        supabase
+          .from("orders")
+          .select("id, legacy_code, customer_name, locality, address, total_amount, status, channel, order_date, created_at, seller_id")
+          .in("seller_id", sellerIds)
+          .is("totals->importacion_historica", null)
+          .gte("order_date", startOfMonthStr)
+          .order("order_date", { ascending: false })
+      ]);
+      if (recentRes.error || monthRes.error) {
+        console.warn("Error cargando pedidos del vendedor:", recentRes.error || monthRes.error);
       }
-
-      const allOrders = orders || [];
-
-      // Guardar últimos 8 pedidos recientes
-      setRecentOrders(allOrders.slice(0, 8));
+      setRecentOrders(recentRes.data || []);
+      const allOrders = monthRes.data || [];
 
       // Filtrar pedidos pertenecientes al mes en curso
       const monthlyOrders = allOrders.filter((o) => {

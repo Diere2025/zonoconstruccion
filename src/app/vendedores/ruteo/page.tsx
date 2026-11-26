@@ -712,11 +712,15 @@ export default function RuteoPage() {
 
       // Every request shares one cancellation signal. A fresh load or a 30-second
       // timeout cancels all of them instead of leaving timed-out requests running.
+      const recentCutoff = new Date();
+      recentCutoff.setDate(recentCutoff.getDate() - 90);
+      const recentCutoffStr = recentCutoff.toISOString().split('T')[0];
+
       const promises: PromiseLike<any>[] = [
         withSignal(supabase.from('payment_methods').select('*').eq('is_active', true).order('name')),
         withSignal(supabase.from('localities').select('id, name').eq('is_active', true).order('name')),
         withSignal(supabase.from('carriers').select('*').order('name')),
-        withSignal(supabase.from('route_sheets').select('*, carriers(*)')),
+        withSignal(supabase.from('route_sheets').select('*, carriers(*)').gte('delivery_date', recentCutoffStr).order('delivery_date', { ascending: false })),
         withSignal(activeOrdersQuery),
         withSignal(activeEncomiendasQuery),
         withSignal(supabase.from('vehicles').select('*').order('plate_number')),
@@ -725,7 +729,9 @@ export default function RuteoPage() {
         withSignal(supabase.from('deliveries')
           .select('id, order_id, encomienda_id, delivery_date, run_number, carriers(name), route_sheets(code)')
           .eq('status', 'fallido')
-          .order('delivery_date', { ascending: false }))
+          .gte('delivery_date', recentCutoffStr)
+          .order('delivery_date', { ascending: false })
+          .limit(500))
       ];
 
       if (activeTab === 'history') {

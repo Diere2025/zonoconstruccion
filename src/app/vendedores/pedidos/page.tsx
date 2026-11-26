@@ -1247,7 +1247,7 @@ export default function PedidosPage() {
         }
 
         const { data, error } = await supabase
-          .from("v_client_balances_and_stats")
+          .from("clients")
           .select("id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale")
           .or(queryFilter)
           .limit(50);
@@ -2483,67 +2483,15 @@ export default function PedidosPage() {
         else if (cleanName.includes("facundo")) prefix = "AQ-FP";
       }
 
-      const { data: ordersData } = await supabase
-        .from('orders')
-        .select('legacy_code')
-        .ilike('legacy_code', `${prefix}%`);
-
-      let maxNum = 1000;
-      let needsPadding = false;
-      let paddingLength = 0;
-
-      if (ordersData && ordersData.length > 0) {
-        ordersData.forEach(item => {
-          if (item.legacy_code) {
-            const parts = item.legacy_code.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
-            parts.forEach((part: string) => {
-              if (part.startsWith(prefix.toUpperCase())) {
-                const numStr = part.slice(prefix.length);
-                const num = parseInt(numStr, 10);
-                if (!isNaN(num)) {
-                  if (num > maxNum) {
-                    maxNum = num;
-                    if (numStr.startsWith("0") && numStr.length > 1) {
-                      needsPadding = true;
-                      paddingLength = numStr.length;
-                    } else {
-                      needsPadding = false;
-                    }
-                  }
-                }
-              }
-            });
-          }
-        });
-      }
-
-      let nextNum = maxNum + 1;
-      let nextNumStr = String(nextNum);
-      if (needsPadding && paddingLength > 0) {
-        nextNumStr = nextNumStr.padStart(paddingLength, '0');
-      }
-
-      let candidateCode = `${prefix}${nextNumStr}`;
-      // Verificar que el código candidato no exista ya en la base de datos
-      let attempts = 0;
-      while (attempts < 50) {
-        const { data: codeExists } = await supabase
-          .from('orders')
-          .select('id')
-          .eq('legacy_code', candidateCode)
-          .maybeSingle();
-        if (!codeExists) break;
-        nextNum++;
-        nextNumStr = String(nextNum);
-        if (needsPadding && paddingLength > 0) {
-          nextNumStr = nextNumStr.padStart(paddingLength, '0');
-        }
-        candidateCode = `${prefix}${nextNumStr}`;
-        attempts++;
+      const { data: candidateCode, error: codeErr } = await supabase.rpc('get_next_legacy_code', {
+        p_prefix: prefix,
+      });
+      if (codeErr || !candidateCode) {
+        throw codeErr || new Error('No se pudo calcular el próximo código de pedido');
       }
 
       if (editingOrderIdRef.current || editingOrderId) return;
-      setLegacyCode(candidateCode);
+      setLegacyCode(String(candidateCode));
     } catch (err) {
       console.error("Error generating legacy code:", err);
       if (!editingOrderIdRef.current && !editingOrderId) {
@@ -3548,7 +3496,7 @@ export default function PedidosPage() {
         if (!c) {
           // If the client isn't loaded in the initial top 50, fetch them on demand
           const { data: clientData } = await supabase
-            .from("v_client_balances_and_stats")
+            .from("clients")
             .select("id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale")
             .eq("id", order.client_id)
             .single();

@@ -1152,49 +1152,30 @@ export default function AdminPage() {
   const fetchOrphanProducts = async () => {
     setLoadingOrphans(true);
     try {
-      const { data, error } = await supabase
-        .from('order_items')
-        .select('product_name, quantity, unit_price')
-        .is('product_id', null);
+      const { data, error } = await supabase.rpc('get_orphan_order_items_summary');
 
       if (error) throw error;
 
       if (data) {
-        const groups: Record<string, {
-          name: string;
-          skuCandidate: string;
-          timesOrdered: number;
-          totalQuantity: number;
-          totalSales: number;
-          avgPrice: number;
-        }> = {};
-
-        data.forEach(item => {
-          const name = item.product_name || "Sin nombre";
-          if (!groups[name]) {
-            // El SKU en el sistema es el mismo nombre del pedido/planilla
-            const match = name.match(/\(([^)]+)\)\s*$/);
-            const skuCandidate = match ? match[1].trim() : name;
-
-            groups[name] = {
-              name,
-              skuCandidate,
-              timesOrdered: 0,
-              totalQuantity: 0,
-              totalSales: 0,
-              avgPrice: 0
-            };
-          }
-
-          const g = groups[name];
-          g.timesOrdered += 1;
-          g.totalQuantity += item.quantity || 0;
-          g.totalSales += (item.quantity || 0) * (item.unit_price || 0);
-        });
-
-        const list = Object.values(groups).map(g => {
-          g.avgPrice = g.totalQuantity > 0 ? g.totalSales / g.totalQuantity : 0;
-          return g;
+        const list = (data as Array<{
+          product_name: string;
+          times_ordered: number;
+          total_quantity: number | string;
+          total_sales: number | string;
+        }>).map(row => {
+          const name = row.product_name || "Sin nombre";
+          const match = name.match(/\(([^)]+)\)\s*$/);
+          const skuCandidate = match ? match[1].trim() : name;
+          const totalQuantity = Number(row.total_quantity) || 0;
+          const totalSales = Number(row.total_sales) || 0;
+          return {
+            name,
+            skuCandidate,
+            timesOrdered: Number(row.times_ordered) || 0,
+            totalQuantity,
+            totalSales,
+            avgPrice: totalQuantity > 0 ? totalSales / totalQuantity : 0,
+          };
         });
 
         list.sort((a, b) => {

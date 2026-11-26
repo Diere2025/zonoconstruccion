@@ -404,62 +404,39 @@ export default function RentabilidadDashboard() {
       const relations = relationsRes.data || [];
       const activeCostItems = activeCostItemsRes.data || [];
 
-      // 2. Fetch order items for the given period (excluding cancelled ones) with pagination
-      let orderItems: DbOrderItem[] = [];
-      let page = 0;
-      const pageSize = 1000;
+      // 2. Fetch order items for the given period via cursor-paged orders-first RPC
+      const orderItems: DbOrderItem[] = [];
+      let afterDate: string | null = null;
+      let afterOrder: string | null = null;
+      let afterItem: string | null = null;
       let hasMore = true;
 
       while (hasMore) {
-        let itemsQuery = supabase
-          .from("order_items")
-          .select(`
-            id,
-            order_id,
-            product_id,
-            product_name,
-            quantity,
-            unit_price,
-            historical_unit_cost,
-            products (
-              id,
-              sku,
-              name,
-              price
-            ),
-            orders!inner (
-              id,
-              legacy_code,
-              customer_name,
-              order_date,
-              status,
-              seller_id,
-              channel
-            )
-          `)
-          .eq("orders.employee_withdrawal", false)
-          .neq("orders.status", "Cancelado")
-          .gte("orders.order_date", start)
-          .lte("orders.order_date", end)
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-
-        if (sellerId !== "all") {
-          itemsQuery = itemsQuery.eq("orders.seller_id", sellerId);
-        }
-        if (channel !== "all") {
-          itemsQuery = itemsQuery.eq("orders.channel", channel);
-        }
-
-        const itemsRes = await itemsQuery;
+        const itemsRes = await supabase.rpc("get_rentabilidad_order_items", {
+          p_from: start, p_to: end,
+          p_seller_id: sellerId !== "all" ? sellerId : null,
+          p_channel: channel !== "all" ? channel : null,
+          p_after_date: afterDate, p_after_order: afterOrder, p_after_item: afterItem,
+        });
         if (itemsRes.error) throw itemsRes.error;
-
-        const fetchedItems = (itemsRes.data || []) as unknown as DbOrderItem[];
-        orderItems = [...orderItems, ...fetchedItems];
-
-        if (fetchedItems.length < pageSize) {
-          hasMore = false;
-        } else {
-          page++;
+        const rows = (itemsRes.data || []) as Array<{
+          id: string; order_id: string; product_id: string | null; product_name: string;
+          quantity: number; unit_price: number; historical_unit_cost: number | null;
+          product_sku: string | null; product_catalog_name: string | null; product_price: number | null;
+          legacy_code: string | null; customer_name: string | null; order_date: string;
+          order_status: string; seller_id: string | null; channel: string | null;
+        }>;
+        for (const r of rows) {
+          orderItems.push({
+            id: r.id, order_id: r.order_id, product_id: r.product_id, product_name: r.product_name,
+            quantity: Number(r.quantity) || 0, unit_price: Number(r.unit_price) || 0, historical_unit_cost: r.historical_unit_cost,
+            products: r.product_id ? { id: r.product_id, sku: r.product_sku || "", name: r.product_catalog_name || "", price: Number(r.product_price) || 0 } : null,
+            orders: { id: r.order_id, legacy_code: r.legacy_code, customer_name: r.customer_name, order_date: r.order_date, status: r.order_status, seller_id: r.seller_id, channel: r.channel },
+          } as unknown as DbOrderItem);
+        }
+        if (rows.length < 1000) { hasMore = false; } else {
+          const last = rows[rows.length - 1];
+          afterDate = last.order_date; afterOrder = last.order_id; afterItem = last.id;
         }
       }
 

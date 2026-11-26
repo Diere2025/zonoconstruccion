@@ -34,9 +34,7 @@ export async function GET(request: Request) {
         .from('seller_phone_lines')
         .select('*'),
       supabaseAdmin.auth.admin.listUsers({ perPage: 1000 }),
-      supabaseAdmin
-        .from('orders')
-        .select('seller_id')
+      supabaseAdmin.rpc('get_seller_order_counts')
     ]);
 
     if (sellersRes.error) {
@@ -68,9 +66,9 @@ export async function GET(request: Request) {
 
     // Map order counts
     const orderCountsMap = new Map<string, number>();
-    (ordersCountRes.data || []).forEach((o: any) => {
+    ((ordersCountRes.data || []) as Array<{ seller_id?: string | null; orders_count?: number }>).forEach((o) => {
       if (o.seller_id) {
-        orderCountsMap.set(o.seller_id, (orderCountsMap.get(o.seller_id) || 0) + 1);
+        orderCountsMap.set(o.seller_id, Number(o.orders_count) || 0);
       }
     });
 

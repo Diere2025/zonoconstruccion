@@ -204,37 +204,19 @@ export default function ClientesPage() {
         if (count) setTotalClientsDb(count);
       }
 
-      let query = supabase.from("v_client_balances_and_stats")
-        .select("*")
-        .not("business_name", "is", null)
-        .neq("business_name", "");
-      if (isWholesaleView) query = query.eq('is_wholesale', true);
-
-      if (debouncedSearchQuery.trim()) {
-        const q = debouncedSearchQuery.trim();
-        query = query.or(`business_name.ilike.%${q}%,phone_primary.ilike.%${q}%,phone_secondary.ilike.%${q}%,tax_id.ilike.%${q}%`);
-      } else {
-        if (filterType === 'top_sales') {
-          query = query.order('total_charged', { ascending: false });
-        } else if (filterType === 'recurrent') {
-          query = query.order('orders_count', { ascending: false });
-        } else if (filterType === 'pending_balance') {
-          query = query.gt('balance', 0).order('balance', { ascending: false });
-        } else {
-          query = query.order('business_name', { ascending: true });
-        }
-      }
-
-      // Limit results to 100 to ensure fast loading and UI responsiveness
-      query = query.limit(100);
-
-      const { data, error } = await query;
+      const { data, error } = await supabase.rpc("get_clients_with_stats", {
+        p_search: debouncedSearchQuery.trim() || null,
+        p_filter_type: filterType,
+        p_is_wholesale: isWholesaleView,
+        p_limit: 100,
+      });
       if (error) throw error;
 
-      setClients((data || []).filter(c => c.business_name && c.business_name.trim() !== ''));
+      const rows = (data || []) as any[];
+      setClients(rows.filter((c: any) => c.business_name && c.business_name.trim() !== ''));
 
       const computedBalances: Record<string, { totalCharged: number; totalPaid: number; balance: number }> = {};
-      (data || []).forEach(c => {
+      rows.forEach((c: any) => {
         computedBalances[c.id] = {
           totalCharged: Number(c.total_charged) || 0,
           totalPaid: Number(c.total_paid) || 0,

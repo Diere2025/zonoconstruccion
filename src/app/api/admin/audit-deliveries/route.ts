@@ -160,8 +160,8 @@ export async function GET(request: Request) {
     const csvText = await fetchSpreadsheetCsv(LOGISTICS_SHEET_URL);
     const rows = parseCSV(csvText);
 
-    // 2. Fetch all database orders (paginated to bypass Supabase 1000 limit)
-    let dbOrdersList: any[] = [];
+    // 2. Fetch operational (non-historical) database orders only
+    const dbOrdersList: any[] = [];
     let page = 0;
     const pageSize = 1000;
     let hasMore = true;
@@ -171,30 +171,14 @@ export async function GET(request: Request) {
         .from('orders')
         .select('id, legacy_code, status, total_amount, payment_method_id, payment_methods(name), customer_name')
         .not('legacy_code', 'is', null)
+        .is('totals->importacion_historica', null)
+        .order('id', { ascending: true })
         .range(page * pageSize, (page + 1) * pageSize - 1);
 
       if (error) throw error;
-      dbOrdersList = dbOrdersList.concat(data || []);
-      if (!data || data.length < pageSize) {
-        hasMore = false;
-      } else {
-        page++;
+      if (data && data.length > 0) {
+        dbOrdersList.push(...data);
       }
-    }
-
-    // Fetch all database order items (paginated)
-    let dbItemsList: any[] = [];
-    page = 0;
-    hasMore = true;
-
-    while (hasMore) {
-      const { data, error } = await supabaseAdmin
-        .from('order_items')
-        .select('order_id, product_name, quantity, unit_price')
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-
-      if (error) throw error;
-      dbItemsList = dbItemsList.concat(data || []);
       if (!data || data.length < pageSize) {
         hasMore = false;
       } else {
@@ -203,6 +187,7 @@ export async function GET(request: Request) {
     }
 
     const dbOrdersMap = new Map<string, any>();
+    const dbOrderById = new Map<string, any>();
     dbOrdersList.forEach(o => {
       const codes = o.legacy_code.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
       const orderObj = {
@@ -213,25 +198,41 @@ export async function GET(request: Request) {
         payment_method_name: o.payment_methods ? (o.payment_methods as any).name : 'Sin especificar',
         customer_name: o.customer_name,
         hasRealDeliveryDate: Array.isArray(o.deliveries) && o.deliveries.length > 0 && o.deliveries.every((delivery: any) => !!delivery.real_delivery_date),
-        items: []
+        items: [] as any[]
       };
+      dbOrderById.set(o.id, orderObj);
       codes.forEach((c: string) => {
         dbOrdersMap.set(c, orderObj);
       });
     });
 
-    dbItemsList.forEach(item => {
-      for (const order of dbOrdersList) {
-        if (item.order_id === order.id) {
-          const firstCode = order.legacy_code.split(/[\/,]/)[0].trim().toUpperCase();
-          const mapped = dbOrdersMap.get(firstCode);
-          if (mapped) {
-            mapped.items.push(item);
-          }
-          break;
+    // Fetch order_items ONLY for the orders referenced in the sheet
+    const sheetOrderIds = new Set<string>();
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.length < 30) continue;
+      const code = (row[0] || "").trim().toUpperCase();
+      if (!code) continue;
+      const matched = dbOrdersMap.get(code);
+      if (matched) sheetOrderIds.add(matched.id);
+    }
+
+    const neededOrderIds = Array.from(sheetOrderIds);
+    const itemBatchSize = 200;
+    for (let i = 0; i < neededOrderIds.length; i += itemBatchSize) {
+      const batch = neededOrderIds.slice(i, i + itemBatchSize);
+      const { data, error } = await supabaseAdmin
+        .from('order_items')
+        .select('order_id, product_name, quantity, unit_price')
+        .in('order_id', batch);
+      if (error) throw error;
+      for (const item of data || []) {
+        const mapped = dbOrderById.get(item.order_id);
+        if (mapped) {
+          mapped.items.push(item);
         }
       }
-    });
+    }
 
     // Fetch database postponements
     const { data: dbPostponements } = await supabaseAdmin

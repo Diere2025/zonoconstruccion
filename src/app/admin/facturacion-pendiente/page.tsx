@@ -123,7 +123,9 @@ export default function PendingDeliveryBillingPage() {
             order_items ( id, product_id, product_name, quantity, unit_price, subtotal )
           `)
           .eq("employee_withdrawal", false)
-          .order("order_date", { ascending: false }),
+          .is("totals->importacion_historica", null)
+          .order("order_date", { ascending: false })
+          .limit(1000),
         supabase.from("products").select("id, category")
       ]);
 

@@ -58,7 +58,7 @@ export async function GET(request: Request) {
 
     // Helper function to fetch ALL orders (ALL statuses) with pagination to prevent duplicates
     async function fetchOrdersAll(columns = 'id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id') {
-      let allOrders: any[] = [];
+      const allOrders: any[] = [];
       let page = 0;
       const pageSize = 1000;
       let hasMore = true;
@@ -67,13 +67,15 @@ export async function GET(request: Request) {
           const { data, error } = await supabaseAdmin
             .from('orders')
             .select(columns)
+            .is('totals->importacion_historica', null)
+            .order('id', { ascending: true })
             .range(page * pageSize, (page + 1) * pageSize - 1);
           if (error) throw error;
           return data;
         });
 
         if (data && data.length > 0) {
-          allOrders = [...allOrders, ...data];
+          allOrders.push(...data);
           if (data.length < pageSize) {
             hasMore = false;
           } else {

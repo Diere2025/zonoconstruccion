@@ -86,9 +86,9 @@ export async function GET(request: Request) {
           .select('id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale')
           .eq('is_wholesale', true).eq('owner_seller_id', userId)
           .order('created_at', { ascending: false }).limit(50)
-      : supabaseAdmin.from('v_client_balances_and_stats')
+      : supabaseAdmin.from('clients')
           .select('id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale')
-          .order('orders_count', { ascending: false }).limit(50);
+          .order('created_at', { ascending: false }).limit(50);
 
     const [
       sellerRes,

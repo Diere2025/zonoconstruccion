@@ -266,7 +266,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
 
     // Fetch all existing orders (with pagination)
     async function fetchOrdersAll() {
-      let allOrders: any[] = [];
+      const allOrders: any[] = [];
       let page = 0;
       const pageSize = 1000;
       let hasMore = true;
@@ -274,10 +274,12 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
         const { data, error } = await supabaseAdmin
           .from('orders')
           .select('id, legacy_code, status, payment_status, delivery_detail, whaticket_link, order_medium_id, client_id, total_amount, totals, channel, advertising_source_id, order_discount_type, order_discount_value, order_discount_amount')
+          .is('totals->importacion_historica', null)
+          .order('id', { ascending: true })
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (error) throw error;
         if (data && data.length > 0) {
-          allOrders = [...allOrders, ...data];
+          allOrders.push(...data);
           if (data.length < pageSize) {
             hasMore = false;
           } else {
@@ -292,7 +294,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
 
     // Fetch all products (with pagination)
     async function fetchProductsAll() {
-      let allProducts: any[] = [];
+      const allProducts: any[] = [];
       let page = 0;
       const pageSize = 1000;
       let hasMore = true;
@@ -303,7 +305,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (error) throw error;
         if (data && data.length > 0) {
-          allProducts = [...allProducts, ...data];
+          allProducts.push(...data);
           if (data.length < pageSize) {
             hasMore = false;
           } else {
@@ -318,7 +320,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
 
     // Fetch all clients (with pagination)
     async function fetchClientsAll() {
-      let allClients: any[] = [];
+      const allClients: any[] = [];
       let page = 0;
       const pageSize = 1000;
       let hasMore = true;
@@ -329,7 +331,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (error) throw error;
         if (data && data.length > 0) {
-          allClients = [...allClients, ...data];
+          allClients.push(...data);
           if (data.length < pageSize) {
             hasMore = false;
           } else {

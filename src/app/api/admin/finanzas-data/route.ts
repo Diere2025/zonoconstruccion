@@ -1,3 +1,4 @@
+import { orderHistoryField } from '@/lib/orderHistory';
 import {movementClassifications} from '@/lib/financialClassification/server';
 import {movementApplications} from '@/lib/financialOperations/referenceServer';
 import {movementOrderReferences} from '@/lib/financialOperations/references';
@@ -361,6 +362,7 @@ export async function GET(request: Request) {
         .select('*, clients(business_name), payment_methods(name)')
         .eq('payment_approved', false)
         .neq('status', 'Cancelado')
+        .is(orderHistoryField, null)
         .order('order_date', { ascending: false });
 
       if (error) throw error;

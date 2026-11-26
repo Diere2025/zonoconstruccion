@@ -55,7 +55,7 @@ export async function syncCosts(db=costDatabase()) {
     const settings=settingRows.map(s=>s.data);
     const soldProductIds=new Set<string>();const since=new Date(Date.parse(asOf)-120*86400000).toISOString().slice(0,10);
     // Inactive commercial products can still need a cost for recently recorded orders.
-    for(let offset=0;;offset+=1000){const r=await db.from('order_items').select('product_id,orders!inner(order_date)').gte('orders.order_date',since).not('product_id','is',null).order('id').range(offset,offset+999);if(r.error)throw new Error(r.error.message);for(const item of r.data)if(item.product_id)soldProductIds.add(item.product_id);if(r.data.length<1000)break;}
+    const soldRes = await db.rpc('get_sold_product_ids_since', { p_since: since }); if (soldRes.error) throw new Error(soldRes.error.message); for (const row of (soldRes.data || []) as Array<{ product_id?: string | null }>) { if (row.product_id) soldProductIds.add(row.product_id); }
     const {definition,purchases,diagnostics}=await collectSources(catalog.filter(p=>!p.is_outlet_unit),asOf,settings,soldProductIds);
     purchases.push(...await databasePurchases(db,definition,catalog,purchases,asOf,diagnostics));
     const oldQuotes=(oldState.data?.payload?.supplierQuotes||[]) as Purchase[];
