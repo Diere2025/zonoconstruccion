@@ -69,9 +69,10 @@ export async function GET(request: Request) {
     if (!Number.isFinite(rate) || rate <= 0)
         return NextResponse.json({ error: 'Tipo de cambio inválido' }, { status: 400 });
 
-    const accountConfigs = resolveAccountConfigs(params.get('account'));
-    if (accountConfigs === null)
+    const resolvedConfigs = resolveAccountConfigs(params.get('account'));
+    if (resolvedConfigs === null)
         return NextResponse.json({ error: 'Cuenta publicitaria no reconocida' }, { status: 400 });
+    const accountConfigs: AccountConfig[] = resolvedConfigs;
 
     const key = `${accountConfigs.map(c => c.id).join(',')}:${rate}`;
     const force = params.get('force') === 'true' || params.get('refresh') === 'true';
