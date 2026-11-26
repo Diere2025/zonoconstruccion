@@ -72,32 +72,63 @@ async function fetchProductsAll() {
   return allProducts;
 }
 
+interface PendingOrder {
+  id: string;
+  legacy_code: string | null;
+}
+
+interface PendingOrderItem {
+  id: string;
+  order_id: string;
+  product_id: string | null;
+  product_name: string;
+  quantity: number | string | null;
+}
+
 async function fetchPendingOrderItems(dateLimitStr: string) {
-  let allItems: any[] = [];
-  let page = 0;
   const pageSize = 1000;
-  let hasMore = true;
-  while (hasMore) {
+  const orderBatchSize = 100;
+  const ordersById = new Map<string, PendingOrder>();
+
+  // Filter orders first so the item query can use the order_id index.
+  for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabaseAdmin
-      .from('order_items')
-      .select('product_id, product_name, quantity, orders!inner(id, legacy_code, status, order_date)')
-      .in('orders.status', ['Pendiente', 'Confirmado'])
-      .gte('orders.order_date', dateLimitStr)
+      .from('orders')
+      .select('id, legacy_code')
+      .in('status', ['Pendiente', 'Confirmado'])
+      .gte('order_date', dateLimitStr)
       .order('id')
-      .range(page * pageSize, (page + 1) * pageSize - 1);
+      .range(offset, offset + pageSize - 1)
+      .returns<PendingOrder[]>();
     if (error) throw error;
-    if (data && data.length > 0) {
-      allItems = [...allItems, ...data];
-      if (data.length < pageSize) {
-        hasMore = false;
-      } else {
-        page++;
-      }
-    } else {
-      hasMore = false;
+
+    const orders = data ?? [];
+    for (const order of orders) ordersById.set(order.id, order);
+    if (orders.length < pageSize) break;
+  }
+
+  const orderIds = [...ordersById.keys()];
+  const allItems: Array<PendingOrderItem & { orders: PendingOrder | undefined }> = [];
+  for (let batchStart = 0; batchStart < orderIds.length; batchStart += orderBatchSize) {
+    const batchIds = orderIds.slice(batchStart, batchStart + orderBatchSize);
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabaseAdmin
+        .from('order_items')
+        .select('id, order_id, product_id, product_name, quantity')
+        .in('order_id', batchIds)
+        .order('id')
+        .range(offset, offset + pageSize - 1)
+        .returns<PendingOrderItem[]>();
+      if (error) throw error;
+
+      const items = data ?? [];
+      for (const item of items) allItems.push({ ...item, orders: ordersById.get(item.order_id) });
+      if (items.length < pageSize) break;
     }
   }
-  return allItems;
+
+  // Preserve which order takes precedence when a legacy code is duplicated.
+  return allItems.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 function normalizeRowKey(header: string): string {
@@ -273,8 +304,8 @@ export async function compareStockSheet() {
 
   // Calculate DB reserves (by product_id AND by normalized name for consolidation)
   const dbCalculatedReservesMap = new Map<string, number>();
-  pendingItems.forEach((item: any) => {
-    const qty = parseFloat(item.quantity || 0);
+  pendingItems.forEach(item => {
+    const qty = parseFloat(String(item.quantity || 0));
     addCalculatedReserve(dbCalculatedReservesMap, productByIdMap, item.product_id, item.product_name, qty);
   });
 
@@ -410,8 +441,8 @@ export async function syncStockFromSheet() {
 
   // Calculate DB reserves (by product_id AND by normalized name for consolidation)
   const dbCalculatedReservesMap = new Map<string, number>();
-  pendingItems.forEach((item: any) => {
-    const qty = parseFloat(item.quantity || 0);
+  pendingItems.forEach(item => {
+    const qty = parseFloat(String(item.quantity || 0));
     addCalculatedReserve(dbCalculatedReservesMap, productByIdMap, item.product_id, item.product_name, qty);
   });
 
