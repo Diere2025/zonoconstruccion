@@ -51,10 +51,8 @@ async function fetchProductsAll() {
   while (hasMore) {
     const { data, error } = await supabaseAdmin
       .from('products')
-      // Keep the full row because Postgres validates NOT NULL columns before
-      // resolving an UPSERT conflict, even when only stock fields changed.
-      .select('*')
-        .eq('is_outlet_unit',false)
+      .select('id, name, sku, is_active, is_service, is_generic, mapped_real_product_id, stock_physical, stock_reserved, stock_current')
+      .eq('is_outlet_unit', false)
       .order('id')
       .range(page * pageSize, (page + 1) * pageSize - 1);
     if (error) throw error;
@@ -220,6 +218,13 @@ function stockValuesChanged(product: any, physical: number, reserved: number, cu
   return Math.abs((parseFloat(product.stock_physical || '0') || 0) - physical) > 0.0001
     || Math.abs((parseFloat(product.stock_reserved || '0') || 0) - reserved) > 0.0001
     || Math.abs((parseFloat(product.stock_current || '0') || 0) - current) > 0.0001;
+}
+
+interface StockUpdate {
+  id: string;
+  stock_physical: number;
+  stock_reserved: number;
+  stock_current: number;
 }
 
 async function timed<T>(promise: Promise<T>): Promise<{ value: T; ms: number }> {
@@ -460,7 +465,7 @@ export async function syncStockFromSheet() {
 
   let updatedCount = 0;
   const sheetProductNames = new Set<string>();
-  const updatesToUpsertMap = new Map<string, any>();
+  const updatesByProductId = new Map<string, StockUpdate>();
 
   // Update matched products
   for (const row of sheetRows) {
@@ -491,8 +496,8 @@ export async function syncStockFromSheet() {
       const newAvailable = sheetPhysical - effectiveReserved;
 
       if (stockValuesChanged(dbProd, sheetPhysical, effectiveReserved, newAvailable)) {
-        updatesToUpsertMap.set(dbProd.id, {
-          ...dbProd,
+        updatesByProductId.set(dbProd.id, {
+          id: dbProd.id,
           stock_physical: sheetPhysical,
           stock_reserved: effectiveReserved,
           stock_current: newAvailable
@@ -507,7 +512,7 @@ export async function syncStockFromSheet() {
     if (isServiceProduct(p)) continue;
     const normName = normalizeText(p.name);
     const cleanName = normalizeText(p.name.replace(/^\[interno\]\s*/i, "").trim());
-    const isAlreadyInUpdate = updatesToUpsertMap.has(p.id);
+    const isAlreadyInUpdate = updatesByProductId.has(p.id);
 
     if (!isAlreadyInUpdate && !sheetProductNames.has(normName) && (!cleanName || !sheetProductNames.has(cleanName))) {
       const dbCalculatedReserved = dbCalculatedReservesMap.get(p.id) || 0;
@@ -515,8 +520,8 @@ export async function syncStockFromSheet() {
       const newAvailable = physical - dbCalculatedReserved;
 
       if (stockValuesChanged(p, physical, dbCalculatedReserved, newAvailable)) {
-        updatesToUpsertMap.set(p.id, {
-          ...p,
+        updatesByProductId.set(p.id, {
+          id: p.id,
           stock_physical: physical,
           stock_reserved: dbCalculatedReserved,
           stock_current: newAvailable
@@ -525,28 +530,19 @@ export async function syncStockFromSheet() {
     }
   }
 
-  const updatesToUpsert = Array.from(updatesToUpsertMap.values());
-
-  // Batch upsert in chunks of 500
-  const chunkSize = 500;
-  for (let i = 0; i < updatesToUpsert.length; i += chunkSize) {
-    const chunk = updatesToUpsert.slice(i, i + chunkSize);
-    const { error: upsertErr } = await supabaseAdmin
-      .from('products')
-      .upsert(chunk);
-
-    if (upsertErr) {
-      console.error("Error upserting synced products chunk:", upsertErr);
-      throw upsertErr;
-    }
-    updatedCount += chunk.length;
+  if (updatesByProductId.size > 0) {
+    const { data, error } = await supabaseAdmin.rpc('apply_stock_sheet_updates', {
+      p_updates: [...updatesByProductId.values()],
+    });
+    if (error) throw error;
+    updatedCount = data;
   }
 
   return {
     success: true,
     updatedCount,
-    totalMatched: updatesToUpsert.length,
-    unchangedCount: dbProducts.length - updatesToUpsert.length,
+    totalMatched: updatesByProductId.size,
+    unchangedCount: dbProducts.length - updatedCount,
     metrics: { loadMs, totalMs: Date.now() - startedAt, sourcesMs }
   };
 }
