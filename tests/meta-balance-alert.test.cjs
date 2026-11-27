@@ -6,6 +6,28 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const { formatMessage, latestSpendLimitIncrease } = require('../scripts/send-meta-balance-alert.cjs');
 const zonoBalance = require('../src/lib/metaZonoBalance.mjs');
+const { rechargeNotice, readRechargeDemand } = require('../src/lib/metaRecharge.mjs');
+
+test('fee is paid on top and net loads respect each local day limit', () => {
+  const plans = [{name:'1-ZONO', available:0, demand:620000}, {name:'2-ZONO', available:2000, demand:632000}];
+  const friday = new Date('2026-11-28T01:30:00Z');
+  assert.match(rechargeNotice(plans, friday), /1\.250\.000 \+ fee 5% \$62\.500 = transferir \$1\.312\.500/);
+  const large = plans.map(p => ({...p, demand:900000}));
+  assert.match(rechargeNotice(large, friday), /transferir \$1\.344\.000/);
+  assert.match(rechargeNotice(large, new Date('2026-11-28T12:00:00Z')), /transferir \$997\.500/);
+  assert.match(rechargeNotice(plans.map(p=>({...p, available:p.demand})), friday), /transferir \$0/);
+  assert.match(rechargeNotice([plans[0], undefined], friday), /pendiente de cálculo/);
+});
+
+test('budget forecast counts shared campaigns once and includes scheduled starts and ends', async () => {
+  const campaign = {id:'c', effective_status:'ACTIVE', daily_budget:'24000000'};
+  const start_time = '2026-11-28T05:30:00-03:00';
+  const sets = [{id:'a',status:'ACTIVE',campaign,start_time}, {id:'b',status:'ACTIVE',campaign,start_time},
+    {id:'old',status:'ACTIVE',campaign:{id:'oldc',effective_status:'ACTIVE'},daily_budget:'12000000',end_time:'2026-11-27T23:30:00-03:00'},
+    {id:'paused',status:'PAUSED',campaign}];
+  const fetcher = async url => Response.json({data:url.pathname.endsWith('/adsets') ? sets : [{adset_id:'old',campaign_id:'oldc',spend:'80000'}]});
+  assert.equal(await readRechargeDemand('act_1','token',fetcher,new Date('2026-11-27T15:00:00Z')),280000);
+});
 
 const source = fs.readFileSync('src/app/api/telegram/meta-balance-webhook/route.ts', 'utf8');
 const compiled = ts.transpileModule(source + '\nexport { latestSpendLimitIncrease };', {

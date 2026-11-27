@@ -1,4 +1,4 @@
-import { activityFields, getZonoAccountReply, zonoAccounts } from '../../src/lib/metaZonoBalance.mjs';
+import { activityFields, rechargeNotice, getZonoAccountReply, zonoAccounts } from '../../src/lib/metaZonoBalance.mjs';
 
 function dollars(cents) {
   if (!/^\d+$/.test(String(cents ?? ''))) throw new Error('Meta no devolvió un importe válido.');
@@ -53,7 +53,7 @@ function formatMessage(account, now = new Date()) {
   const limitIncrease = latestSpendLimitIncrease(account.activities?.data || [], account.spend_cap);
   const limitLine = limitIncrease ? `\n${limitIncrease}` : '';
   const text = urgent
-    ? `🚨🚨 SALDO PUBLICITARIO BAJO 🚨🚨\n\nCuenta Meta S731.04\nDisponible hasta el límite de gasto: ${display}${limitLine}\n\n⚠️ CARGAR SALDO O AUMENTAR EL LÍMITE DE INMEDIATO PARA EVITAR CORTES.\n\nActualizado: ${date} (Argentina)`
+    ? `🚨🚨 SALDO PUBLICITARIO BAJO 🚨🚨\n\nCuenta Meta S731.04\nDisponible hasta el límite de gasto: ${display}${limitLine}\n\nS731.04 consumirá el saldo disponible. Las recargas van a las cuentas en pesos.\n\nActualizado: ${date} (Argentina)`
     : `📊 Saldo publicitario Meta\n\nCuenta S731.04\nDisponible hasta el límite de gasto: ${display}${limitLine}\n\nActualizado: ${date} (Argentina)`;
   return { text, remaining, urgent };
 }
@@ -86,9 +86,11 @@ export async function getNotice(env) {
   if (!env.META_ACCESS_TOKEN || !env.LOGISTICS_TELEGRAM_BOT_TOKEN) throw new Error('Faltan secretos del Worker.');
   if (!env.META_ZONO_ACCESS_TOKEN) return getPrimaryNotice(env);
 
+  const now = new Date();
+  const plans = new Map();
   const [primary, ...accounts] = await Promise.allSettled([
     getPrimaryNotice(env),
-    ...zonoAccounts.map(account => getZonoAccountReply(account, { token: env.META_ZONO_ACCESS_TOKEN })),
+    ...zonoAccounts.map(account => getZonoAccountReply(account, { token: env.META_ZONO_ACCESS_TOKEN, now, onPlan: plan => plans.set(account.id, plan) })),
   ]);
   if (primary.status === 'rejected' && accounts.every(account => account.status === 'rejected')) throw primary.reason;
   const notice = primary.status === 'fulfilled'
@@ -97,7 +99,7 @@ export async function getNotice(env) {
   const balances = accounts.map((result, index) => result.status === 'fulfilled'
     ? result.value
     : `Cuenta Meta ${zonoAccounts[index].name} · ARS\nSaldo sin confirmar.`);
-  return { ...notice, text: [notice.text, ...balances].join('\n\n') };
+  return { ...notice, text: [notice.text, ...balances, rechargeNotice(zonoAccounts.map(account => plans.get(account.id)), now)].join('\n\n') };
 }
 
 export class DailyDelivery {

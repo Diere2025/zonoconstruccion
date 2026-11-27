@@ -1,3 +1,5 @@
+import { readRechargeDemand } from './metaRecharge.mjs';
+export { rechargeNotice } from './metaRecharge.mjs';
 export const zonoAccounts = [
   { id: 'act_2361501517627802', name: '1-ZONO' },
   { id: 'act_942497128185607', name: '2-ZONO' },
@@ -37,9 +39,9 @@ function formatPayment(payment) {
 
 /**
  * @param {{id: string, name: string}} accountConfig
- * @param {{token: string, showHistory?: boolean, fetcher?: typeof fetch}} options
+ * @param {{token: string, showHistory?: boolean, fetcher?: typeof fetch, now?: Date, onPlan?: (plan: { name: string, available: number, demand: number }) => void}} options
  */
-export async function getZonoAccountReply({ id, name }, { token, showHistory = false, fetcher = fetch }) {
+export async function getZonoAccountReply({ id, name }, { token, showHistory = false, fetcher = fetch, now = new Date(), onPlan }) {
   const url = new URL(`https://graph.facebook.com/v24.0/${id}`);
   url.searchParams.set('fields', `id,currency,balance,amount_spent,spend_cap,is_prepay_account,${activityFields}`);
   const response = await fetcher(url, {
@@ -64,6 +66,14 @@ export async function getZonoAccountReply({ id, name }, { token, showHistory = f
   }
   if (/^\d+$/.test(String(account.spend_cap)) && Number(account.spend_cap) > 0 && /^\d+$/.test(String(account.amount_spent))) {
     const remaining = Math.max(0, Number(account.spend_cap) - Number(account.amount_spent)) / 100;
+    if (onPlan) {
+      try {
+        const demand = await readRechargeDemand(id, token, fetcher, now);
+        onPlan({ name, available: remaining, demand });
+      } catch {
+        // The balance remains useful even when budget data is unavailable.
+      }
+    }
     lines.push(`Disponible hasta el límite de gasto: ${pesoFormat.format(remaining)}.`);
   }
   if (lines.length === 1) lines.push('Saldo sin confirmar.');

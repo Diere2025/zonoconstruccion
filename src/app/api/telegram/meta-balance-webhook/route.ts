@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import {captureSupportTelegramGroup} from '@/lib/support/telegram';
-import { activityFields, getZonoAccountReply, metaActivityDateFormat, metaHistoryLimit, zonoAccounts } from '@/lib/metaZonoBalance.mjs';
+import { activityFields, rechargeNotice, getZonoAccountReply, metaActivityDateFormat, metaHistoryLimit, zonoAccounts } from '@/lib/metaZonoBalance.mjs';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -96,10 +96,12 @@ async function sendAccountReply(chatId: string, showHistory: boolean, replyToMes
   if (!token || !botToken) throw new Error('Faltan credenciales de Meta o Telegram.');
 
   const zonoToken = process.env.META_ZONO_ACCESS_TOKEN;
+  const now = new Date();
+  const plans = new Map<string, {name: string; available: number; demand: number}>();
   const accounts = [{ heading: 'Cuenta Meta S731.04 · USD', reply: formatPrimaryAccountReply(token, showHistory) }];
   if (zonoToken) accounts.push(...zonoAccounts.map(account => ({
     heading: `Cuenta Meta ${account.name} · ARS`,
-    reply: getZonoAccountReply(account, { token: zonoToken, showHistory, fetcher: fetch }),
+    reply: getZonoAccountReply(account, { token: zonoToken, showHistory, fetcher: fetch, now, onPlan: plan => plans.set(account.id, plan) }),
   })));
   const results = await Promise.allSettled(accounts.map(account => account.reply));
   const [primary] = results;
@@ -108,7 +110,7 @@ async function sendAccountReply(chatId: string, showHistory: boolean, replyToMes
   let message = results.map((result, index) => result.status === 'fulfilled'
     ? result.value
     : `${accounts[index].heading}\n${unavailable}`).join('\n\n');
-  if (!showHistory) message += '\n\nHistorial reciente con /cargas.';
+  if (!showHistory) message += '\n\n' + rechargeNotice(zonoAccounts.map(account => plans.get(account.id)), now) + '\n\nHistorial reciente con /cargas.';
   const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -126,7 +128,7 @@ function formatBalance(account: { spend_cap: string | number; amount_spent: stri
   const display = dollarFormat.format(remaining);
   const limitIncrease = latestSpendLimitIncrease(activities, account.spend_cap);
   return remaining < 500
-    ? `🚨🚨 SALDO PUBLICITARIO BAJO 🚨🚨\n\nCuenta Meta S731.04\nDisponible hasta el límite de gasto: ${display}${limitIncrease}\n\n⚠️ CARGAR SALDO O AUMENTAR EL LÍMITE DE INMEDIATO PARA EVITAR CORTES.`
+    ? `🚨🚨 SALDO PUBLICITARIO BAJO 🚨🚨\n\nCuenta Meta S731.04\nDisponible hasta el límite de gasto: ${display}${limitIncrease}\n\nS731.04 consumirá el saldo disponible. Las recargas van a las cuentas en pesos.`
     : `📊 Saldo publicitario Meta\n\nCuenta S731.04\nDisponible hasta el límite de gasto: ${display}${limitIncrease}`;
 }
 
