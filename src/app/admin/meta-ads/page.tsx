@@ -46,6 +46,7 @@ import {
 import { formatPrice } from "@/lib/utils";
 
 import MetaReview from '@/components/admin/MetaReview';
+import MetaAdsLoadsPanel from '@/components/admin/MetaAdsLoadsPanel';
 import { diagnose, readHistoryResponse, readLiveResponse, type Periods, type Diagnosis } from '@/lib/meta-ads-review';
 
 interface LiveAd {
@@ -260,7 +261,8 @@ function DateInput({
 }
 
 export default function MetaAdsPage() {
-  const [activeTab, setActiveTab] = useState<'live' | 'charts' | 'history'>('live');
+  const [activeTab, setActiveTab] = useState<'live' | 'charts' | 'history' | 'loads'>('live');
+  const [loadsRefreshTrigger, setLoadsRefreshTrigger] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
@@ -625,6 +627,8 @@ export default function MetaAdsPage() {
     setRefreshing(true);
     if (activeTab === 'live') {
       await loadLiveData(true);
+    } else if (activeTab === 'loads') {
+      setLoadsRefreshTrigger(prev => prev + 1);
     } else {
       await loadHistoryData(dateFrom, dateTo);
     }
@@ -826,7 +830,7 @@ export default function MetaAdsPage() {
             className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-black flex items-center gap-2 shadow-md shadow-slate-900/10 transition-all cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Consultando...' : activeTab === 'live' ? 'Actualizar Meta Ads' : 'Sincronizar Planilla'}
+            {refreshing ? 'Consultando...' : activeTab === 'live' ? 'Actualizar Meta Ads' : activeTab === 'loads' ? 'Recargar Cargas' : 'Sincronizar Planilla'}
           </button>
         </div>
       </div>
@@ -866,9 +870,22 @@ export default function MetaAdsPage() {
           <Layers className="w-4 h-4" />
           📋 Histórico & Rentabilidad (CálculoParaEERR)
         </button>
+        <button
+          onClick={() => setActiveTab('loads')}
+          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'loads'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <DollarSign className="w-4 h-4" />
+          💳 Cargas de Saldo & Cotejo
+        </button>
       </div>
 
-      {loading ? (
+      {activeTab === 'loads' ? (
+        <MetaAdsLoadsPanel refreshTrigger={loadsRefreshTrigger} />
+      ) : loading ? (
         <div className="flex flex-col items-center justify-center p-16 space-y-3 bg-white rounded-3xl border border-slate-100">
           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
           <p className="text-xs text-slate-500 font-bold">Cargando métricas publicitarias...</p>

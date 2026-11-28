@@ -39,9 +39,9 @@ function formatPayment(payment) {
 
 /**
  * @param {{id: string, name: string}} accountConfig
- * @param {{token: string, showHistory?: boolean, fetcher?: typeof fetch, now?: Date, onPlan?: (plan: { name: string, available: number, demand: number }) => void}} options
+ * @param {{token: string, showHistory?: boolean, fetcher?: typeof fetch, now?: Date, onPlan?: (plan: { name: string, available: number, demand: number }) => void, onActivities?: (activities: Array<{event_time?: string, event_type?: string, extra_data?: string | Record<string, unknown>}>) => Promise<void> | void}} options
  */
-export async function getZonoAccountReply({ id, name }, { token, showHistory = false, fetcher = fetch, now = new Date(), onPlan }) {
+export async function getZonoAccountReply({ id, name }, { token, showHistory = false, fetcher = fetch, now = new Date(), onPlan, onActivities }) {
   const url = new URL(`https://graph.facebook.com/v24.0/${id}`);
   url.searchParams.set('fields', `id,currency,balance,amount_spent,spend_cap,is_prepay_account,${activityFields}`);
   const response = await fetcher(url, {
@@ -52,8 +52,13 @@ export async function getZonoAccountReply({ id, name }, { token, showHistory = f
     throw new Error(`No se pudo verificar la cuenta publicitaria ${name} en Meta.`);
   }
 
+  const rawActivities = account.activities?.data || [];
+  if (typeof onActivities === 'function') {
+    try { await onActivities(rawActivities); } catch { /* best-effort persistence */ }
+  }
+
   const heading = `Cuenta Meta ${name} · ARS`;
-  const payments = creditedPayments(account.activities?.data || []);
+  const payments = creditedPayments(rawActivities);
   if (showHistory) {
     const rows = payments.slice(0, metaHistoryLimit).map(payment => `• ${formatPayment(payment)}`);
     const history = rows.length ? rows.join('\n') : 'Sin acreditaciones en la actividad reciente de Meta.';

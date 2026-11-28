@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import {captureSupportTelegramGroup} from '@/lib/support/telegram';
 import { activityFields, rechargeNotice, getZonoAccountReply, metaActivityDateFormat, metaHistoryLimit, zonoAccounts } from '@/lib/metaZonoBalance.mjs';
+import { extractMetaLoadsFromActivities, persistMetaLoads } from '@/lib/metaAdAccountLoads';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -76,6 +77,21 @@ async function fetchMetaAccount(accountId: string, token: string, fields: string
   return account;
 }
 
+async function persistWebhookActivities(
+  account: { id: string; name: string; currency: 'USD' | 'ARS' },
+  activities: MetaActivity[]
+) {
+  if (typeof extractMetaLoadsFromActivities !== 'function' || typeof persistMetaLoads !== 'function') return;
+  try {
+    const parsed = extractMetaLoadsFromActivities(account, activities);
+    if (parsed.length) {
+      await persistMetaLoads(parsed, 'telegram_webhook');
+    }
+  } catch (persistError) {
+    console.warn(`[Meta balance webhook] No se pudieron guardar cargas de ${account.name}:`, persistError);
+  }
+}
+
 async function formatPrimaryAccountReply(token: string, showHistory: boolean) {
   const accountId = process.env.META_AD_ACCOUNT_ID || 'act_1077861488005193';
   const account = await fetchMetaAccount(accountId, token,
@@ -87,6 +103,7 @@ async function formatPrimaryAccountReply(token: string, showHistory: boolean) {
     throw new Error('Meta devolvió importes inválidos.');
   }
   const activities = account.activities?.data || [];
+  await persistWebhookActivities({ id: accountId, name: account.name || 'S731.04', currency: 'USD' }, activities);
   return showHistory ? formatHistory(activities) : formatBalance(account, activities);
 }
 
@@ -101,7 +118,17 @@ async function sendAccountReply(chatId: string, showHistory: boolean, replyToMes
   const accounts = [{ heading: 'Cuenta Meta S731.04 · USD', reply: formatPrimaryAccountReply(token, showHistory) }];
   if (zonoToken) accounts.push(...zonoAccounts.map(account => ({
     heading: `Cuenta Meta ${account.name} · ARS`,
-    reply: getZonoAccountReply(account, { token: zonoToken, showHistory, fetcher: fetch, now, onPlan: plan => plans.set(account.id, plan) }),
+    reply: getZonoAccountReply(account, {
+      token: zonoToken,
+      showHistory,
+      fetcher: fetch,
+      now,
+      onPlan: plan => plans.set(account.id, plan),
+      onActivities: rawActivities => persistWebhookActivities(
+        { id: account.id, name: account.name, currency: 'ARS' },
+        rawActivities
+      ),
+    }),
   })));
   const results = await Promise.allSettled(accounts.map(account => account.reply));
   const [primary] = results;

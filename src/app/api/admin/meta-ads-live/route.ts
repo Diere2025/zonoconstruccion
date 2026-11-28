@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { reportingDates, type Metrics } from '@/lib/meta-ads-review';
 import { zonoAccounts } from '@/lib/metaZonoBalance.mjs';
+import { extractMetaLoadsFromActivities, persistMetaLoads } from '@/lib/metaAdAccountLoads';
 
 const TTL = 180000;
 const cacheMap = new Map<string, { at: number; data: any }>();
@@ -227,6 +228,15 @@ export async function GET(request: Request) {
         try {
             const rawActivities = await graph(cfg, cfg.id + '/activities', { fields: 'event_time,event_type,translated_event_type,object_id,object_name,extra_data', since: String(Math.floor(new Date(dates.weekStart + 'T00:00:00Z').getTime() / 1000)), limit: '100' }, true);
             activities = rawActivities.map((ev: any) => ({ ...ev, accountName, accountCurrency: account.currency }));
+            const parsedLoads = extractMetaLoadsFromActivities(
+                { id: cfg.id, name: accountName, currency: account.currency },
+                rawActivities
+            );
+            if (parsedLoads.length) {
+                persistMetaLoads(parsedLoads, 'meta_ads_live').catch((persistError) => {
+                    console.warn('[meta-ads-live] No se pudieron guardar cargas de Meta:', persistError);
+                });
+            }
         }
         catch (e) {
             activitiesError = e instanceof Error ? e.message : 'Historial no disponible';
