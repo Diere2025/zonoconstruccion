@@ -233,9 +233,11 @@ export async function GET(request: Request) {
                 rawActivities
             );
             if (parsedLoads.length) {
-                persistMetaLoads(parsedLoads, 'meta_ads_live').catch((persistError) => {
+                try {
+                    await persistMetaLoads(parsedLoads, 'meta_ads_live');
+                } catch (persistError) {
                     console.warn('[meta-ads-live] No se pudieron guardar cargas de Meta:', persistError);
-                });
+                }
             }
         }
         catch (e) {

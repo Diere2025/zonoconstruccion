@@ -300,8 +300,8 @@ export async function fetchMetaAccountActivitiesAndSnapshot(
   pagesFetched: number;
 }> {
   const fetcher = options.fetcher || fetch;
-  const maxPages = Math.max(1, Math.min(options.maxPages ?? 15, 50));
-  const limit = Math.max(10, Math.min(options.limit ?? 100, 200));
+  const maxPages = Math.max(1, Math.min(options.maxPages ?? 20, 50));
+  const limit = Math.max(10, Math.min(options.limit ?? 200, 200));
 
   const accountUrl = new URL(`https://graph.facebook.com/${cfg.version}/${cfg.id}`);
   accountUrl.searchParams.set(
