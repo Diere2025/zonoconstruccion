@@ -68,7 +68,7 @@ function RegisteredApplications({reference}:{reference:MovementReference}) {
 type Props={initialSupplierId?:string;initialPurchaseId?:string;initialAmount?:string;initialCurrency?:string;inline?:boolean;compact?:boolean;onMoreOperations?:()=>void;operationId?:string;initialAction?:string;initialResourceId?:string;linkedTransactionId?:string;kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean;linkSupplier?:boolean;mode?:'save'|'link';onClose:()=>void;onSaved:()=>void;requestOverride?:typeof request;preview?:boolean;realDataPreview?:boolean;readOnly?:boolean};
 function defaults(kind:OperationType,payrollKind?:string):OperationInput {
  return {operation_type:kind,effective_date:treasuryToday(),account_id:'',direction:kind==='customer_collection'?'ingreso':'egreso',amount:'',payment_method_id:'',concept:'',
-  category:kind==='supplier_payment'?'Proveedores':kind==='customer_collection'?'Cobranza':kind==='payroll_payment'?'Sueldos':kind==='tax_payment'?'Impuestos':kind==='internal_transfer'?'Movimiento de cuentas':'Gastos Operativos',
+  category:kind==='supplier_payment'?'Proveedores':kind==='customer_collection'?'Cobranza':kind==='payroll_payment'?'Sueldos':kind==='tax_payment'?'Impuestos':kind==='internal_transfer'?'Movimiento de cuentas':kind==='operating_expense'?'Gastos Operativos':'',
   detail:kind==='payroll_payment'?{period:treasuryToday().slice(0,7),payroll_kind:payrollKind || 'salary'}:kind==='tax_payment'?{period:treasuryToday().slice(0,7)}:kind==='supplier_payment'?{supplier_allocation_mode:'oldest_first'}:{},allocations:[],voucher_ids:[]};
 }
 export default function OperationEditor(props:Props){
@@ -77,12 +77,13 @@ export default function OperationEditor(props:Props){
 }
 function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCurrency,inline=false,compact=false,onMoreOperations,kind,payrollKind,transactionId,sourceAccountId,duplicate=false,linkSupplier=false,mode:initialMode='save',onClose,onSaved,requestOverride,preview=false,realDataPreview=false,readOnly=false}:Props) {
  const api=requestOverride || request;
- const [reference,setReference]=useState<MovementReference|null>(null);
  const [supplierApplication,setSupplierApplication]=useState(linkSupplier);
  const [supplierDraft,setSupplierDraft]=useState<OperationInput|null>(null);
  const mode=supplierApplication?'link':initialMode;
+ const [reference,setReference]=useState<MovementReference|null>(null);
  const [value,setValue]=useState<OperationInput>(()=>({...defaults(kind,payrollKind),...(kind==='supplier_payment'&&initialSupplierId?{supplier_id:initialSupplierId,amount:initialAmount||'',...(initialPurchaseId&&initialAmount?{detail:{supplier_allocation_mode:'documents' as const},allocations:[{purchase_id:initialPurchaseId,amount:initialAmount}]}:{})}:{})}));
  const [helpers,setHelpers]=useState<Helpers|null>(null),[options,setOptions]=useState<Options|null>(null);
+ const [loadAttempt,setLoadAttempt]=useState(0),[loadFailed,setLoadFailed]=useState(false);
  const [target,setTarget]=useState<OperationTarget|undefined>(),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[savedNotice,setSavedNotice]=useState('');
  const [query,setQuery]=useState(''),[orders,setOrders]=useState<Order[]>([]),[chosenOrder,setChosenOrder]=useState<Order|null>(null);
  const [refundOrder,setRefundOrder]=useState<RefundOrder|null>(null);
@@ -115,7 +116,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
  },[busy,onClose,inline,fundDraft]);
  useEffect(()=>{
   let active=true;
-  setLoading(true);setError('');setBlocked('');setSupplierDraft(null);
+  setLoading(true);setLoadFailed(false);setError('');setBlocked('');setSupplierDraft(null);
   (async()=>{
    try {
     const [h,o,s]=await Promise.all([api('/api/admin/finanzas-data?action=init'),api('/api/admin/financial-operations'),
@@ -146,10 +147,10 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
       const account=defaultCashAccount(initialCurrency?available.filter((a:Account)=>a.currency===initialCurrency):available);
       setValue(v=>({...v,account_id:account?.id || '',...(kind==='internal_transfer'?transferDefaults(available,sourceAccountId):{})}));
     }
-   }catch(e){if(active)setError(e instanceof Error?e.message:'No se pudo abrir el formulario.');}
+   }catch(e){if(active){setLoadFailed(true);setError(e instanceof Error?e.message:'No se pudo abrir el formulario.');}}
    finally{if(active)setLoading(false);}
   })();return()=>{active=false;};
- },[kind,payrollKind,transactionId,sourceAccountId,duplicate,linkSupplier,initialMode,api]);
+ },[kind,payrollKind,transactionId,sourceAccountId,duplicate,linkSupplier,initialMode,api,loadAttempt]);
  useEffect(()=>{
   setOrders([]);setClients([]);setOrderSearchError('');setSearchingOrders(false);
   if(!choosingOrder||query.trim().length<3)return;
@@ -170,6 +171,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
   if(readOnly){setError('Para guardar operaciones reales falta activar la migración 136.');return;}
   try {
    if(compact&&!value.financial_concept_id)throw new Error('Elegí una clasificación de la lista.');
+   if(!compact&&value.operation_type==='general'&&!value.category.trim())throw new Error('Elegí una clasificación o una categoría.');
    let prepared=prepareOperationForm({...value,refund_order_id:isRefund?value.refund_order_id:undefined},options?.paymentMethods || [],supplierApplication);
    if(prepared.operation_type==='payroll_payment'&&!prepared.employee_id)throw new Error('Seleccioná un empleado o eventual habilitado. Podés darlo de alta desde este formulario.');
    validateOperation(files.length?{...prepared,voucher_ids:[...(prepared.voucher_ids||[]),"00000000-0000-0000-0000-000000000001"]}:prepared);
@@ -195,12 +197,12 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
     {value.operation_type==='payroll_payment' && <PersonnelFields value={value} onChange={setValue} employees={helpers.employees} onManage={preview?undefined:()=>setManagingPeople(true)}/>}
     {value.operation_type==='tax_payment' && <TaxFields value={value} onChange={setValue}/>}
     {value.operation_type==='customer_collection'&&<div className="space-y-2"><span className="text-xs font-semibold">Pedido o cliente</span><div className="flex gap-2"><button type="button" disabled={busy} className={fieldClass+' text-left'} onClick={()=>{setChoosingOrder(true);setQuery('');setOrders([]);}}>{chosenOrder?(chosenOrder.legacy_code||chosenOrder.id.slice(0,8))+' · '+chosenOrder.customer_name:chosenClient?chosenClient.business_name+' · Saldo a favor':'Seleccionar pedido o cliente'}</button>{(chosenOrder||chosenClient)&&<button type="button" disabled={busy} className="rounded border px-3 text-xs" onClick={()=>{setChosenOrder(null);setChosenClient(null);change({order_id:undefined,client_id:undefined,client_payment_id:undefined});}}>Quitar</button>}</div>{value.client_payment_id&&<div className="flex justify-between text-xs"><span>Cobro existente vinculado</span><button type="button" onClick={()=>change({client_payment_id:undefined})}>Quitar vínculo</button></div>}</div>}
-
-    {!compact&&['general','operating_expense','tax_payment'].includes(value.operation_type)&&<GuidedClassificationPicker collapseHierarchy label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>value.operation_type==='general'||options.conceptTypes.some(t=>t.financial_concept_id===c.id&&t.operation_type===value.operation_type))} onChange={id=>{if(!id){change({financial_concept_id:undefined,concept:'',refund_order_id:undefined});return;}const c=options.concepts.find(x=>x.id===id);if(c)change({refund_order_id:isCustomerRefundConcept(c)?value.refund_order_id:undefined,financial_concept_id:c.id,concept:c.concept,category:c.category,sub_category:c.sub_category,efe_category:c.efe_category,...(value.operation_type==='general'&&c.movement_type!=='Mov. Financiero'?{direction:c.movement_type==='Ingreso'?'ingreso':'egreso'}:{})});}}/>}
-    {!compact&&!value.financial_concept_id&&!['supplier_payment','customer_collection','payroll_payment'].includes(value.operation_type)&&<label className="block text-xs font-semibold">Detalle<input aria-label="Detalle" className={fieldClass} required minLength={2} maxLength={240} value={value.concept} onChange={e=>change({concept:e.target.value})}/></label>}
-    <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Más opciones</summary>{(compact||!!value.financial_concept_id||['supplier_payment','customer_collection','payroll_payment'].includes(value.operation_type))&&<label className="mt-3 block text-xs font-semibold">Detalle del movimiento (opcional)<input aria-label="Detalle" className={fieldClass} maxLength={240} value={value.concept} onChange={e=>change({concept:e.target.value})}/></label>}<label className="mt-3 block text-xs font-semibold">Observaciones<textarea className={`${fieldClass} h-20 py-2`} value={value.notes || ''} maxLength={4000} onChange={e=>change({notes:e.target.value})}/></label></details>
+    
+    {!compact&&['general','operating_expense','tax_payment'].includes(value.operation_type)&&<GuidedClassificationPicker label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>value.operation_type==='general'||options.conceptTypes.some(t=>t.financial_concept_id===c.id&&t.operation_type===value.operation_type))} onChange={id=>{if(!id){change({financial_concept_id:undefined,concept:'',refund_order_id:undefined});return;}const c=options.concepts.find(x=>x.id===id);if(c)change({refund_order_id:isCustomerRefundConcept(c)?value.refund_order_id:undefined,financial_concept_id:c.id,concept:c.concept,category:c.category,sub_category:c.sub_category,efe_category:c.efe_category,...(value.operation_type==='general'&&c.movement_type!=='Mov. Financiero'?{direction:c.movement_type==='Ingreso'?'ingreso':'egreso'}:{})});}}/>}
+    {!compact&&!['supplier_payment','customer_collection','payroll_payment'].includes(value.operation_type)&&<label className="block text-xs font-semibold">Detalle<input aria-label="Detalle" className={fieldClass} required minLength={2} maxLength={240} value={value.concept} onChange={e=>change({concept:e.target.value})}/></label>}
+    <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Más opciones</summary>{(compact||['supplier_payment','customer_collection','payroll_payment'].includes(value.operation_type))&&<label className="mt-3 block text-xs font-semibold">Detalle (opcional)<input aria-label="Detalle" className={fieldClass} maxLength={240} value={value.concept} onChange={e=>change({concept:e.target.value})}/></label>}<label className="mt-3 block text-xs font-semibold">Observaciones<textarea className={`${fieldClass} h-20 py-2`} value={value.notes || ''} maxLength={4000} onChange={e=>change({notes:e.target.value})}/></label></details>
     {!compact&&value.operation_type==='general' && <details className="rounded-lg border border-slate-200 p-3"><summary className="text-sm">Clasificación y referencias</summary><p className="mt-2 text-xs text-slate-500">Categoría y subcategoría agrupan el movimiento en informes; EFE lo ubica en el estado de flujo de efectivo. Centro de costo y hoja de ruta lo relacionan con su actividad.</p><div className="mt-3 grid gap-3 sm:grid-cols-2">
-      <label className="text-xs font-semibold">Categoría<input className={fieldClass} required list="operation-categories" value={value.category} onChange={e=>change({category:e.target.value,financial_concept_id:undefined})}/><datalist id="operation-categories">{[...new Set(options.concepts.map(c=>c.category))].map(c=><option key={c} value={c}/>)}</datalist></label>
+      <label className="text-xs font-semibold">Categoría<input className={fieldClass} list="operation-categories" value={value.category} onChange={e=>change({category:e.target.value,financial_concept_id:undefined})}/><datalist id="operation-categories">{[...new Set(options.concepts.map(c=>c.category))].map(c=><option key={c} value={c}/>)}</datalist></label>
       <label className="text-xs font-semibold">Subcategoría<input className={fieldClass} value={value.sub_category || ''} onChange={e=>change({sub_category:e.target.value,financial_concept_id:undefined})}/></label>
       <label className="text-xs font-semibold">Clasificación EFE<input className={fieldClass} value={value.efe_category || ''} onChange={e=>change({efe_category:e.target.value,financial_concept_id:undefined})}/></label>
       <label className="text-xs font-semibold">Centro de costo<AdaptiveSelect searchLabel="Centro de costo" className={fieldClass} value={value.cost_center_id || ''} onChange={e=>change({cost_center_id:e.target.value})}><option value="">Sin asignar</option>{helpers.costCenters.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</AdaptiveSelect></label>
@@ -223,7 +225,7 @@ function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCu
    {readOnly && <p className="mb-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">Formulario integrado con datos reales. Podés revisar y completar los campos; guardar requiere activar la migración pendiente.</p>}
    {supplierApplication&&!blocked&&<p className="mb-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">El egreso quedará clasificado como pago a proveedor y conservará su código, fecha, cuenta e importe.</p>}
    {mode==='save'&&supplierDraft&&!blocked&&<section className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3"><p className="text-sm">Podés aplicar este pago a documentos de un proveedor conservando su código e importe.</p><button type="button" disabled={busy||loading} className="mt-2 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white" onClick={()=>{setValue(supplierDraft);setSupplierApplication(true);setError('');}}>Vincular a proveedor y comprobantes</button></section>}
-   {error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+   {error && <div role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}{loadFailed&&<button type="button" disabled={loading} onClick={()=>setLoadAttempt(n=>n+1)} className="ml-3 rounded-lg border border-red-200 px-3 py-1.5 font-semibold disabled:opacity-50">Reintentar carga</button>}</div>}
    {loading?<p className="py-6 text-sm">Cargando datos actuales…</p>:blocked?<div className="space-y-3"><p className="text-sm">{blocked}</p>{!blocked.includes('anulada')&&!blocked.includes('no está disponible') && <a className="text-sm text-brand-700 underline" href={blocked.includes('Rendiciones')?'/admin/rendiciones':blocked.includes('vendedores')?'/vendedores/caja':'/admin/finanzas/planificacion'}>Abrir módulo de origen</a>}</div>:Boolean(reference?.supplierPayment?.opening.length)?<div className="space-y-2">
      <p className="text-sm">Para cambiar la aplicación al saldo inicial, abrí Herramientas y ajustes → Aplicar pagos y créditos a apertura.</p>
      <a className="text-sm text-brand-700 underline" href="/admin/finanzas?tab=cc">Abrir CC Proveedores</a>
