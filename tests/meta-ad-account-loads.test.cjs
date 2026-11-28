@@ -118,3 +118,112 @@ test('extractMetaLoadsFromActivities extracts ARS funding_event_successful and i
   assert.equal(loads[0].old_limit_cents, null);
   assert.equal(loads[0].new_limit_cents, null);
 });
+
+test('meta-ads-sheet history merges USD sheet rows with ARS 1-ZONO and 2-ZONO Meta insights (+5% fee) without duplicating', async () => {
+  const sheetSrc = fs.readFileSync('src/app/api/admin/meta-ads-sheet/route.ts', 'utf8');
+  const sheetCompiled = ts.transpileModule(sheetSrc, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+
+  const csv = [
+    'date_start,account,campaign,messages,comments,ctr,cprUsd,spendUsd,reactions,reach,impressions,frequency,cpm,feePercent,exchangeRate,col15,spendArs,feeArs',
+    '26/11/2026,S731.04,(Tanques) Camp USD [4592],10,0,2.0%,2.50,25.00,0,1000,1500,1.5,10,11%,1600,0,40000,4400',
+  ].join('\n');
+
+  const routeExports = {};
+  vm.runInNewContext(sheetCompiled, {
+    exports: routeExports,
+    Date,
+    Intl,
+    Number,
+    String,
+    Array,
+    Map,
+    Set,
+    URL,
+    AbortSignal,
+    console: { log() {}, warn() {}, error() {} },
+    process: {
+      env: {
+        META_ZONO_ACCESS_TOKEN: 'zono-token',
+        META_ZONO_API_VERSION: 'v24.0',
+      },
+    },
+    fetch: async input => {
+      const u = new URL(input);
+      if (u.pathname.includes('/act_2361501517627802/insights')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              {
+                date_start: '2026-11-26',
+                campaign_name: '(MEPS) Camp 1-ZONO [1234]',
+                spend: '100000',
+                actions: [{ action_type: 'onsite_conversion.messaging_conversation_started_7d', value: '25' }],
+                impressions: '5000',
+                reach: '4000',
+                frequency: '1.25',
+                ctr: '3.2',
+                cpm: '20000',
+              },
+            ],
+          }),
+        };
+      }
+      if (u.pathname.includes('/act_942497128185607/insights')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              {
+                date_start: '2026-11-26',
+                campaign_name: '(Bio) Camp 2-ZONO [5678]',
+                spend: '200000',
+                actions: [{ action_type: 'onsite_conversion.messaging_conversation_started_7d', value: '50' }],
+                impressions: '9000',
+                reach: '7000',
+                frequency: '1.28',
+                ctr: '2.9',
+                cpm: '22000',
+              },
+            ],
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch: ${input}`);
+    },
+    require: mod => {
+      if (mod === 'next/server') return { NextResponse: { json: (body, options) => ({ body, options }) } };
+      if (mod === '@supabase/supabase-js') {
+        return {
+          createClient: () => ({
+            rpc: async () => ({ data: [{ order_date: '2026-11-26', revenue: 1000000, orders_count: 5 }], error: null }),
+          }),
+        };
+      }
+      if (mod === '@/lib/googleSheets') return { fetchSpreadsheetCsv: async () => csv };
+      if (mod === '@/lib/metaZonoBalance.mjs') return zonoBalance;
+      throw new Error(`Unexpected require: ${mod}`);
+    },
+  });
+
+  const res = await routeExports.GET({
+    url: 'https://local/api/admin/meta-ads-sheet?tab=history&dateFrom=2026-11-26&dateTo=2026-11-26',
+  });
+  const body = res.body;
+  assert.equal(body.records.length, 3);
+  assert.equal(body.summary.totalMessages, 85); // 10 + 25 + 50
+  assert.equal(body.summary.totalSpendUsd, 25);
+  assert.equal(body.summary.totalSpendArsNative, 300000); // 100k + 200k
+  // Spend ARS = 40,000 + 100,000 + 200,000 = 340,000
+  // Fee ARS = 4,400 + 5,000 (5%) + 10,000 (5%) = 19,400
+  assert.equal(body.summary.totalSpendArs, 340000);
+  assert.equal(body.summary.totalFeeArs, 19400);
+  assert.equal(body.summary.totalInvestmentArs, 359400);
+  assert.equal(body.dailyTimeline.length, 1);
+  assert.equal(body.dailyTimeline[0].accounts['1-ZONO'].totalInvestmentArs, 105000);
+  assert.equal(body.dailyTimeline[0].accounts['2-ZONO'].totalInvestmentArs, 210000);
+});

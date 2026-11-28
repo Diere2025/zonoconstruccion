@@ -4,6 +4,65 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
+import { zonoAccounts } from '@/lib/metaZonoBalance.mjs';
+
+const ZONO_ARS_FEE_RATE = 0.05;
+
+function argentinaTodayISO(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const get = (t: string) => parts.find(p => p.type === t)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function isoToArDate(isoDate: string): string {
+  const parts = isoDate.split('-');
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : isoDate;
+}
+
+async function fetchZonoDailyCampaignInsights(
+  account: { id: string; name: string },
+  dateFrom: string,
+  dateTo: string,
+  token: string,
+  version: string
+): Promise<any[]> {
+  const rows: any[] = [];
+  let url: URL | null = new URL(`https://graph.facebook.com/${version}/${account.id}/insights`);
+  url.searchParams.set('fields', 'date_start,campaign_name,spend,actions,impressions,reach,frequency,ctr,cpm');
+  url.searchParams.set('level', 'campaign');
+  url.searchParams.set('time_increment', '1');
+  url.searchParams.set('time_range', JSON.stringify({ since: dateFrom, until: dateTo }));
+  url.searchParams.set('limit', '500');
+
+  const seen = new Set<string>();
+  let pages = 0;
+  while (url && pages < 20) {
+    if (url.origin !== 'https://graph.facebook.com' || seen.has(url.href)) break;
+    seen.add(url.href);
+    const headers: Record<string, string> = {};
+    if (!url.searchParams.has('access_token')) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    const res = await fetch(url, {
+      cache: 'no-store',
+      headers,
+      signal: AbortSignal.timeout(15000),
+    });
+    const body: any = await res.json().catch(() => null);
+    if (!res.ok || !body || body.error || !Array.isArray(body.data)) {
+      throw new Error(`Meta API (${account.name}): ${body?.error?.message || `HTTP ${res.status}`}`);
+    }
+    rows.push(...body.data);
+    pages += 1;
+    url = body.paging?.next ? new URL(body.paging.next) : null;
+  }
+  return rows;
+}
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -104,10 +163,9 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const tab = searchParams.get('tab') || 'live';
     
-    // Default to current month if not provided
-    const now = new Date();
-    const defaultFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    const defaultTo = now.toISOString().split('T')[0];
+    // Default to current month in Argentina timezone if not provided
+    const defaultTo = argentinaTodayISO();
+    const defaultFrom = `${defaultTo.slice(0, 7)}-01`;
 
     const dateFrom = searchParams.get('dateFrom') || defaultFrom;
     const dateTo = searchParams.get('dateTo') || defaultTo;
@@ -225,9 +283,117 @@ export async function GET(request: Request) {
       let totalMessages = 0;
       let totalSpendUsd = 0;
       let totalSpendArs = 0;
+      let totalSpendArsNative = 0;
       let totalFeeArs = 0;
       let totalImpressions = 0;
       let totalReach = 0;
+      const sheetAccountDays = new Set<string>();
+
+      const addRecord = (rec: {
+        isoDate: string;
+        dateStr: string;
+        account: string;
+        currency: 'USD' | 'ARS';
+        campaign: string;
+        messages: number;
+        comments: number;
+        reactions: number;
+        ctr: string;
+        cprUsd: number;
+        spendUsd: number;
+        reach: number;
+        impressions: number;
+        frequency: number;
+        cpm: string;
+        feePercent: string;
+        exchangeRate: number;
+        spendArs: number;
+        feeArs: number;
+      }) => {
+        const totalInvestmentArs = rec.spendArs + rec.feeArs;
+        totalMessages += rec.messages;
+        totalSpendUsd += rec.spendUsd;
+        totalSpendArs += rec.spendArs;
+        if (rec.currency === 'ARS') totalSpendArsNative += rec.spendArs;
+        totalFeeArs += rec.feeArs;
+        totalImpressions += rec.impressions;
+        totalReach += rec.reach;
+
+        const lineMatch = rec.campaign.match(/\[([\d|]+)\]/);
+        const phoneLine = lineMatch ? lineMatch[1].replaceAll('|', ' / ') : '';
+        const category = categorizeCampaign(rec.campaign);
+
+        if (!dailyMap[rec.isoDate]) {
+          dailyMap[rec.isoDate] = {
+            isoDate: rec.isoDate,
+            dateStr: rec.dateStr,
+            spendArs: 0,
+            feeArs: 0,
+            totalInvestmentArs: 0,
+            spendUsd: 0,
+            messages: 0,
+            impressions: 0,
+            reach: 0,
+            categories: {},
+            accounts: {},
+          };
+        }
+        const day = dailyMap[rec.isoDate];
+        day.spendArs += rec.spendArs;
+        day.feeArs += rec.feeArs;
+        day.totalInvestmentArs += totalInvestmentArs;
+        day.spendUsd += rec.spendUsd;
+        day.messages += rec.messages;
+        day.impressions += rec.impressions;
+        day.reach += rec.reach;
+
+        if (!day.categories[category]) {
+          day.categories[category] = { totalInvestmentArs: 0, messages: 0 };
+        }
+        day.categories[category].totalInvestmentArs += totalInvestmentArs;
+        day.categories[category].messages += rec.messages;
+
+        const accKey = rec.account || 'S731.04';
+        if (!day.accounts[accKey]) {
+          day.accounts[accKey] = { totalInvestmentArs: 0, messages: 0 };
+        }
+        day.accounts[accKey].totalInvestmentArs += totalInvestmentArs;
+        day.accounts[accKey].messages += rec.messages;
+
+        if (!categoryMap[category]) {
+          categoryMap[category] = { name: category, totalInvestment: 0, messages: 0, spendUsd: 0 };
+        }
+        categoryMap[category].totalInvestment += totalInvestmentArs;
+        categoryMap[category].messages += rec.messages;
+        categoryMap[category].spendUsd += rec.spendUsd;
+
+        parsedHistory.push({
+          date: rec.dateStr,
+          dateObj: `${rec.isoDate}T12:00:00.000Z`,
+          isoDate: rec.isoDate,
+          account: accKey,
+          currency: rec.currency,
+          campaign: rec.campaign,
+          category,
+          phoneLine,
+          messages: rec.messages,
+          comments: rec.comments,
+          reactions: rec.reactions,
+          ctr: rec.ctr,
+          cprUsd: rec.cprUsd,
+          spendUsd: rec.spendUsd,
+          reach: rec.reach,
+          impressions: rec.impressions,
+          frequency: rec.frequency,
+          cpm: rec.cpm,
+          feePercent: rec.feePercent,
+          exchangeRate: rec.exchangeRate,
+          spendArs: rec.spendArs,
+          feeArs: rec.feeArs,
+          totalInvestmentArs,
+          cprArs: rec.messages > 0 ? Math.round(totalInvestmentArs / rec.messages) : 0,
+        });
+      };
 
       rows.forEach((r, idx) => {
         if (idx < 1) return;
@@ -242,100 +408,92 @@ export async function GET(request: Request) {
         // Apply strict date range filter
         if (isoDate < dateFrom || isoDate > dateTo) return;
 
-        const messages = parseSpanishNumber(r[3]);
-        const comments = parseSpanishNumber(r[4]);
-        const ctr = r[5] || '';
-        const cprUsd = parseSpanishNumber(r[6]);
-        const spendUsd = parseSpanishNumber(r[7]);
-        const reactions = parseSpanishNumber(r[8]);
-        const reach = parseSpanishNumber(r[9]);
-        const impressions = parseSpanishNumber(r[10]);
-        const frequency = parseSpanishNumber(r[11]);
-        const cpm = r[12] || '';
-        const feePercent = r[13] || '';
-        const exchangeRate = parseSpanishNumber(r[14]);
-        const spendArs = parseSpanishNumber(r[16]);
-        const feeArs = parseSpanishNumber(r[17]);
-        const totalInvestmentArs = spendArs + feeArs;
+        sheetAccountDays.add(`${account.trim().toUpperCase()}|${isoDate}`);
 
-        totalMessages += messages;
-        totalSpendUsd += spendUsd;
-        totalSpendArs += spendArs;
-        totalFeeArs += feeArs;
-        totalImpressions += impressions;
-        totalReach += reach;
-
-        // Extract line from campaign name if present e.g. [4592]
-        const lineMatch = campaign.match(/\[(\d+)\]/);
-        const phoneLine = lineMatch ? lineMatch[1] : '';
-
-        // Extract category using accurate categorization logic
-        const category = categorizeCampaign(campaign);
-
-        // Daily grouping
-        if (!dailyMap[isoDate]) {
-          dailyMap[isoDate] = {
-            isoDate,
-            dateStr,
-            spendArs: 0,
-            feeArs: 0,
-            totalInvestmentArs: 0,
-            spendUsd: 0,
-            messages: 0,
-            impressions: 0,
-            reach: 0,
-            categories: {}
-          };
-        }
-        const day = dailyMap[isoDate];
-        day.spendArs += spendArs;
-        day.feeArs += feeArs;
-        day.totalInvestmentArs += totalInvestmentArs;
-        day.spendUsd += spendUsd;
-        day.messages += messages;
-        day.impressions += impressions;
-        day.reach += reach;
-
-        if (!day.categories[category]) {
-          day.categories[category] = { totalInvestmentArs: 0, messages: 0 };
-        }
-        day.categories[category].totalInvestmentArs += totalInvestmentArs;
-        day.categories[category].messages += messages;
-
-        // Category summary
-        if (!categoryMap[category]) {
-          categoryMap[category] = { name: category, totalInvestment: 0, messages: 0, spendUsd: 0 };
-        }
-        categoryMap[category].totalInvestment += totalInvestmentArs;
-        categoryMap[category].messages += messages;
-        categoryMap[category].spendUsd += spendUsd;
-
-        parsedHistory.push({
-          date: dateStr,
-          dateObj: `${isoDate}T12:00:00.000Z`,
+        addRecord({
           isoDate,
+          dateStr,
           account,
+          currency: 'USD',
           campaign,
-          category,
-          phoneLine,
-          messages,
-          comments,
-          reactions,
-          ctr,
-          cprUsd,
-          spendUsd,
-          reach,
-          impressions,
-          frequency,
-          cpm,
-          feePercent,
-          exchangeRate,
-          spendArs,
-          feeArs,
-          totalInvestmentArs,
-          cprArs: messages > 0 ? Math.round(totalInvestmentArs / messages) : 0
+          messages: parseSpanishNumber(r[3]),
+          comments: parseSpanishNumber(r[4]),
+          ctr: r[5] || '',
+          cprUsd: parseSpanishNumber(r[6]),
+          spendUsd: parseSpanishNumber(r[7]),
+          reactions: parseSpanishNumber(r[8]),
+          reach: parseSpanishNumber(r[9]),
+          impressions: parseSpanishNumber(r[10]),
+          frequency: parseSpanishNumber(r[11]),
+          cpm: r[12] || '',
+          feePercent: r[13] || '',
+          exchangeRate: parseSpanishNumber(r[14]),
+          spendArs: parseSpanishNumber(r[16]),
+          feeArs: parseSpanishNumber(r[17]),
         });
       });
+
+      // Also fetch ARS accounts (1-ZONO, 2-ZONO) daily campaign insights from Meta Graph API
+      const zonoWarnings: string[] = [];
+      const zonoToken = process.env.META_ZONO_ACCESS_TOKEN;
+      if (zonoToken) {
+        const zonoVersion = process.env.META_ZONO_API_VERSION || 'v24.0';
+        const settled = await Promise.allSettled(
+          zonoAccounts.map(acc => fetchZonoDailyCampaignInsights(acc, dateFrom, dateTo, zonoToken, zonoVersion))
+        );
+        settled.forEach((result, index) => {
+          const acc = zonoAccounts[index];
+          if (result.status === 'rejected') {
+            const msg = result.reason instanceof Error ? result.reason.message : `No se pudo leer ${acc.name}`;
+            zonoWarnings.push(msg);
+            return;
+          }
+          for (const row of result.value) {
+            const isoDate = String(row.date_start || '').trim();
+            if (!isoDate || isoDate < dateFrom || isoDate > dateTo) continue;
+            // Avoid double-counting if the spreadsheet ever includes this ARS account for this day
+            if (sheetAccountDays.has(`${acc.name.toUpperCase()}|${isoDate}`)) continue;
+
+            const spendArs = Number(row.spend || 0);
+            const actions: Array<{ action_type?: string; value?: string | number }> = Array.isArray(row.actions) ? row.actions : [];
+            const messages = Number(
+              actions.find(a => a.action_type === 'onsite_conversion.messaging_conversation_started_7d')?.value || 0
+            );
+            const comments = Number(actions.find(a => a.action_type === 'comment')?.value || 0);
+            const reactions = Number(actions.find(a => a.action_type === 'post_reaction')?.value || 0);
+            const impressions = Number(row.impressions || 0);
+            const reach = Number(row.reach || 0);
+            const frequency = Number(row.frequency || 0);
+            if (spendArs <= 0 && messages <= 0 && impressions <= 0) continue;
+
+            const feeArs = Math.round(spendArs * ZONO_ARS_FEE_RATE * 100) / 100;
+            const ctrVal = Number(row.ctr || 0);
+            const cpmVal = Number(row.cpm || 0);
+
+            addRecord({
+              isoDate,
+              dateStr: isoToArDate(isoDate),
+              account: acc.name,
+              currency: 'ARS',
+              campaign: String(row.campaign_name || ''),
+              messages,
+              comments,
+              reactions,
+              ctr: ctrVal > 0 ? `${ctrVal.toFixed(2)}%` : '',
+              cprUsd: 0,
+              spendUsd: 0,
+              reach,
+              impressions,
+              frequency,
+              cpm: cpmVal > 0 ? `$ ${Math.round(cpmVal).toLocaleString('es-AR')}` : '',
+              feePercent: '5%',
+              exchangeRate: 0,
+              spendArs,
+              feeArs,
+            });
+          }
+        });
+      }
 
       // Sort chronological descending
       parsedHistory.sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''));
@@ -348,6 +506,7 @@ export async function GET(request: Request) {
           p_from: dateFrom,
           p_to: dateTo,
         });
+
         if (error) {
           console.error('Error fetching ERP orders for ROAS:', error);
         } else {
@@ -382,7 +541,8 @@ export async function GET(request: Request) {
           erpRevenue: erp.revenue,
           erpOrdersCount: erp.count,
           roas,
-          categories: d.categories
+          categories: d.categories,
+          accounts: d.accounts,
         };
       });
 
@@ -405,10 +565,12 @@ export async function GET(request: Request) {
         tab: 'history',
         dateFrom,
         dateTo,
+        zonoWarnings: zonoWarnings.length ? zonoWarnings : undefined,
         summary: {
           totalMessages,
           totalSpendUsd,
           totalSpendArs,
+          totalSpendArsNative,
           totalFeeArs,
           totalInvestmentArs,
           totalImpressions,

@@ -124,6 +124,7 @@ interface HistoryRecord {
   dateObj: string;
   isoDate: string;
   account: string;
+  currency?: 'USD' | 'ARS';
   campaign: string;
   category: string;
   phoneLine: string;
@@ -158,6 +159,24 @@ interface DailyTimelineItem {
   erpOrdersCount: number;
   roas: number;
   categories: Record<string, { totalInvestmentArs: number; messages: number }>;
+  accounts?: Record<string, { totalInvestmentArs: number; messages: number }>;
+}
+
+function argentinaTodayISO(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const get = (t: string) => parts.find(p => p.type === t)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function shiftIsoDays(isoDate: string, deltaDays: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return dt.toISOString().slice(0, 10);
 }
 
 interface CategorySummaryItem {
@@ -497,24 +516,17 @@ export default function MetaAdsPage() {
     };
   }, [liveSummary, currentTime, simulatedBudgetInput, isSimulatingBudget]);
 
-  // History & Charts Data State - Synchronously initialized to current month
+  // History & Charts Data State - Synchronously initialized to current month in Argentina timezone
   const [presetPeriod, setPresetPeriod] = useState<string>("this_month");
-  const [dateFrom, setDateFrom] = useState<string>(() => {
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    return `${yyyy}-${mm}-01`;
-  });
-  const [dateTo, setDateTo] = useState<string>(() => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  });
+  const [dateFrom, setDateFrom] = useState<string>(() => `${argentinaTodayISO().slice(0, 7)}-01`);
+  const [dateTo, setDateTo] = useState<string>(() => argentinaTodayISO());
   const [historySummary, setHistorySummary] = useState<any>(null);
   const [historyRecords, setHistoryRecords] = useState<HistoryRecord[]>([]);
   const [dailyTimeline, setDailyTimeline] = useState<DailyTimelineItem[]>([]);
   const [categoriesSummary, setCategoriesSummary] = useState<CategorySummaryItem[]>([]);
   const [historySearchQuery, setHistorySearchQuery] = useState("");
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState("all");
+  const [historyAccountFilter, setHistoryAccountFilter] = useState("all");
 
   // Chart Interactive Metric Selector
   const [chartMetric, setChartMetric] = useState<'messages' | 'investment' | 'cpr' | 'revenue' | 'roas'>('messages');
@@ -541,11 +553,11 @@ export default function MetaAdsPage() {
     }
   }, [dateFrom, dateTo]);
 
-  // Helper date preset updater
+  // Helper date preset updater (Argentina calendar day)
   const handlePresetChange = (preset: string) => {
     setPresetPeriod(preset);
-    const today = new Date();
-    const endStr = today.toISOString().split('T')[0];
+    const endStr = argentinaTodayISO();
+    const [yyyyNum, mmNum] = endStr.split('-').map(Number);
 
     let start = '';
     let end = endStr;
@@ -554,25 +566,16 @@ export default function MetaAdsPage() {
       start = endStr;
       end = endStr;
     } else if (preset === '7d') {
-      const d = new Date();
-      d.setDate(d.getDate() - 7);
-      start = d.toISOString().split('T')[0];
+      start = shiftIsoDays(endStr, -7);
     } else if (preset === '30d') {
-      const d = new Date();
-      d.setDate(d.getDate() - 30);
-      start = d.toISOString().split('T')[0];
+      start = shiftIsoDays(endStr, -30);
     } else if (preset === 'this_month') {
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      start = `${yyyy}-${mm}-01`;
+      start = `${endStr.slice(0, 7)}-01`;
     } else if (preset === 'last_month') {
-      const d1 = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const d2 = new Date(today.getFullYear(), today.getMonth(), 0);
-      const yyyy = d1.getFullYear();
-      const mm = String(d1.getMonth() + 1).padStart(2, '0');
-      const lastDay = String(d2.getDate()).padStart(2, '0');
-      start = `${yyyy}-${mm}-01`;
-      end = `${yyyy}-${mm}-${lastDay}`;
+      const firstPrev = new Date(Date.UTC(yyyyNum, mmNum - 2, 1));
+      const lastPrev = new Date(Date.UTC(yyyyNum, mmNum - 1, 0));
+      start = firstPrev.toISOString().slice(0, 10);
+      end = lastPrev.toISOString().slice(0, 10);
     }
 
     setDateFrom(start);
@@ -719,27 +722,48 @@ export default function MetaAdsPage() {
         r.account.toLowerCase().includes(historySearchQuery.toLowerCase());
 
       const matchesCat = historyCategoryFilter === 'all' || r.category === historyCategoryFilter;
+      const matchesAccount = historyAccountFilter === 'all' || r.account === historyAccountFilter;
 
-      return matchesSearch && matchesCat;
+      return matchesSearch && matchesCat && matchesAccount;
     });
-  }, [historyRecords, historySearchQuery, historyCategoryFilter]);
+  }, [historyRecords, historySearchQuery, historyCategoryFilter, historyAccountFilter]);
 
-  // Filtered Daily Timeline according to Category filter
+  // Filtered Daily Timeline according to Category & Account filters
   const filteredTimeline = useMemo(() => {
-    if (historyCategoryFilter === 'all') return dailyTimeline;
+    if (historyCategoryFilter === 'all' && historyAccountFilter === 'all') return dailyTimeline;
 
     return dailyTimeline.map(d => {
-      const catData = d.categories[historyCategoryFilter] || { totalInvestmentArs: 0, messages: 0 };
-      const cpr = catData.messages > 0 ? Math.round(catData.totalInvestmentArs / catData.messages) : 0;
+      let totalInvestmentArs = d.totalInvestmentArs;
+      let messages = d.messages;
+
+      if (historyAccountFilter !== 'all' && historyCategoryFilter !== 'all') {
+        const dayRows = historyRecords.filter(
+          r => r.isoDate === d.isoDate && r.account === historyAccountFilter && r.category === historyCategoryFilter
+        );
+        totalInvestmentArs = dayRows.reduce((s, r) => s + r.totalInvestmentArs, 0);
+        messages = dayRows.reduce((s, r) => s + r.messages, 0);
+      } else if (historyAccountFilter !== 'all') {
+        const accData = d.accounts?.[historyAccountFilter] || { totalInvestmentArs: 0, messages: 0 };
+        totalInvestmentArs = accData.totalInvestmentArs;
+        messages = accData.messages;
+      } else if (historyCategoryFilter !== 'all') {
+        const catData = d.categories[historyCategoryFilter] || { totalInvestmentArs: 0, messages: 0 };
+        totalInvestmentArs = catData.totalInvestmentArs;
+        messages = catData.messages;
+      }
+
+      const cpr = messages > 0 ? Math.round(totalInvestmentArs / messages) : 0;
+      const roas = totalInvestmentArs > 0 ? Number((d.erpRevenue / totalInvestmentArs).toFixed(2)) : 0;
 
       return {
         ...d,
-        totalInvestmentArs: catData.totalInvestmentArs,
-        messages: catData.messages,
-        cprArs: cpr
+        totalInvestmentArs,
+        messages,
+        cprArs: cpr,
+        roas,
       };
     });
-  }, [dailyTimeline, historyCategoryFilter]);
+  }, [dailyTimeline, historyCategoryFilter, historyAccountFilter, historyRecords]);
 
   // Chart max value for scaling
   const chartMaxVal = useMemo(() => {
@@ -784,6 +808,15 @@ export default function MetaAdsPage() {
       if (r.category) cats.add(r.category);
     });
     return Array.from(cats);
+  }, [historyRecords]);
+
+  // Distinct accounts for history filter
+  const distinctHistoryAccounts = useMemo(() => {
+    const accounts = new Set<string>();
+    historyRecords.forEach(r => {
+      if (r.account) accounts.add(r.account);
+    });
+    return Array.from(accounts);
   }, [historyRecords]);
 
   return (
@@ -922,6 +955,20 @@ export default function MetaAdsPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
+                  {/* Account Filter */}
+                  {distinctHistoryAccounts.length > 1 && (
+                    <select
+                      value={historyAccountFilter}
+                      onChange={e => setHistoryAccountFilter(e.target.value)}
+                      className="py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+                    >
+                      <option value="all">Todas las Cuentas</option>
+                      {distinctHistoryAccounts.map(acc => (
+                        <option key={acc} value={acc}>{acc}</option>
+                      ))}
+                    </select>
+                  )}
+
                   {/* Category Filter */}
                   {distinctCategories.length > 0 && (
                     <div className="flex items-center gap-1.5">
@@ -997,6 +1044,9 @@ export default function MetaAdsPage() {
                   </div>
                   <p className="text-[11px] text-slate-500 font-semibold font-mono">
                     US$ {(historySummary?.totalSpendUsd || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    {(historySummary?.totalSpendArsNative || 0) > 0 && (
+                      <span> + {formatPrice(historySummary.totalSpendArsNative)} ARS</span>
+                    )}
                   </p>
                 </div>
 
@@ -2496,6 +2546,19 @@ export default function MetaAdsPage() {
                     />
                   </div>
 
+                  {distinctHistoryAccounts.length > 1 && (
+                    <select
+                      value={historyAccountFilter}
+                      onChange={e => setHistoryAccountFilter(e.target.value)}
+                      className="py-2 px-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none"
+                    >
+                      <option value="all">Todas las Cuentas</option>
+                      {distinctHistoryAccounts.map(acc => (
+                        <option key={acc} value={acc}>{acc}</option>
+                      ))}
+                    </select>
+                  )}
+
                   {distinctCategories.length > 0 && (
                     <select
                       value={historyCategoryFilter}
@@ -2552,6 +2615,15 @@ export default function MetaAdsPage() {
                               <div className="font-bold text-slate-900 text-xs max-w-sm truncate" title={r.campaign}>
                                 {r.campaign}
                               </div>
+                              {r.account && (
+                                <span className={`inline-flex items-center mt-0.5 px-1.5 py-0.5 rounded text-[9.5px] font-black ${
+                                  r.currency === 'ARS'
+                                    ? 'bg-sky-50 text-sky-700'
+                                    : 'bg-indigo-50 text-indigo-700'
+                                }`}>
+                                  {r.account}{r.currency ? ` · ${r.currency}` : ''}
+                                </span>
+                              )}
                             </td>
                             <td className="p-3.5 text-center">
                               <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-700">
@@ -2562,7 +2634,9 @@ export default function MetaAdsPage() {
                               {r.messages}
                             </td>
                             <td className="p-3.5 text-right font-mono text-slate-600">
-                              US$ {r.spendUsd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              {r.currency === 'ARS'
+                                ? <span className="text-[10px] text-sky-700 font-bold">ARS nativo</span>
+                                : `US$ ${r.spendUsd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                             </td>
                             <td className="p-3.5 text-right font-mono text-slate-700">
                               {formatPrice(r.spendArs)}
