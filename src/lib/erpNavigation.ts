@@ -40,7 +40,6 @@ export const erpModules: ErpModule[] = [
     { id: "direccion-top-clientes", name: "Top clientes", href: "/admin/top-clientes", icon: Users, adminOnly: true },
     { id: "direccion-2", name: "Meta Ads", href: "/admin/meta-ads", icon: Target, adminOnly: true },
     { id: "direccion-prompts", name: "Prompts de campañas", href: "/admin/prompts-campanas", icon: FileText, ownerEmail: 'diego.boveda@gmail.com' },
-    { id: "direccion-3", name: "EERR Planillas", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
     { id: "direccion-eerr-sistema", name: "EERR Sistema", href: "/admin/finanzas/eerr/sistema", icon: BarChart3, adminOnly: true },
     { id: "direccion-4", name: "Rentabilidad y Margen", href: "/admin/rentabilidad", icon: BarChart3, adminOnly: true },
     { id: 'direccion-costos', name: 'Costos y rentabilidad de productos', href: '/admin/costos', icon: Calculator, adminOnly: true },

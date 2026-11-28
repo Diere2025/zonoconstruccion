@@ -15,6 +15,7 @@ export async function GET(request:Request){
  const denied=await requireFinanceAdmin(request);if(denied)return reply({error:denied.error},denied.status);
  try{
   const url=new URL(request.url),latestDay=localYesterday();
+  if(url.searchParams.get('action')==='access')return reply({success:true});
   const p=period(url.searchParams.get('month')||'',latestDay,url.searchParams.get('until')??undefined);const db=costDatabase();
   const marginUrl=new URL(request.url);marginUrl.searchParams.set('from',p.start);marginUrl.searchParams.set('to',p.cutoff);marginUrl.searchParams.set('mode','historical');
   const [marginResponse,config,advertising]=await Promise.all([

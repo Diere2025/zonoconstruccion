@@ -112,21 +112,9 @@ export default function NativeEerrView(){
      event.returnValue = '';
    }
 
-   function guardPlanillasLink(event: MouseEvent) {
-     if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey ||
-         event.shiftKey || event.altKey || !(event.target instanceof Element)) return;
-     const link = event.target.closest<HTMLAnchorElement>('a[href="/admin/finanzas/eerr"]');
-     if (!link || (link.target && link.target !== '_self')) return;
-     if (!window.confirm('Hay una precarga sin guardar. ¿Querés descartarla e ir a EERR Planillas?')) {
-       event.preventDefault();
-     }
-   }
-
    window.addEventListener('beforeunload', guardUnload);
-   document.addEventListener('click', guardPlanillasLink, true);
    return () => {
      window.removeEventListener('beforeunload', guardUnload);
-     document.removeEventListener('click', guardPlanillasLink, true);
    };
  }, [dirty]);
  useEffect(()=>{const id=++generation.current;setLoading(true);setData(null);setError('');setDirty(false);setNotice('');setValidationShown(false);request(reportUrl).then((r:Report)=>{if(id===generation.current){setData(r);setDraft(r.provisions);}}).catch((e:Error)=>{if(id===generation.current)setError(e.message);}).finally(()=>{if(id===generation.current)setLoading(false);});return()=>{generation.current++;};},[reportUrl,reload]);
@@ -192,10 +180,6 @@ export default function NativeEerrView(){
      {data.totals.result===null&&<p>Resultado parcial calculado con los importes identificados. Quedan {data.issues.length} incidencias por conciliar.{data.missingCosts>0&&` Hay ${data.missingCosts} pedidos con CMV incompleto.`}</p>}
     </div>
    </details>
-   <a href="/admin/finanzas/eerr" target="_blank" rel="noopener"
-      className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
-     Abrir EERR Planillas ↗
-   </a>
    </div>
 
    <div role="tablist" aria-label="Secciones del EERR" className="flex flex-wrap gap-1.5 rounded-lg bg-slate-100 p-1.5">

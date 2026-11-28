@@ -444,7 +444,7 @@ function FinanceWorkspace() {
     return()=>{active=false;};
   },[searchParams]);
   const activeTab = tab === "accounts" || tab === "cc" || tab === "cc-clientes" || tab === "validations" ? tab : "flow";
-  useEffect(() => { if (tab === "eerr") router.replace("/admin/finanzas/eerr"); }, [tab, router]);
+  useEffect(() => { if (tab === "eerr") router.replace("/admin/finanzas/eerr/sistema"); }, [tab, router]);
   const [showSummary, setShowSummary] = useState(false);
   const [optionalColumns, setOptionalColumns] = useState<Record<OptionalFinanceColumn, boolean>>({ subcategory: false, efe: false, notes: false });
   const [expandedTransactions, setExpandedTransactions] = useState<Record<string, boolean>>({});

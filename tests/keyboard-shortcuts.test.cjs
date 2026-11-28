@@ -16,7 +16,7 @@ test('defaults use alternatives to reserved function keys',()=>{
 test('unauthorized saved shortcuts cannot acquire destinations after a role change',()=>{
  const actions=shortcuts.shortcutActions(visible(['fletero']));
  const bindings=shortcuts.resolveShortcuts(actions,shortcuts.defaultShortcuts);
- assert.equal(bindings['direccion-3'],undefined);assert.equal(bindings['new-movement'],undefined);
+ assert.equal(bindings['direccion-eerr-sistema'],undefined);assert.equal(bindings['new-movement'],undefined);
  assert.equal(bindings['tesoreria-1'],'Alt+C');
  for(const roles of [['seller'],['compras'],['administracion'],['instalador']]){
   const a=shortcuts.shortcutActions(visible(roles));const b=shortcuts.resolveShortcuts(a,{'direccion-2':'Alt+M'});

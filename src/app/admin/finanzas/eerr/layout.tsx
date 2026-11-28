@@ -13,7 +13,7 @@ export default function EerrLayout({ children }: { children: ReactNode }) {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
-    checkAccess('/api/admin/finanzas/eerr?action=access')
+    checkAccess('/api/admin/finanzas/eerr-native?action=access')
       .then(() => { if (active) setAccess('allowed'); })
       .catch((error: Error) => { if (active) { setMessage(error.message); setAccess('denied'); } });
     return () => { active = false; };

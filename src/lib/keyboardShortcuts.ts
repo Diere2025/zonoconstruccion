@@ -5,7 +5,7 @@ export type ShortcutBindings = Record<string, string>;
 export const defaultShortcuts: ShortcutBindings = {
   'new-movement': 'Alt+M', 'minorista-2': 'F2', 'minorista-4': 'Alt+B',
   submit: 'Ctrl+Enter', 'tesoreria-1': 'Alt+C', 'direccion-margen-diario': 'Alt+R',
-  'direccion-3': 'Alt+Shift+R', 'direccion-2': 'Alt+Shift+M',
+  'direccion-eerr-sistema': 'Alt+Shift+R', 'direccion-2': 'Alt+Shift+M',
 };
 export function shortcutActions(modules: ErpModule[]): ShortcutAction[] {
   const actions: ShortcutAction[] = modules.flatMap(m => m.links.map(l => ({ id: l.id, name: l.name, href: l.href, group: m.title })));

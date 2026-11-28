@@ -91,7 +91,6 @@ test('query parameters select the correct module and screen; detail and printing
     ['/vendedores/clientes', '', 'minorista', 'Clientes Minoristas'],
     ['/vendedores/pedidos', 'tab=list&client_type=mayoristas&status=Entregado', 'mayorista', 'Pedidos Mayoristas'],
     ['/vendedores/pedidos', '', 'minorista', 'Pedidos Minoristas'],
-    ['/admin/finanzas/eerr', '', 'direccion', 'EERR Planillas'],
     ['/admin/finanzas/eerr/sistema', '', 'direccion', 'EERR Sistema'],
     ['/admin/finanzas', 'tab=accounts', 'tesoreria', 'Cuentas y saldos'],
     ['/admin/finanzas', 'tab=cc', 'tesoreria', 'CC Proveedores'],
@@ -109,7 +108,7 @@ test('query parameters select the correct module and screen; detail and printing
 });
 
 test('unauthorized screens do not acquire a breadcrumb through another module', () => {
-  assert.equal(activeErpLink(visibleErpModules(identity(['administracion'])), '/admin/finanzas/eerr', ''), undefined);
+  assert.equal(activeErpLink(visibleErpModules(identity(['administracion'])), '/admin/finanzas/eerr/sistema', ''), undefined);
 });
 
  test('sellers including restricted sellers can open payment checks', () => {
@@ -131,7 +130,7 @@ test('Administración can open and configure unclassified movements without acce
     assert.equal(canOpen(['admin'], route), true);
     for (const role of ['compras', 'logistica', 'fletero']) assert.equal(canOpen([role], route), false, role);
   }
-  for (const route of ['/admin/finanzas/eerr', '/admin/finanzas/planificacion', '/admin/finanzas/desconocida']) {
+  for (const route of ['/admin/finanzas/eerr/sistema', '/admin/finanzas/planificacion', '/admin/finanzas/desconocida']) {
     assert.equal(canOpen(['administracion'], route), false, route);
   }
 });

@@ -53,19 +53,3 @@ test('inactive administrators and unavailable permissions fail closed', async ()
   assert.equal((await guard({ seller: { role: 'admin', is_active: false } }).check({ authorization: 'Bearer valid' })).status, 403);
   assert.equal((await guard({ error: { message: 'database unavailable' } }).check({ authorization: 'Bearer valid' })).status, 503);
 });
-
-test('EERR rejects reads, refresh and invalidation before consulting sheets or caches', async () => {
-  let sheetReads = 0;
-  const exports = {};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/app/api/admin/finanzas/eerr/route.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, {
-    exports, process: { env: {} }, URL, Date, console,
-    require: name => name === '@/lib/financeAdminAccess' ? { requireFinanceAdmin: async () => ({ status: 403, error: 'denied' }) }
-      : name === '@/lib/googleSheets' ? { fetchSpreadsheetValues: async () => { sheetReads++; return []; } }
-      : name === '@supabase/supabase-js' ? { createClient: () => ({}) }
-      : { NextResponse: { json: (body, options) => ({ body, status: options?.status || 200 }) } }
-  });
-  assert.equal((await exports.GET({ url: 'https://example.test/eerr?refresh=true' })).status, 403);
-  assert.equal((await exports.GET({ url: 'https://example.test/eerr?action=access' })).status, 403);
-  assert.equal((await exports.POST({})).status, 403);
-  assert.equal(sheetReads, 0);
-});
