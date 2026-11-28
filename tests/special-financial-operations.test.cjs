@@ -16,7 +16,8 @@ test('partner contribution and withdrawal have opposite directions; existing pur
 test('a partner cash refund creates one income and a documented offset moves no cash',()=>{
  const input={...base,operation_type:'partner_equity',action:'reimbursement',resource_id:ids[1],reimbursement_mode:'cash'};
  assert.throws(()=>buildSpecialPlan({...input,resource_id:undefined},resources()),/extracción original/);
- assert.deepEqual(Array.from(buildSpecialPlan(input,resources()).lines,line=>[line.direction,line.amount,line.category]),[['ingreso','100.00','Socios']]);
+ assert.deepEqual(Array.from(buildSpecialPlan(input,resources()).lines,line=>[line.direction,line.amount,line.category]),[['ingreso','100.00','Extracciones']]);
+ assert.deepEqual(Array.from(buildSpecialPlan({...input,reimbursement_category:'Socios'},resources()).lines,line=>[line.direction,line.amount,line.category]),[['ingreso','100.00','Socios']]);
  const compensation={...input,reimbursement_mode:'compensation',account_id:''};
  assert.throws(()=>buildSpecialPlan(compensation,resources()),/comprobante/);
  assert.equal(buildSpecialPlan({...compensation,voucher_ids:[ids[2]]},resources()).lines.length,0);

@@ -3,7 +3,7 @@ import type {OperationType} from './types';
 export const specialTypes=['custody_fund','currency_exchange','financing','partner_equity','asset_trade','cash_count'] as const;
 export type SpecialType=typeof specialTypes[number];
 export const isSpecialType=(type:OperationType|string):type is SpecialType=>(specialTypes as readonly string[]).includes(type);
-export type SpecialInput={operation_type:SpecialType;action:string;effective_date:string;account_id:string;payment_method_id:string;amount:string;concept:string;notes?:string;destination_account_id?:string;destination_amount?:string;fee?:string;fee_account_id?:string;counterparty?:string;reference?:string;asset_name?:string;purpose?:string;resource_id?:string;cutoff?:string;counted?:string;confirm?:boolean;personal_paid?:boolean;document_not_registered?:boolean;voucher_ids?:string[];auto_custody?:boolean;reimbursement_mode?:'cash'|'compensation'};
+export type SpecialInput={operation_type:SpecialType;action:string;effective_date:string;account_id:string;payment_method_id:string;amount:string;concept:string;notes?:string;destination_account_id?:string;destination_amount?:string;fee?:string;fee_account_id?:string;counterparty?:string;reference?:string;asset_name?:string;purpose?:string;resource_id?:string;cutoff?:string;counted?:string;confirm?:boolean;personal_paid?:boolean;document_not_registered?:boolean;voucher_ids?:string[];auto_custody?:boolean;reimbursement_mode?:'cash'|'compensation';reimbursement_category?:string};
 export type Account={id:string;name:string;currency:string;is_active:boolean;type?:string;is_custody?:boolean};
 export type PartnerWithdrawal={id:string;effective_date:string;counterparty:string;reference:string;currency:string;amount:string;remaining:string};
 export type Fund={id:string;custodian:string;purpose:string;account_id:string;currency:string;balance:string;pending:string;version:number;status:string};
@@ -34,7 +34,7 @@ export function buildSpecialPlan(p:SpecialInput,r:Resources,cut?:{balance:string
    if(p.reimbursement_mode!=='cash')throw new OperationError('Elegí cómo se devuelve el importe.');
    const destination=account(p.account_id);
    if(destination.is_custody)throw new OperationError('Elegí una cuenta de Tesorería.');
-   plan.lines.push({account_id:destination.id,direction:'ingreso',amount:decimal(amount),category:'Socios',line:'main'});
+   plan.lines.push({account_id:destination.id,direction:'ingreso',amount:decimal(amount),category:p.reimbursement_category?.trim()||'Extracciones',line:'main'});
   }
   return plan;
  }
