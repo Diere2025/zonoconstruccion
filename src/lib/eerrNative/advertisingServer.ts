@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { metaCostStart, valueWalletConsumption, type Advertising, type ArsAdvertisingAccount, type Funding } from './advertising';
+import { metaCostStart, valueWalletConsumption, zonoArsFeeRate, type Advertising, type ArsAdvertisingAccount, type Funding } from './advertising';
 import { zonoAccounts } from '@/lib/metaZonoBalance.mjs';
 
 type LedgerEntry = Funding & {void_reason: string | null};
@@ -103,7 +103,12 @@ async function readZonoMetaAccount({ id, name }: { id: string; name: string }, d
     account: String(account.name || name),
     availableArs: availableFromCap(account),
     checkedAt: new Date().toISOString(),
-    days: days.map(day => ({ day, spendArs: spend.get(day) ?? 0 })),
+    days: days.map(day => {
+      const spendArs = spend.get(day) ?? 0;
+      const feeArs = Math.round(spendArs * zonoArsFeeRate * 100) / 100;
+      return { day, spendArs, feeArs };
+    }),
+    feeRate: zonoArsFeeRate,
     issue: null,
   };
 }
@@ -126,6 +131,7 @@ export async function readAdvertising(db: SupabaseClient, request: Request, days
           availableArs: null,
           checkedAt: null,
           days: [],
+          feeRate: zonoArsFeeRate,
           issue: `No se pudo obtener el consumo de Meta (${acc.name}). La publicidad queda pendiente de conciliar.`,
         };
       })

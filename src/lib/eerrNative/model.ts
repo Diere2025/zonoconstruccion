@@ -87,12 +87,19 @@ export function buildReport(month:string,sales:Sale[],movements:Movement[],provi
  }
  for(const acc of advertising?.arsAccounts??[]){
   if(acc.issue)issues.push({reference:`Publicidad Meta (${acc.account})`,reason:acc.issue});
+  const feeRate=acc.feeRate??0.05;
   for(const row of acc.days){
    const day=daily.get(row.day);
    if(!day||row.spendArs===0)continue;
+   const feeArs=row.feeArs??Math.round(row.spendArs*feeRate*100)/100;
    day.expenses+=cents(row.spendArs);
    entries.push({day:row.day,kind:'expense',category:'Publicidad',amount:row.spendArs,reference:acc.account,
     source:'Consumo diario de Meta',note:'Consumo directo en pesos (ARS)'});
+   if(feeArs>0){
+    day.expenses+=cents(feeArs);
+    entries.push({day:row.day,kind:'expense',category:'Publicidad (Fee)',amount:feeArs,reference:acc.account,
+     source:'Consumo diario de Meta',note:`Fee ${(feeRate*100).toLocaleString('es-AR')}% abonado en recarga ARS`});
+   }
   }
  }
  const purchaseReferences = new Set(advertising?.purchaseReferences ?? []);

@@ -128,10 +128,16 @@ test('readAdvertising fetches 1-ZONO and 2-ZONO daily ARS spend alongside S731.0
   assert.equal(adv.arsAccounts.length, 2);
   assert.equal(adv.arsAccounts[0].account, '1-ZONO');
   assert.equal(adv.arsAccounts[0].availableArs, 200000);
+  assert.equal(adv.arsAccounts[0].feeRate, 0.05);
   assert.equal(adv.arsAccounts[0].days[0].spendArs, 45000.5);
+  assert.equal(adv.arsAccounts[0].days[0].feeArs, 2250.03);
   assert.equal(adv.arsAccounts[0].days[1].spendArs, 0);
+  assert.equal(adv.arsAccounts[0].days[1].feeArs, 0);
   assert.equal(adv.arsAccounts[1].account, '2-ZONO');
   assert.equal(adv.arsAccounts[1].availableArs, 549999.14);
+  assert.equal(adv.arsAccounts[1].feeRate, 0.05);
   assert.equal(adv.arsAccounts[1].days[0].spendArs, 0);
+  assert.equal(adv.arsAccounts[1].days[0].feeArs, 0);
   assert.equal(adv.arsAccounts[1].days[1].spendArs, 30000);
+  assert.equal(adv.arsAccounts[1].days[1].feeArs, 1500);
 });

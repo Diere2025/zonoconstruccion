@@ -1,4 +1,5 @@
 export const metaCostStart = '2026-10-01';
+export const zonoArsFeeRate = 0.05;
 
 export type AdvertisingDay = {
   day: string;
@@ -11,6 +12,7 @@ export type AdvertisingDay = {
 export type ArsAdvertisingDay = {
   day: string;
   spendArs: number;
+  feeArs?: number;
 };
 
 export type ArsAdvertisingAccount = {
@@ -19,6 +21,7 @@ export type ArsAdvertisingAccount = {
   availableArs: number | null;
   checkedAt: string | null;
   days: ArsAdvertisingDay[];
+  feeRate?: number;
   issue: string | null;
 };
 

@@ -64,15 +64,20 @@ export default function NativeEerrAdvertising({ data }: {data?: Advertising}) {
     {!!data.arsAccounts?.length && (
       <div className="space-y-4 border-t border-slate-200 pt-4">
         {data.arsAccounts.map(acc => {
+          const feeRate = acc.feeRate ?? 0.05;
+          const feePct = (feeRate * 100).toLocaleString('es-AR');
+          const dayFee = (day: { spendArs: number; feeArs?: number }) =>
+            day.feeArs ?? Math.round(day.spendArs * feeRate * 100) / 100;
           const totalArs = acc.days.reduce((sum, day) => sum + day.spendArs, 0);
+          const totalFeeArs = acc.days.reduce((sum, day) => sum + dayFee(day), 0);
           const activeDays = acc.days.filter(day => day.spendArs > 0);
           return (
             <section key={acc.id} className="space-y-3 rounded-lg border border-slate-200 p-4">
               <div>
                 <h3 className="font-semibold">Publicidad · {acc.account} · ARS</h3>
-                {acc.checkedAt && <p className="text-xs text-slate-600">Disponible actual consultado el {dateTime.format(new Date(acc.checkedAt))}. Consumo directo en pesos, sin conversión USD ni fee de recarga.</p>}
+                {acc.checkedAt && <p className="text-xs text-slate-600">Disponible actual consultado el {dateTime.format(new Date(acc.checkedAt))}. Consumo directo en pesos (ARS) con fee {feePct}% abonado en las recargas (no descontado del saldo disponible en Meta).</p>}
               </div>
-              <dl className="grid gap-2 sm:grid-cols-2">
+              <dl className="grid gap-2 sm:grid-cols-4">
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <dt className="text-xs text-slate-600">Disponible hasta el límite de Meta</dt>
                   <dd className="mt-1 font-semibold tabular-nums">{acc.availableArs === null ? 'No disponible' : ars.format(acc.availableArs)}</dd>
@@ -80,6 +85,14 @@ export default function NativeEerrAdvertising({ data }: {data?: Advertising}) {
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <dt className="text-xs text-slate-600">Consumo de Meta al corte (ARS)</dt>
                   <dd className="mt-1 font-semibold tabular-nums">{acc.days.length ? ars.format(totalArs) : 'No disponible'}</dd>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <dt className="text-xs text-slate-600">Fee imputado ({feePct}%)</dt>
+                  <dd className="mt-1 font-semibold tabular-nums">{acc.days.length ? ars.format(totalFeeArs) : 'No disponible'}</dd>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <dt className="text-xs text-slate-600">Total imputado</dt>
+                  <dd className="mt-1 font-semibold tabular-nums">{acc.days.length ? ars.format(totalArs + totalFeeArs) : 'No disponible'}</dd>
                 </div>
               </dl>
               {acc.issue && <p role="status" className="text-sm text-amber-800">{acc.issue}</p>}
@@ -90,15 +103,22 @@ export default function NativeEerrAdvertising({ data }: {data?: Advertising}) {
                       <tr className="text-right">
                         <th scope="col" className="p-2 text-left">Fecha</th>
                         <th scope="col" className="p-2">Consumo ARS</th>
+                        <th scope="col" className="p-2">Fee ({feePct}%)</th>
+                        <th scope="col" className="p-2">Total</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {[...activeDays].reverse().map(day => (
-                        <tr key={day.day} className="border-t border-slate-100 text-right">
-                          <td className="p-2 text-left">{displayDate(day.day)}</td>
-                          <td className="p-2 font-medium">{ars.format(day.spendArs)}</td>
-                        </tr>
-                      ))}
+                      {[...activeDays].reverse().map(day => {
+                        const fee = dayFee(day);
+                        return (
+                          <tr key={day.day} className="border-t border-slate-100 text-right">
+                            <td className="p-2 text-left">{displayDate(day.day)}</td>
+                            <td className="p-2">{ars.format(day.spendArs)}</td>
+                            <td className="p-2">{ars.format(fee)}</td>
+                            <td className="p-2 font-medium">{ars.format(day.spendArs + fee)}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
