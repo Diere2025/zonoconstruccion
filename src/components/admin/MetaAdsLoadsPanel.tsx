@@ -87,6 +87,18 @@ interface SyncAccountResult {
   fetchedLoads: number;
   inserted: number;
   updated: number;
+  snapshot?: LiveAccountBalance;
+  error?: string;
+}
+
+export interface LiveAccountBalance {
+  id: string;
+  name: string;
+  currency: MetaCurrency;
+  spendCap?: number | null;
+  remaining?: number | null;
+  balance?: number | null;
+  isPrepay?: boolean | null;
   error?: string;
 }
 
@@ -150,11 +162,14 @@ function statusMeta(status: ReconciliationStatus) {
 
 export default function MetaAdsLoadsPanel({
   refreshTrigger = 0,
+  liveAccounts = [],
 }: {
   refreshTrigger?: number;
+  liveAccounts?: LiveAccountBalance[];
 }) {
   const [loads, setLoads] = useState<MetaLoadRecord[]>([]);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
+  const [syncedSnapshots, setSyncedSnapshots] = useState<Record<string, LiveAccountBalance>>({});
   const [summary, setSummary] = useState<LoadsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -246,6 +261,15 @@ export default function MetaAdsLoadsPanel({
         throw new Error(data.error || 'No se pudo sincronizar con Meta.');
       }
       const accResults: SyncAccountResult[] = data.accounts || [];
+      const nextSnapshots: Record<string, LiveAccountBalance> = {};
+      for (const item of accResults) {
+        if (item.ok && item.snapshot) {
+          nextSnapshots[item.accountId] = item.snapshot;
+        }
+      }
+      if (Object.keys(nextSnapshots).length) {
+        setSyncedSnapshots(prev => ({ ...prev, ...nextSnapshots }));
+      }
       const failed = accResults.filter(a => !a.ok);
       setSyncFeedback({
         type: failed.length ? 'warning' : 'success',
@@ -397,6 +421,17 @@ export default function MetaAdsLoadsPanel({
     URL.revokeObjectURL(url);
   };
 
+  const currentBalances = useMemo(() => {
+    const map = new Map<string, LiveAccountBalance>();
+    for (const acc of liveAccounts) {
+      if (acc?.id) map.set(acc.id, acc);
+    }
+    for (const [id, snap] of Object.entries(syncedSnapshots)) {
+      map.set(id, snap);
+    }
+    return Array.from(map.values());
+  }, [liveAccounts, syncedSnapshots]);
+
   const lastSyncFormatted = summary?.lastSyncedAt ? formatArDateTime(summary.lastSyncedAt) : null;
   const usdTotals = summary?.totalsByCurrency?.USD || {
     count: 0,
@@ -520,6 +555,85 @@ export default function MetaAdsLoadsPanel({
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {/* Current Balance by Account */}
+      {currentBalances.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {currentBalances.map(acc => {
+            const isSelected = accountFilter === acc.id;
+            const remaining = typeof acc.remaining === 'number' && Number.isFinite(acc.remaining) ? acc.remaining : null;
+            const spendCap = typeof acc.spendCap === 'number' && Number.isFinite(acc.spendCap) ? acc.spendCap : null;
+            const balance = typeof acc.balance === 'number' && Number.isFinite(acc.balance) ? acc.balance : null;
+            const lowBalance =
+              remaining !== null &&
+              ((acc.currency === 'USD' && remaining < 500) ||
+                (acc.currency === 'ARS' && remaining < 150000));
+
+            return (
+              <button
+                key={acc.id}
+                type="button"
+                onClick={() => setAccountFilter(isSelected ? 'all' : acc.id)}
+                className={`text-left p-5 rounded-3xl border shadow-sm transition-all cursor-pointer space-y-2 ${
+                  isSelected
+                    ? 'bg-indigo-50/70 border-indigo-300 ring-2 ring-indigo-200'
+                    : lowBalance
+                    ? 'bg-rose-50/50 border-rose-200 hover:border-rose-300'
+                    : 'bg-white border-slate-100 hover:border-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-xl text-[11px] font-black border ${
+                        acc.currency === 'USD'
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'bg-sky-50 text-sky-700 border-sky-200'
+                      }`}
+                    >
+                      {acc.name} · {acc.currency}
+                    </span>
+                    {lowBalance && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-700">
+                        <AlertTriangle className="w-3 h-3" />
+                        Saldo bajo
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">
+                    Saldo actual
+                  </span>
+                </div>
+
+                {acc.error ? (
+                  <p className="text-xs font-semibold text-rose-600">{acc.error}</p>
+                ) : (
+                  <>
+                    <div className={`text-2xl font-black font-mono tracking-tight ${lowBalance ? 'text-rose-700' : 'text-slate-900'}`}>
+                      {remaining !== null ? formatMoney(remaining, acc.currency) : 'Sin confirmar'}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 font-semibold">
+                      <span>
+                        Disponible hasta límite
+                      </span>
+                      {spendCap !== null && spendCap > 0 && (
+                        <span className="font-mono text-slate-400">
+                          Límite: {formatMoney(spendCap, acc.currency)}
+                        </span>
+                      )}
+                    </div>
+                    {!acc.isPrepay && balance !== null && balance > 0 && (
+                      <div className="text-[11px] text-amber-700 font-semibold font-mono">
+                        Pendiente de pago: {formatMoney(balance, acc.currency)}
+                      </div>
+                    )}
+                  </>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
 

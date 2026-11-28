@@ -884,7 +884,7 @@ export default function MetaAdsPage() {
       </div>
 
       {activeTab === 'loads' ? (
-        <MetaAdsLoadsPanel refreshTrigger={loadsRefreshTrigger} />
+        <MetaAdsLoadsPanel refreshTrigger={loadsRefreshTrigger} liveAccounts={liveData?.accounts || []} />
       ) : loading ? (
         <div className="flex flex-col items-center justify-center p-16 space-y-3 bg-white rounded-3xl border border-slate-100">
           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
